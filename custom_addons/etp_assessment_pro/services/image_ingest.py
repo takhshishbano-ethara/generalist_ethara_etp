@@ -6,7 +6,7 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-_MAX_BYTES = 15 * 1024 * 1024  # 15 MB safety cap on remote downloads.
+_MAX_BYTES = 15 * 1024 * 1024
 
 
 def _content_type_for(url, default="image/png"):
@@ -56,32 +56,45 @@ def _download(url):
         return None, None
     try:
         with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            content = resp.content
-            if not content or len(content) > _MAX_BYTES:
-                _logger.warning(
-                    "Image %s empty or exceeds %s bytes; skipped download.",
-                    url, _MAX_BYTES)
-                return None, None
-            ctype = resp.headers.get("content-type") or _content_type_for(url)
-            return base64.b64encode(content).decode(), ctype.split(";")[0]
+            with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                chunks, total = [], 0
+                for chunk in resp.iter_bytes():
+                    total += len(chunk)
+                    if total > _MAX_BYTES:
+                        _logger.warning(
+                            "Image %s exceeds %s bytes; aborted download.",
+                            url, _MAX_BYTES)
+                        return None, None
+                    chunks.append(chunk)
+                content = b"".join(chunks)
+                if not content:
+                    _logger.warning("Image %s empty; skipped.", url)
+                    return None, None
+                ctype = resp.headers.get("content-type") or _content_type_for(url)
+                return base64.b64encode(content).decode(), ctype.split(";")[0]
     except Exception as exc:  # noqa: BLE001 - never abort an import on one image
         _logger.warning("Image download failed for %s: %s", url, exc)
         return None, None
 
 
-def ingest(env, url=None, data=None, key_hint="qimg"):
-    """Resolve an image spec to ``(image_url, image_b64)``. Never raises."""
+def ingest(env, url=None, data=None, key_hint="qimg", content_type=None):
+    """Resolve an image/video spec to ``(url, b64)``. Never raises.
+
+    ``content_type`` lets a caller declare the MIME of RAW base64 ``data`` (e.g.
+    ``video/mp4`` for a clip upload) so the S3 object gets the right ext/type; it
+    is ignored for a ``data:`` URL, whose embedded MIME wins. Left None for the
+    image path, which keeps the historical image/png default."""
     from . import s3_service
 
     url = (url or "").strip() or None
     data = (data or "").strip() or None
     configured = s3_service.is_configured(env)
 
-    # 1) Inline data / base64.
     if data:
         payload, ctype = _strip_data_url(data)
+        if content_type and not data.startswith("data:"):
+            ctype = content_type
         if payload and _is_valid_b64(payload):
             if configured:
                 try:
@@ -92,20 +105,17 @@ def ingest(env, url=None, data=None, key_hint="qimg"):
                     _logger.warning(
                         "S3 upload of inline image failed (%s); keeping "
                         "binary on record.", exc)
-            return False, payload  # keep binary on record
+            return False, payload
         _logger.warning("Inline image data for %s not valid base64; skipped.",
                         key_hint)
 
-    # 2) Remote URL.
     if url:
         if url.startswith("data:"):
             return ingest(env, data=url, key_hint=key_hint)
         if not configured:
-            # No bucket: just point the portal at the original URL.
             return url, False
         b64, ctype = _download(url)
         if not b64:
-            # Download failed but we still have a usable external URL.
             return url, False
         try:
             s3_url, _key = s3_service.upload_b64(

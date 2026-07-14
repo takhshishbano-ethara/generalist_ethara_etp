@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
 
-    <t t-name="etp_assessment_pro.PromptListButtons">
-        <button type="button" class="btn btn-secondary o_etp_import_btn"
-                t-on-click="onImportQuestionBank">
-            <i class="fa fa-upload me-1"/>Import
-        </button>
+    <!--
+        Inherit the base ListView buttons template (rather than replacing it)
+        so the standard "New" button is always preserved, then append our
+        always-visible "Import" button beside it. Using t-inherit keeps this
+        robust across Odoo layouts where "New" is rendered inside this template
+        as well as those where it lives in a separate control-panel slot.
+    -->
+    <t t-name="etp_assessment_pro.PromptListButtons"
+       t-inherit="web.ListView.Buttons" t-inherit-mode="primary">
+        <xpath expr="." position="inside">
+            <button type="button" class="btn btn-secondary o_etp_import_btn"
+                    t-on-click="onImportQuestionBank">
+                <i class="fa fa-upload me-1"/>Import
+            </button>
+        </xpath>
     </t>
 
 </templates>

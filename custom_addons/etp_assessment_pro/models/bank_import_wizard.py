@@ -18,8 +18,6 @@ from ..constants import QUESTION_TYPE_SHORT_LABELS, AB_DIMENSION_NAMES, AB_CHOIC
 
 _logger = logging.getLogger(__name__)
 
-# Canonical import column order, shared with bank export for lossless round-trips.
-# MAX_DIMS/MAX_IMAGES bound the template only; import scans for ANY dimN_/imgN_.
 MAX_DIMS = 4
 MAX_IMAGES = 3
 
@@ -61,11 +59,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
     _name = "etp.assessment.pro.bank.import.wizard"
     _description = "Import Question Bank (CSV / JSON) into review drafts"
 
-    target_category_id = fields.Many2one(
-        "etp.assessment.pro.category", string="Target Category",
-        help="Category assigned to imported questions that don't carry their "
-             "own 'category' value. Leave blank to use each row's category "
-             "(or a generated one).")
     data_file = fields.Binary(string="File")
     data_filename = fields.Char(string="Filename")
     question_count = fields.Integer(
@@ -94,7 +87,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 _logger.debug("Import preview parse failed: %s", exc)
                 rec.question_count = 0
 
-    # Parsing -> a list of draft-vals dicts (prompt_id filled in later).
     def _decode(self):
         self.ensure_one()
         try:
@@ -134,8 +126,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             raise UserError("No data rows found in the CSV.")
         return out
 
-    # Junk "gate" dimension labels that carry no assessment value (artifacts of
-    # some source exports). Dropped on import so they never reach the candidate.
     _JUNK_DIM_LABELS = ("you read the image?", "read the image", "did you read")
 
     @staticmethod
@@ -146,7 +136,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         if any(j in label for j in EtpAssessmentBankImportWizard._JUNK_DIM_LABELS):
             return True
         if len(opts) <= 1:
-            # A 0/1-option dimension cannot be a real objective check.
             return True
         return False
 
@@ -159,12 +148,9 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 f"unknown question_type '{qtype}'. "
                 f"Allowed: {', '.join(valid)}")
 
-        # Dimensions FIRST (we need the answer-key stem before the title/prompt):
-        # dimN_* indexed cols, then options/correct shorthand, then dimensions_json.
         dims = self._collect_indexed_dims(row)
         single_options = _split(row.get("options"))
         if not dims and single_options:
-            # A single-choice dimension reads as the QUESTION STEM, not a title.
             stem = (row.get("dimension_label")
                     or row.get("description")
                     or row.get("prompt")
@@ -179,12 +165,9 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 dims = json.loads(row["dimensions_json"])
             except (ValueError, TypeError):
                 raise UserError("dimensions_json is not valid JSON.")
-        # Drop junk gate dimensions (defense in depth — a sloppy CSV self-cleans).
         if dims:
             dims = [d for d in dims if not self._is_junk_dim(d)]
 
-        # Prompt: for an objective question with generic filler prompt, promote
-        # the answer-key stem so the candidate sees the real question.
         raw_title = (row.get("title") or "").strip()
         raw_prompt = (row.get("prompt") or "").strip()
         category = (row.get("category") or "").strip()
@@ -200,14 +183,10 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 raw_prompt.lower() in _GENERIC_PROMPTS:
             prompt = stem
 
-        # Title: a SHORT label, never the prompt or a truncation of it (that
-        # doubled the header). No usable title => build "<Category> <Type>".
         type_label = QUESTION_TYPE_SHORT_LABELS.get(
             qtype, qtype.replace("_", " ").title())
 
         def _weak_title(t):
-            # Unusable when empty, == category, a known generic, or the prompt/
-            # a prefix of it (the doubling bug).
             if not t or t == category:
                 return True
             if t in ("Multiple Choice Question", "Image comparison",
@@ -229,8 +208,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             "question_prompt": prompt or title,
             "description": row.get("description") or False,
             "question_type": qtype,
-            "skill_names": " | ".join(_split(row.get("skills"))) or False,
-            "category_name": row.get("category") or False,
         }
         diff = (row.get("difficulty") or "").lower()
         if diff in ("easy", "medium", "hard"):
@@ -243,9 +220,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         if dims:
             vals["dimensions_json"] = json.dumps(dims, ensure_ascii=False)
 
-        # rubric / official reasoning.
         if row.get("rubric_json"):
-            # Accept raw JSON, or wrap a plain pass-condition string.
             rubric_raw = row["rubric_json"].strip()
             try:
                 json.loads(rubric_raw)
@@ -257,7 +232,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         if row.get("official_reasoning"):
             vals["official_reasoning"] = row["official_reasoning"]
 
-        # images: imgN_* indexed columns, then images_json.
         images = self._collect_indexed_images(row)
         if row.get("images_json"):
             try:
@@ -310,8 +284,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             })
         return images
 
-    # Import action: build a generator prompt + its draft questions, then
-    # open it on the Question Drafts tab for review/approve.
     def _try_native_payload(self):
         """Return the parsed native round-trip export dict if the upload is one,
         else None (so the CSV path runs)."""
@@ -328,8 +300,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         self.ensure_one()
         if not self.data_file:
             raise UserError("Please attach a file first.")
-        # Native round-trip JSON (question.action_export_native_json) rebuilds the
-        # bank questions IDENTICALLY — bypass the CSV/draft path entirely.
         native = self._try_native_payload()
         if native is not None:
             res = self.env["etp.assessment.pro.bank.import"].import_bank_native(
@@ -347,48 +317,28 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             }
         rows = self._parse_rows()
 
-        Category = self.env["etp.assessment.pro.category"]
         Prompt = self.env["etp.assessment.pro.prompt"]
         Draft = self.env["etp.assessment.pro.prompt.question"]
 
         batch_name = (self.generator_name
                       or ("Import: %s" % (self.data_filename or "bank")))[:120]
-        # One CSV import => ONE generator row, KEPT (not deleted) so the import
-        # shows in the Generators list like an LLM generation batch does.
         prompt = Prompt.create({
             "name": batch_name,
-            "category_id": self.target_category_id.id or False,
             "state": "done",
             "source_text": "Imported via CSV (%s rows)." % len(rows),
             "last_extract_summary": "Imported %s draft question(s)." % len(rows),
         })
 
-        cat_cache = {}
         created = 0
         drafts = self.env["etp.assessment.pro.prompt.question"]
         for vals in rows:
-            cat_name = vals.pop("category_name", None)
             vals.pop("_source_ref", None)
-            cat = self.target_category_id
-            if cat_name:
-                key = cat_name.strip()
-                if key not in cat_cache:
-                    cat_cache[key] = (
-                        Category.search([("name", "=", key)], limit=1)
-                        or Category.create({"name": key}))
-                cat = cat_cache[key]
-            elif not cat:
-                cat = prompt._get_or_create_category()
             vals["prompt_id"] = prompt.id
-            vals["category_id"] = cat.id
             drafts |= Draft.create(vals)
             created += 1
 
-        # Materialize each draft into a published bank question; drafts stay
-        # linked (state=approved) so the generator's counts read correctly.
-        drafts.action_approve()
+        drafts.with_context(skip_image_ready_guard=True).action_approve()
 
-        # Land on this batch's generator form so the imported questions show in context.
         return {
             "type": "ir.actions.act_window",
             "name": "Imported Question Bank",
@@ -399,7 +349,6 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             "context": {},
         }
 
-    # Template download — a CSV with one dummy row per question type.
     def action_download_template(self):
         content = build_template_csv()
         att = self.env["ir.attachment"].create({
@@ -430,7 +379,7 @@ def build_template_csv():
 def _template_rows():
     """One dummy row per question type, exercising every relevant column."""
     return [
-        {  # 1. Plain MCQ (single dimension, one correct)
+        {
             "title": "Capital of France",
             "question_type": "mcq",
             "prompt": "Which city is the capital of France?",
@@ -442,7 +391,7 @@ def _template_rows():
             "options": "Paris|London|Berlin|Madrid",
             "correct_answer": "Paris",
         },
-        {  # 2. MSQ (single dimension, multiple correct)
+        {
             "title": "Prime numbers",
             "question_type": "msq",
             "prompt": "Select ALL prime numbers below.",
@@ -454,7 +403,7 @@ def _template_rows():
             "options": "2|3|4|9",
             "correct_answer": "2|3",
         },
-        {  # 3. Multi-dimension objective (the tedious case the import solves)
+        {
             "title": "Screenshot QA — Spotify",
             "question_type": "mcq",
             "prompt": "Review the screenshot and answer each check.",
@@ -476,9 +425,9 @@ def _template_rows():
             "dim4_options": "Proceed to labeling|Skip the image",
             "dim4_correct": "Proceed to labeling",
         },
-        {  # 4. Subjective - Justification (no rubric; graded on prompt)
+        {
             "title": "Explain idempotency",
-            "question_type": "subjective_justification",
+            "question_type": "subjective_rubric",
             "prompt": "Explain what idempotency means for a REST API and why "
                       "it matters.",
             "description": "Free-text answer, LLM-graded against the prompt.",
@@ -487,7 +436,7 @@ def _template_rows():
             "difficulty": "hard",
             "time_minutes": "8",
         },
-        {  # 5. Subjective - Rubric (graded against a rubric/pass-condition)
+        {
             "title": "Incident postmortem quality",
             "question_type": "subjective_rubric",
             "prompt": "Write a postmortem for the outage described above.",
@@ -505,7 +454,7 @@ def _template_rows():
                                   "two concrete action items.",
             }], ensure_ascii=False),
         },
-        {  # 6. Image A/B (multi-dimension answer key + 2 images + reasoning)
+        {
             "title": "Compare two generated images",
             "question_type": "image_ab",
             "prompt": "Compare Response A and Response B against the prompt "
@@ -537,16 +486,40 @@ def _template_rows():
             "img2_label": "Response B",
             "img2_url": "https://picsum.photos/seed/respB/512",
         },
-        {  # 7. Image - Prompt/Labelling (1 image + optional objective gate
-           #    dimensions + a textual answer key for the written labelling)
+        {
+            "title": "Write the prompt for this image",
+            "question_type": "image_prompt",
+            "prompt": "Study the reference image, then write the text-to-image "
+                      "prompt that would reproduce it.",
+            "description": "Free-text prompt graded against an ideal prompt for "
+                           "the required subject, style, and composition.",
+            "category": "Image Eval",
+            "skills": "Prompt Writing",
+            "difficulty": "medium",
+            "time_minutes": "6",
+            "rubric_json": json.dumps({
+                "ideal_prompt": "A photorealistic red vintage bicycle leaning "
+                                "against a weathered blue door in golden-hour "
+                                "light, shallow depth of field.",
+                "mandatory_elements": ["red vintage bicycle", "blue door",
+                                       "golden-hour light"],
+                "penalty_rules": ["Penalise vague or generic prompts"],
+                "scoring_guide": "Full marks when the prompt names the subject, "
+                                 "style, lighting, and composition specifically.",
+            }, ensure_ascii=False),
+            "img1_slot": "reference",
+            "img1_label": "Reference",
+            "img1_url": "https://picsum.photos/seed/refbike/512",
+        },
+        {
             "title": "Label the UI screenshot",
-            "question_type": "image_text",
-            "prompt": "Identify the app, confirm the boxes, then describe what "
+            "question_type": "image_label",
+            "prompt": "Identify the app, confirm the boxes, then label what "
                       "each numbered box does.",
             "description": "Objective gate checks + a free-text labelling "
                            "answer graded against a textual key.",
             "category": "Image Eval",
-            "skills": "App Identification|Prompt Writing",
+            "skills": "App Identification|Labelling",
             "difficulty": "medium",
             "time_minutes": "6",
             "dim1_label": "Do you know this Application?",
@@ -556,11 +529,11 @@ def _template_rows():
             "dim2_options": "Spotify|Deezer|SoundCloud|Tidal",
             "dim2_correct": "Spotify",
             "rubric_json": json.dumps({
-                "ideal_answer": "Box 1 = search; Box 2 = play/pause; Box 3 = "
+                "ideal_labels": "Box 1 = search; Box 2 = play/pause; Box 3 = "
                                 "library.",
                 "mandatory_elements": ["search", "play", "library"],
                 "penalty_rules": ["No mention of unrelated controls"],
-                "scoring_guide": "Full marks if every numbered box is described "
+                "scoring_guide": "Full marks if every numbered box is labelled "
                                  "correctly.",
             }, ensure_ascii=False),
             "img1_slot": "single",

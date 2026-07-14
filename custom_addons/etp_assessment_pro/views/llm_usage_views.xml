@@ -4,7 +4,7 @@
         <field name="name">etp.assessment.pro.llm.usage.tree</field>
         <field name="model">etp.assessment.pro.llm.usage</field>
         <field name="arch" type="xml">
-            <list create="0" default_order="create_date desc">
+            <list create="0" default_order="create_date desc" class="o_etp_backend o_etp_llm_usage">
                 <field name="create_date"/>
                 <field name="operation"/>
                 <field name="model"/>
@@ -13,12 +13,25 @@
                 <field name="thoughts_tokens" sum="Thinking" optional="hide"/>
                 <field name="total_tokens" sum="Total Tokens"/>
                 <field name="image_count" sum="Images"/>
-                <field name="cost_usd" sum="Est. Cost (USD)"/>
+                <field name="cost_usd" sum="Est. Cost (USD)" decoration-bf="cost_usd &gt;= 0"/>
                 <field name="prompt_id" optional="show"/>
-                <field name="skill_id" optional="hide"/>
+                
                 <field name="evaluator_id" optional="hide"/>
                 <field name="note" optional="hide"/>
             </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_llm_usage_graph" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.llm.usage.graph</field>
+        <field name="model">etp.assessment.pro.llm.usage</field>
+        <field name="arch" type="xml">
+            <graph string="LLM Usage / Cost" type="bar" sample="1">
+                <field name="operation" type="row"/>
+                <field name="model" type="col"/>
+                <field name="cost_usd" type="measure"/>
+                <field name="total_tokens" type="measure"/>
+            </graph>
         </field>
     </record>
 
@@ -66,7 +79,7 @@
     <record id="action_etp_assessment_pro_llm_usage" model="ir.actions.act_window">
         <field name="name">LLM Usage / Budget</field>
         <field name="res_model">etp.assessment.pro.llm.usage</field>
-        <field name="view_mode">list,pivot</field>
+        <field name="view_mode">list,graph,pivot</field>
         <field name="search_view_id" ref="etp_assessment_pro_llm_usage_search"/>
         <field name="context">{'search_default_g_operation': 1}</field>
         <field name="help" type="html">
@@ -78,9 +91,9 @@
     </record>
 
     <menuitem id="menu_etp_assessment_pro_llm_usage"
-              name="LLM Usage"
+              name="LLM Budget"
               parent="menu_etp_assessment_pro_config_root"
-              action="action_etp_assessment_pro_llm_usage"
+              action="action_etp_assessment_pro_llm_dashboard"
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="90"/>
 </odoo>

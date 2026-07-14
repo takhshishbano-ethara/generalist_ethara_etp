@@ -4,9 +4,10 @@
         <field name="name">etp.assessment.pro.prompt.tree</field>
         <field name="model">etp.assessment.pro.prompt</field>
         <field name="arch" type="xml">
-            <list js_class="etp_prompt_import_list">
+            <list js_class="etp_prompt_import_list" class="o_etp_backend">
                 <field name="name"/>
-                <field name="category_id"/>
+                <field name="tag_ids" widget="many2many_tags"
+                       options="{'color_field': 'color'}" optional="hide"/>
                 <field name="resource_count"/>
                 <field name="question_count"/>
                 <field name="approved_count"/>
@@ -16,31 +17,50 @@
         </field>
     </record>
 
+    <record id="etp_assessment_pro_prompt_similar_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.prompt.similar.tree</field>
+        <field name="model">etp.assessment.pro.prompt</field>
+        <!-- High priority so this ranking-only view is never auto-selected as the
+             default list for the Generators action (it is referenced explicitly
+             by the "Similar Projects" action's view_id). -->
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <list class="o_etp_backend" create="false">
+                <field name="name"/>
+                <field name="tag_ids" widget="many2many_tags"
+                       options="{'color_field': 'color'}"/>
+            </list>
+        </field>
+    </record>
+
     <record id="etp_assessment_pro_prompt_form" model="ir.ui.view">
         <field name="name">etp.assessment.pro.prompt.form</field>
         <field name="model">etp.assessment.pro.prompt</field>
         <field name="arch" type="xml">
-            <form>
+            <form class="o_etp_backend">
                 <header>
                     <button name="%(action_etp_assessment_pro_bank_import)d"
                             type="action" string="Import Question Bank"
                             class="oe_highlight" icon="fa-upload"/>
-                    <button name="action_extract_skills" type="object"
-                            string="Extract Skills"
-                            class="oe_highlight"
-                            invisible="not resource_ids"/>
-                    <button name="action_generate_questions" type="object"
+                    <button name="action_generate_from_sop" type="object"
                             string="Generate Questions"
                             class="oe_highlight"
-                            invisible="state == 'draft' or not selected_skill_ids"/>
-                    <button name="action_retry_failed_skills" type="object"
-                            string="Retry Failed Skills"
-                            class="btn-warning"
-                            invisible="state == 'draft'"/>
+                            invisible="not resource_ids"/>
+                    <button name="action_extract_tags" type="object"
+                            string="Extract Tags"
+                            invisible="not resource_ids"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,skills_ready,generating,done"/>
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_similar" type="object"
+                                class="oe_stat_button" icon="fa-sitemap"
+                                invisible="similar_count == 0">
+                            <field name="similar_count" widget="statinfo"
+                                   string="Similar"/>
+                        </button>
+                    </div>
                     <div class="oe_title">
                         <h1>
                             <field name="name" placeholder="Prompt Title"/>
@@ -48,15 +68,35 @@
                     </div>
                     <group>
                         <group>
-                            <field name="category_id"/>
                             <field name="resource_count" readonly="1"/>
                             <field name="last_extract_summary" readonly="1"/>
-                            <field name="extract_state" readonly="1"
-                                   decoration-info="extract_state == 'queued'"
-                                   decoration-warning="extract_state == 'extracting'"
-                                   decoration-success="extract_state == 'done'"
-                                   decoration-danger="extract_state == 'failed'"
+                            <field name="sop_gen_state" readonly="1"
+                                   decoration-info="sop_gen_state == 'queued'"
+                                   decoration-warning="sop_gen_state == 'generating'"
+                                   decoration-success="sop_gen_state == 'done'"
+                                   decoration-danger="sop_gen_state == 'failed'"
                                    widget="badge"/>
+                            <field name="sop_gen_error" readonly="1"
+                                   invisible="sop_gen_state != 'failed'"/>
+                            <field name="tag_extract_state" readonly="1"
+                                   decoration-info="tag_extract_state == 'queued'"
+                                   decoration-warning="tag_extract_state == 'generating'"
+                                   decoration-success="tag_extract_state == 'done'"
+                                   decoration-danger="tag_extract_state == 'failed'"
+                                   widget="badge"/>
+                            <field name="tag_extract_error" readonly="1"
+                                   invisible="tag_extract_state != 'failed'"/>
+                            <field name="tag_ids" widget="many2many_tags"
+                                   options="{'color_field': 'color'}"
+                                   placeholder="Semantic SOP tags..."/>
+                            <field name="sop_question_count"/>
+                        <field name="force_question_type"/>
+                            <field name="sample_questions_file"
+                                   widget="binary"
+                                   filename="sample_questions_filename"
+                                   string="Sample Questions"
+                                   help="Upload a sample-questions file (PDF/DOCX/MD/image) to match the format — optional"/>
+                            <field name="sample_questions_filename" invisible="1"/>
                         </group>
                         <group>
                             <field name="question_count" readonly="1"/>
@@ -77,6 +117,12 @@
                     </div>
                     <field name="source_text" placeholder="Optional notes appended to resources..."/>
                     <notebook>
+                        <page string="Similar Projects" name="similar_projects">
+                            <div class="o_etp_backend etp-simrank-wrap">
+                                <field name="similar_html" widget="html"
+                                       readonly="1" nolabel="1"/>
+                            </div>
+                        </page>
                         <page string="Resources">
                             <div class="alert alert-info" role="alert">
                                 Pick the right bucket for each file. Accepted formats: .docx, .txt, .md, .csv, .html.
@@ -92,20 +138,6 @@
                                            required="not has_sop_resource"
                                            help="Required: upload the SOP document to extract skills from."/>
                                     <field name="upload_sop_filename" invisible="1"/>
-                                </group>
-                                <group string="Vendor Guidelines">
-                                    <field name="upload_vendor_file"
-                                           widget="binary"
-                                           filename="upload_vendor_filename"
-                                           nolabel="1"/>
-                                    <field name="upload_vendor_filename" invisible="1"/>
-                                </group>
-                                <group string="Client Feedback">
-                                    <field name="upload_client_file"
-                                           widget="binary"
-                                           filename="upload_client_filename"
-                                           nolabel="1"/>
-                                    <field name="upload_client_filename" invisible="1"/>
                                 </group>
                             </group>
                             <field name="resource_ids">
@@ -131,76 +163,12 @@
                                 </form>
                             </field>
                         </page>
-                        <page string="Skills Extracted">
-                            <div class="alert alert-info" role="alert">
-                                <strong>How this page works.</strong>
-                                <em>Extract Skills</em> asks the AI to read your uploaded documents and
-                                list the skills worth testing — they appear under <strong>Extracted
-                                Skills</strong> below, and each is saved as a reusable <strong>Bank
-                                Skill</strong>. Under <strong>Skills in use</strong> you tick the ones you
-                                actually want questions for and click <em>Generate Questions</em>.
-                            </div>
-                            <separator string="Skills in use"/>
-                            <div class="alert alert-info" role="alert">
-                                Tick the Bank Skills you want question drafts for, then click
-                                <em>Generate Questions</em> in the header. <strong>Generation State</strong>
-                                and <strong>Drafts</strong> track progress; the <strong>Bank Questions</strong>
-                                column shows how many approved questions each skill already has (skills
-                                showing <strong>0</strong> are what "Generate for Skills Missing Questions"
-                                targets).
-                            </div>
-                            <group>
-                                <field name="skill_bank_ids" widget="many2many_tags"
-                                       string="All Bank Skills from this generator"
-                                       readonly="1"/>
-                            </group>
-                            <field name="selected_skill_ids"
-                                   domain="[('id','in',skill_bank_ids)]">
-                                <list>
-                                    <field name="name"/>
-                                    <field name="medium"/>
-                                    <field name="question_type"/>
-                                    <field name="difficulty"/>
-                                    <field name="gen_state"
-                                           decoration-info="gen_state == 'queued'"
-                                           decoration-warning="gen_state == 'generating'"
-                                           decoration-success="gen_state == 'done'"
-                                           decoration-danger="gen_state == 'failed'"
-                                           decoration-muted="gen_state == 'none'"/>
-                                    <field name="gen_draft_count" string="Drafts"/>
-                                    <field name="gen_error" optional="show"/>
-                                    <field name="bank_question_count" string="Bank Questions"/>
-                                </list>
-                            </field>
-                            <separator string="Extracted Skills"/>
-                            <div class="alert alert-secondary" role="alert">
-                                The raw skills the AI pulled from your documents on the last
-                                <em>Extract Skills</em> run — reference output, you do not edit it to
-                                generate. <strong>Upsert State</strong> shows whether each was newly
-                                <strong>Created</strong> as a Bank Skill or <strong>Skipped</strong>
-                                (a skill with that name already existed); <strong>Bank Skill</strong>
-                                links to the saved skill.
-                            </div>
-                            <field name="skill_ids">
-                                <list>
-                                    <field name="sequence" widget="handle"/>
-                                    <field name="name"/>
-                                    <field name="tags"/>
-                                    <field name="question_type"/>
-                                    <field name="question_count"/>
-                                    <field name="difficulty"/>
-                                    <field name="upsert_state"/>
-                                    <field name="bank_skill_id"/>
-                                </list>
-                            </field>
-                        </page>
                         <page string="Question Drafts">
                             <field name="question_ids">
                                 <list>
-                                    <field name="skill_id"/>
+                                    
                                     <field name="name"/>
                                     <field name="question_type"/>
-                                    <field name="category_id"/>
                                     <field name="difficulty"/>
                                     <field name="has_dimensions" string="Keyed"
                                            widget="boolean"/>
@@ -234,10 +202,6 @@
                                             <group>
                                                 <field name="question_type"/>
                                                 <field name="medium_display"/>
-                                                <field name="category_id"/>
-                                                <field name="skill_id"/>
-                                                <field name="skill_names"
-                                                       invisible="not skill_names"/>
                                                 <field name="difficulty"/>
                                                 <field name="time_minutes"/>
                                             </group>
@@ -255,7 +219,7 @@
                                         <field name="image_preview" widget="html"
                                                invisible="not has_images"/>
                                         <group string="Images"
-                                               invisible="question_type not in ('image_ab','image_text')">
+                                               invisible="question_type not in ('image_ab','image_prompt','image_label')">
                                             <field name="image_state"/>
                                             <field name="upload_slot"
                                                    placeholder="a / b / single / reference / output"/>
@@ -267,6 +231,30 @@
                                                     invisible="not upload_image"/>
                                             <field name="image_brief_json" widget="text"
                                                    placeholder="Render briefs (used by the automatic render)..."/>
+                                            <field name="flaw_plan_json" widget="text" readonly="1"
+                                                   string="Flaw Plan (answer key by construction)"
+                                                   invisible="question_type != 'image_ab' or not flaw_plan_json"
+                                                   help="Injected flaws + construction_keys the answer key is derived from. Eyeball the FLAWED image against injected_flaws before approving."/>
+                                        </group>
+                                        <field name="has_video_clips" invisible="1"/>
+                                        <field name="video_preview" widget="html"
+                                               invisible="not has_video_clips"/>
+                                        <group string="Reference / Output Clips"
+                                               invisible="question_type != 'video_prompt'">
+                                            <field name="video_state"/>
+                                            <div class="alert alert-info" role="alert" colspan="2"
+                                                 invisible="video_state not in ('pending','generating')">
+                                                Clips are still generating… reopen this draft in a moment.
+                                            </div>
+                                            <div class="alert alert-danger" role="alert" colspan="2"
+                                                 invisible="video_state != 'failed'">
+                                                Video generation failed.
+                                                <field name="video_error" readonly="1" nolabel="1"/>
+                                            </div>
+                                            <div class="text-muted" colspan="2"
+                                                 invisible="video_state != 'rendered' or has_video_clips">
+                                                No viewable clips are staged for this draft.
+                                            </div>
                                         </group>
                                         <field name="has_revealing_option" invisible="1"/>
                                         <field name="has_source_reference" invisible="1"/>
@@ -319,20 +307,20 @@
                                             </form>
                                         </field>
                                         <group string="Answer Key — Rubric"
-                                               invisible="question_type not in ('subjective_rubric','subjective_justification','image_text')">
+                                               invisible="question_type not in ('subjective_rubric','image_prompt','image_label')">
                                             <field name="ak_ideal_answer"
-                                                   invisible="question_type != 'image_text'"
-                                                   placeholder="The model answer the candidate is graded against..."/>
+                                                   invisible="question_type not in ('image_prompt','image_label')"
+                                                   placeholder="The ideal prompt (image_prompt) or ideal labels (image_label) the candidate is graded against..."/>
                                             <field name="ak_mandatory_elements"
-                                                   invisible="question_type != 'image_text'"
+                                                   invisible="question_type not in ('image_prompt','image_label')"
                                                    placeholder="One required element per line..."/>
                                             <field name="ak_penalty_rules"
-                                                   invisible="question_type != 'image_text'"
+                                                   invisible="question_type not in ('image_prompt','image_label')"
                                                    placeholder="One penalty rule per line..."/>
                                             <field name="ak_scoring_guide"
-                                                   invisible="question_type != 'image_text'"/>
+                                                   invisible="question_type not in ('image_prompt','image_label')"/>
                                             <field name="ak_checklist"
-                                                   invisible="question_type not in ('subjective_rubric','subjective_justification')"
+                                                   invisible="question_type != 'subjective_rubric'"
                                                    placeholder="One required point per line..."/>
                                             <field name="ak_constraints"
                                                    invisible="question_type != 'subjective_rubric'"
@@ -363,7 +351,7 @@
                                                     <field name="dimensions_json" widget="text"
                                                            invisible="question_type != 'image_ab'"/>
                                                     <field name="rubric_json" widget="text"
-                                                           invisible="question_type not in ('subjective_rubric','subjective_justification','image_text')"/>
+                                                           invisible="question_type not in ('subjective_rubric','image_prompt','image_label')"/>
                                                     <field name="image_summary" readonly="1"
                                                            help="Images are shown above. Raw base64 is intentionally hidden."/>
                                                 </group>
@@ -383,19 +371,16 @@
         <field name="name">Question Bank Generators</field>
         <field name="res_model">etp.assessment.pro.prompt</field>
         <field name="view_mode">list,form</field>
+        <!-- Pin the list to the main tree; otherwise the create="false" similar
+             ranking view (same model) can shadow it and hide the New button. -->
+        <field name="view_id" ref="etp_assessment_pro_prompt_tree"/>
     </record>
 
-    <!-- ===================================================================
-         Pending Approvals: a single place to review and approve/deny every
-         generated draft question across all generators. Draft questions live
-         on etp.assessment.pro.prompt.question; approving one creates the bank
-         question (etp.assessment.pro.question) and links it back.
-         =================================================================== -->
     <record id="etp_assessment_pro_prompt_question_tree" model="ir.ui.view">
         <field name="name">etp.assessment.pro.prompt.question.tree</field>
         <field name="model">etp.assessment.pro.prompt.question</field>
         <field name="arch" type="xml">
-            <list>
+            <list class="o_etp_backend">
                 <header>
                     <button name="action_approve" type="object"
                             string="Approve Selected" class="btn-primary"/>
@@ -403,10 +388,9 @@
                             string="Deny Selected" class="btn-secondary"/>
                 </header>
                 <field name="prompt_id"/>
-                <field name="skill_id"/>
+                
                 <field name="name"/>
                 <field name="question_type"/>
-                <field name="category_id" optional="show"/>
                 <field name="difficulty"/>
                 <field name="has_dimensions" string="Keyed" widget="boolean"
                        optional="show"/>
@@ -428,7 +412,7 @@
         <field name="name">etp.assessment.pro.prompt.question.form</field>
         <field name="model">etp.assessment.pro.prompt.question</field>
         <field name="arch" type="xml">
-            <form>
+            <form class="o_etp_backend">
                 <header>
                     <button name="action_approve" type="object"
                             string="Approve" class="btn-primary"
@@ -448,9 +432,6 @@
                             <field name="prompt_id" readonly="1"/>
                             <field name="question_type"/>
                             <field name="medium_display"/>
-                            <field name="category_id"/>
-                            <field name="skill_id"/>
-                            <field name="skill_names" invisible="not skill_names"/>
                             <field name="difficulty"/>
                             <field name="time_minutes"/>
                         </group>
@@ -467,7 +448,7 @@
                     <field name="image_preview" widget="html"
                            invisible="not has_images"/>
                     <group string="Images"
-                           invisible="question_type not in ('image_ab','image_text')">
+                           invisible="question_type not in ('image_ab','image_prompt','image_label')">
                         <field name="image_state"/>
                         <field name="upload_slot"
                                placeholder="a / b / single / reference / output"/>
@@ -479,6 +460,30 @@
                                 invisible="not upload_image"/>
                         <field name="image_brief_json" widget="text"
                                placeholder="Render briefs (used by the automatic render)..."/>
+                        <field name="flaw_plan_json" widget="text" readonly="1"
+                               string="Flaw Plan (answer key by construction)"
+                               invisible="question_type != 'image_ab' or not flaw_plan_json"
+                               help="Injected flaws + construction_keys the answer key is derived from. Eyeball the FLAWED image against injected_flaws before approving."/>
+                    </group>
+                    <field name="has_video_clips" invisible="1"/>
+                    <field name="video_preview" widget="html"
+                           invisible="not has_video_clips"/>
+                    <group string="Reference / Output Clips"
+                           invisible="question_type != 'video_prompt'">
+                        <field name="video_state"/>
+                        <div class="alert alert-info" role="alert" colspan="2"
+                             invisible="video_state not in ('pending','generating')">
+                            Clips are still generating… reopen this draft in a moment.
+                        </div>
+                        <div class="alert alert-danger" role="alert" colspan="2"
+                             invisible="video_state != 'failed'">
+                            Video generation failed.
+                            <field name="video_error" readonly="1" nolabel="1"/>
+                        </div>
+                        <div class="text-muted" colspan="2"
+                             invisible="video_state != 'rendered' or has_video_clips">
+                            No viewable clips are staged for this draft.
+                        </div>
                     </group>
                     <field name="has_revealing_option" invisible="1"/>
                     <field name="has_source_reference" invisible="1"/>
@@ -529,20 +534,20 @@
                         </form>
                     </field>
                     <group string="Answer Key — Rubric"
-                           invisible="question_type not in ('subjective_rubric','subjective_justification','image_text')">
+                           invisible="question_type not in ('subjective_rubric','image_prompt','image_label')">
                         <field name="ak_ideal_answer"
-                               invisible="question_type != 'image_text'"
-                               placeholder="The model answer the candidate is graded against..."/>
+                               invisible="question_type not in ('image_prompt','image_label')"
+                               placeholder="The ideal prompt (image_prompt) or ideal labels (image_label) the candidate is graded against..."/>
                         <field name="ak_mandatory_elements"
-                               invisible="question_type != 'image_text'"
+                               invisible="question_type not in ('image_prompt','image_label')"
                                placeholder="One required element per line..."/>
                         <field name="ak_penalty_rules"
-                               invisible="question_type != 'image_text'"
+                               invisible="question_type not in ('image_prompt','image_label')"
                                placeholder="One penalty rule per line..."/>
                         <field name="ak_scoring_guide"
-                               invisible="question_type != 'image_text'"/>
+                               invisible="question_type not in ('image_prompt','image_label')"/>
                         <field name="ak_checklist"
-                               invisible="question_type not in ('subjective_rubric','subjective_justification')"
+                               invisible="question_type != 'subjective_rubric'"
                                placeholder="One required point per line..."/>
                         <field name="ak_constraints"
                                invisible="question_type != 'subjective_rubric'"
@@ -572,7 +577,7 @@
                                 <field name="dimensions_json" widget="text"
                                        invisible="question_type != 'image_ab'"/>
                                 <field name="rubric_json" widget="text"
-                                       invisible="question_type not in ('subjective_rubric','subjective_justification','image_text')"/>
+                                       invisible="question_type not in ('subjective_rubric','image_prompt','image_label')"/>
                                 <field name="image_summary" readonly="1"
                                        help="Images are shown above. Raw base64 is intentionally hidden."/>
                             </group>
@@ -590,7 +595,7 @@
             <search>
                 <field name="name"/>
                 <field name="prompt_id"/>
-                <field name="skill_id"/>
+                
                 <filter name="pending" string="Pending"
                         domain="[('state','=','draft')]"/>
                 <filter name="approved" string="Approved"
@@ -600,8 +605,6 @@
                 <separator/>
                 <filter name="group_generator" string="Generator"
                         context="{'group_by':'prompt_id'}"/>
-                <filter name="group_skill" string="Skill"
-                        context="{'group_by':'skill_id'}"/>
                 <filter name="group_state" string="Status"
                         context="{'group_by':'state'}"/>
             </search>
@@ -621,9 +624,6 @@
         </field>
     </record>
 
-    <!-- Surface Pending Approvals as a control-panel button on the Question
-         Bank list (defined after the action above so %()d resolves).
-         display="always" keeps it visible without a row selection. -->
     <record id="etp_assessment_pro_question_tree_pending_button" model="ir.ui.view">
         <field name="name">etp.assessment.pro.question.tree.pending.button</field>
         <field name="model">etp.assessment.pro.question</field>

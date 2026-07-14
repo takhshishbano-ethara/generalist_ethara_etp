@@ -5,11 +5,25 @@
             <field name="key">etp_assessment_pro.vertex_location</field>
             <field name="value">global</field>
         </record>
-        <!-- Single model for EVERY task: extraction, generation, scoring AND
-             image rendering. -->
         <record id="param_vertex_model" model="ir.config_parameter">
             <field name="key">etp_assessment_pro.vertex_model</field>
             <field name="value">gemini-3-pro-image</field>
+        </record>
+        <record id="param_verify_flaw_render" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.verify_flaw_render</field>
+            <field name="value">1</field>
+        </record>
+        <record id="param_video_model" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.video_model</field>
+            <field name="value">veo-3.1-generate-001</field>
+        </record>
+        <record id="param_video_location" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.video_location</field>
+            <field name="value">us-central1</field>
+        </record>
+        <record id="param_video_default_duration_s" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.video_default_duration_s</field>
+            <field name="value">6</field>
         </record>
         <record id="param_s3_region" model="ir.config_parameter">
             <field name="key">etp_assessment_pro.s3_region</field>

@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="etp_hr_applicant_candidate_list" model="ir.ui.view">
+        <field name="name">etp.hr.applicant.candidate.list</field>
+        <field name="model">hr.applicant</field>
+        <field name="arch" type="xml">
+            <list class="o_etp_backend" create="0" edit="0"
+                  string="Candidates">
+                <field name="partner_name" string="Candidate"/>
+                <field name="email_from" string="Email"/>
+                <field name="etp_assessment_count" string="Assessments"/>
+                <field name="etp_pass_count" string="Passed"/>
+                <field name="etp_avg_score" string="Avg Score"
+                       widget="progressbar"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_hr_applicant_candidate_dashboard_form" model="ir.ui.view">
+        <field name="name">etp.hr.applicant.candidate.dashboard.form</field>
+        <field name="model">hr.applicant</field>
+        <field name="arch" type="xml">
+            <form class="o_etp_wide_form o_etp_backend" edit="0" create="0"
+                  duplicate="0">
+                <sheet class="o_etp_backend">
+                    <div class="etp-dash etp-dash-analytics">
+                        <div class="etp-dash-head">
+                            <div class="etp-dash-head-glow" aria-hidden="true"/>
+                            <div class="etp-dash-head-aurora" aria-hidden="true"/>
+                            <div class="etp-dash-head-inner">
+                                <span class="etp-dash-head-eyebrow">
+                                    <i class="fa fa-user"/> Candidate
+                                </span>
+                                <h2 class="etp-dash-head-title">
+                                    <field name="partner_name" nolabel="1"
+                                           readonly="1"/>
+                                </h2>
+                                <span class="etp-dash-head-sub">
+                                    <i class="fa fa-envelope-o"/>
+                                    <field name="email_from" nolabel="1"
+                                           readonly="1"/>
+                                </span>
+                                <span class="etp-dash-head-cap">
+                                    <i class="fa fa-circle"/> Assessment history &amp; outcomes
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">Overview</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-dash-hero">
+                            <div class="etp-dash-rings">
+                                <div class="etp-dash-ring">
+                                    <field name="etp_avg_score"
+                                           widget="percentpie"
+                                           string="Avg Score" nolabel="1"/>
+                                    <div class="etp-ring-cap">
+                                        <span class="etp-ring-cap-k">Avg Score</span>
+                                        <span class="etp-ring-cap-d">across submissions</span>
+                                    </div>
+                                </div>
+                                <div class="etp-dash-ring">
+                                    <field name="etp_pass_rate"
+                                           widget="percentpie"
+                                           string="Pass Rate" nolabel="1"/>
+                                    <div class="etp-ring-cap">
+                                        <span class="etp-ring-cap-k">Pass Rate</span>
+                                        <span class="etp-ring-cap-d">of submissions</span>
+                                    </div>
+                                </div>
+                                <div class="etp-dash-ring">
+                                    <field name="etp_best_score"
+                                           widget="percentpie"
+                                           string="Best Score" nolabel="1"/>
+                                    <div class="etp-ring-cap">
+                                        <span class="etp-ring-cap-k">Best Score</span>
+                                        <span class="etp-ring-cap-d">top result</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">Key Metrics</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-stat-grid">
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-score">
+                                    <i class="fa fa-clipboard-list" role="img"
+                                       aria-label="Assessments"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="etp_assessment_count"
+                                               nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Assessments</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-answered">
+                                    <i class="fa fa-paper-plane" role="img"
+                                       aria-label="Submitted"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="etp_submitted_count"
+                                               nolabel="1"/>
+                                        <span class="etp-stat-den">/
+                                            <field name="etp_assessment_count"
+                                                   nolabel="1"/></span>
+                                    </div>
+                                    <div class="etp-stat-cap">Submitted</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card etp-stat-good">
+                                <span class="etp-stat-ico etp-ico-answered">
+                                    <i class="fa fa-check-circle" role="img"
+                                       aria-label="Passed"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="etp_pass_count" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Passed</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card etp-stat-bad">
+                                <span class="etp-stat-ico etp-ico-fail">
+                                    <i class="fa fa-times-circle" role="img"
+                                       aria-label="Failed"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="etp_fail_count" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Failed</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card etp-stat-warn">
+                                <span class="etp-stat-ico etp-ico-warn">
+                                    <i class="fa fa-hourglass-half" role="img"
+                                       aria-label="Awaiting result"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="etp_pending_count"
+                                               nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Awaiting Result</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-subj">
+                                    <i class="fa fa-line-chart" role="img"
+                                       aria-label="Average score"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="etp_avg_score" nolabel="1"
+                                               widget="float" digits="[5,1]"/>
+                                        <span class="etp-stat-den">%</span>
+                                    </div>
+                                    <div class="etp-stat-cap">Avg Score</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-score">
+                                    <i class="fa fa-trophy" role="img"
+                                       aria-label="Best score"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="etp_best_score" nolabel="1"
+                                               widget="float" digits="[5,1]"/>
+                                        <span class="etp-stat-den">%</span>
+                                    </div>
+                                    <div class="etp-stat-cap">Best Score</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">Progress</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-dash-bars">
+                            <div class="etp-bar-row">
+                                <span class="etp-bar-label">
+                                    <i class="fa fa-check-circle"/> Pass Rate</span>
+                                <field name="etp_pass_count" widget="progressbar"
+                                       nolabel="1"
+                                       options="{'current_value': 'etp_pass_count', 'max_value': 'etp_submitted_count'}"/>
+                            </div>
+                            <div class="etp-bar-row">
+                                <span class="etp-bar-label">
+                                    <i class="fa fa-paper-plane"/> Completion</span>
+                                <field name="etp_submitted_count"
+                                       widget="progressbar" nolabel="1"
+                                       options="{'current_value': 'etp_submitted_count', 'max_value': 'etp_assessment_count'}"/>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">Breakdown</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-chart-grid">
+                            <div class="etp-chart-card etp-chart-wide">
+                                <div class="etp-chart-title">
+                                    <i class="fa fa-bar-chart"/> Scores by Assessment
+                                </div>
+                                <field name="etp_scores_chart_html"
+                                       widget="html" nolabel="1" readonly="1"/>
+                            </div>
+
+                            <div class="etp-chart-card">
+                                <div class="etp-chart-title">
+                                    <i class="fa fa-pie-chart"/> Result Breakdown
+                                </div>
+                                <field name="etp_result_donut_html"
+                                       widget="html" nolabel="1" readonly="1"/>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">Assessments</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-chart-card">
+                            <div class="etp-chart-title">
+                                <i class="fa fa-table"/> Assessment History
+                            </div>
+                            <field name="etp_evaluator_ids" nolabel="1"
+                                   readonly="1">
+                                <list class="o_etp_backend" create="0" edit="0"
+                                      delete="0">
+                                    <field name="assessment_id"
+                                           string="Assessment"/>
+                                    <field name="state" widget="badge"
+                                           decoration-info="state == 'in_progress'"
+                                           decoration-success="state == 'submitted'"
+                                           decoration-muted="state == 'pending'"/>
+                                    <field name="score_percent" string="Score %"
+                                           widget="progressbar"/>
+                                    <field name="result" widget="badge"
+                                           decoration-success="result == 'pass'"
+                                           decoration-danger="result == 'fail'"
+                                           decoration-muted="result == 'pending'"/>
+                                    <field name="submitted_at"
+                                           string="Submitted"/>
+                                </list>
+                            </field>
+                        </div>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+</odoo>

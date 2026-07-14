@@ -12,6 +12,13 @@ import uuid
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError, UserError
 
+from ..constants import (
+    DEFAULT_SUBJECTIVE_THRESHOLD,
+    AB_VERDICT_WEIGHT,
+    AB_JUSTIFICATION_WEIGHT,
+    ADVISORY_LOCK_AUTOSCORE,
+)
+
 _logger = logging.getLogger(__name__)
 
 
@@ -32,30 +39,14 @@ class EtpAssessment(models.Model):
         required=True,
     )
 
-    # Mode-required fields (category_id / day skill_id) are enforced via
-    # @api.constrains, not NOT NULL, so blank scaffolding doesn't trip the DB.
-    assessment_mode = fields.Selection(
-        [("single", "Single Test"), ("multi_day", "Multi-Day Plan")],
-        default="multi_day",
-        required=True,
-        help="Single = one flat test from a category. Multi-day = N-day plan, "
-             "one skill per day, per-candidate per-day sessions. "
-             "NOTE: single mode is retired from the UI; all new assessments "
-             "are multi_day (num_days=1 covers the old single-test case). "
-             "The single-mode field/methods are kept dormant for data "
-             "integrity on legacy records.",
-    )
-
-    # SINGLE-MODE fields. Inert in multi_day.
-    category_id = fields.Many2one(
-        "etp.assessment.pro.category",
-        string="Question Category",
+    generator_id = fields.Many2one(
+        "etp.assessment.pro.prompt",
+        string="Question Generator",
         ondelete="restrict",
-        help="Required only in single mode; @api.constrains enforces it.",
     )
     question_limit = fields.Integer(
         string="Number of Questions",
-        help="Number of questions to pick from the category. 0 = all questions.",
+        help="Number of questions to pick from the generator. 0 = all questions.",
         default=0,
     )
     duration_minutes = fields.Integer(
@@ -74,27 +65,6 @@ class EtpAssessment(models.Model):
         compute="_compute_total_questions_available"
     )
 
-    # MULTI-DAY fields. day_ids/day_session_ids reference models in
-    # assessment_day.py (loaded right after this file).
-    num_days = fields.Integer(
-        string="Number of Days", default=1,
-        help="1 for a single-day test, more for a multi-day plan.")
-    sequential_days = fields.Boolean(
-        string="Sequential Days", default=True,
-        help="Days unlock in order: submitting day N opens day N+1. "
-             "Off = all days open simultaneously (subject to scheduled_start).",
-    )
-    day_ids = fields.One2many(
-        "etp.assessment.pro.day", "assessment_id", string="Days"
-    )
-    day_count = fields.Integer(compute="_compute_day_count", store=True)
-    day_session_ids = fields.One2many(
-        "etp.assessment.pro.day.session", "assessment_id",
-        string="Per-Candidate Day Sessions"
-    )
-    day_session_count = fields.Integer(
-        compute="_compute_day_session_count", store=True
-    )
     results_release = fields.Selection(
         [
             ("manual", "Manual (admin releases)"),
@@ -105,14 +75,26 @@ class EtpAssessment(models.Model):
         string="Results Release",
         help="When candidate-facing results are revealed. Manual = admin "
              "flips results_released on each evaluator; immediate = as each "
-             "day is scored.",
+             "candidate is scored.",
     )
 
-    start_date = fields.Datetime(string="Start Date")
-    end_date = fields.Datetime(string="End Date")
+    subjective_threshold = fields.Float(
+        string="Subjective Pass Threshold (%)",
+        default=DEFAULT_SUBJECTIVE_THRESHOLD,
+        help="Pass bar (0-100) for this assessment: an LLM-graded answer earns "
+             "its mark when its raw 0-100 score is >= this, and a candidate "
+             "passes when their overall score is >= this. Editable anytime "
+             "(even after Done); changing it re-decides Pass/Fail without "
+             "re-running the LLM (small assessments update on save; large ones "
+             "within a minute via the recompute cron).")
+    threshold_recompute_pending = fields.Boolean(default=False, copy=False)
 
-    # evaluator_ids = assigned list (admin toggles pre-launch);
-    # assessment_evaluator_ids = materialized row per candidate.
+    # copy=False: a duplicated assessment must not inherit the original's
+    # (now-past) schedule — that would trip the "Start Date cannot be in the
+    # past" constraint on duplicate. The copy starts blank; the user re-schedules.
+    start_date = fields.Datetime(string="Start Date", copy=False)
+    end_date = fields.Datetime(string="End Date", copy=False)
+
     evaluator_ids = fields.Many2many(
         "hr.applicant",
         "etp_assessment_pro_applicant_rel",
@@ -128,8 +110,10 @@ class EtpAssessment(models.Model):
         "etp.assessment.pro.response", "assessment_id", string="Responses"
     )
     response_count = fields.Integer(compute="_compute_response_count", store=True)
+    invite_summary = fields.Char(
+        compute="_compute_invite_summary", string="Invitations",
+        help="Live status of the background invitation-send job.")
 
-    # Rules & Proctoring — drive the candidate portal's anti-cheat script.
     rule_block_tab_switch = fields.Boolean(
         string="Blur on Tab/Window Switch", default=True,
         help="Blur assessment content when the candidate switches tabs.")
@@ -186,9 +170,6 @@ class EtpAssessment(models.Model):
 
     def write(self, vals):
         res = super().write(vals)
-        # Flipping the image_ab justification toggle changes how already-submitted
-        # answers must score, so re-decide their state: verdict-only -> 'scored',
-        # required+justified -> 'pending' (an admin re-run then grades it).
         if "require_justification_image_comparison" in vals:
             stale = self.mapped(
                 "assessment_evaluator_ids.response_ids").filtered(
@@ -196,30 +177,88 @@ class EtpAssessment(models.Model):
                 and r.state == "submitted")
             if stale:
                 stale._enqueue_subjective_scoring()
+        if "subjective_threshold" in vals:
+            for a in self:
+                if not a.assessment_evaluator_ids:
+                    continue
+                if len(a.response_ids.filtered("needs_llm")) <= 500:
+                    a._recompute_subjective_results()
+                else:
+                    a.threshold_recompute_pending = True
         return res
+
+    def _recompute_subjective_results(self, batch=500, commit=False):
+        """Option A: after a subjective_threshold change, recompute the stored
+        pass/fail in batches so a large assessment never locks the whole response
+        table in one transaction (the LLM raw score is untouched). Small
+        assessments run this inline on save (commit=False); the cron runs it for
+        large ones with commit=True so locks release between batches."""
+        subj_fields = ["llm_raw_score", "llm_passed", "llm_score", "llm_max_score"]
+        for a in self:
+            responses = a.response_ids.filtered("needs_llm")
+            for i in range(0, len(responses), batch):
+                chunk = responses[i:i + batch]
+                chunk.invalidate_recordset(subj_fields)
+                chunk._compute_subjective_marks()
+                chunk.flush_recordset(subj_fields)
+                if commit:
+                    self.env.cr.commit()
+            evs = a.assessment_evaluator_ids
+            evs.invalidate_recordset(
+                ["llm_total_score", "subjective_pending", "score_percent",
+                 "pass_threshold", "result"])
+            evs._compute_llm_progress()
+            evs._compute_result()
+            evs.flush_recordset()
+            if a.threshold_recompute_pending:
+                a.threshold_recompute_pending = False
+            if commit:
+                self.env.cr.commit()
+
+    @api.model
+    def _cron_recompute_subjective_results(self, limit=20):
+        pending = self.search(
+            [("threshold_recompute_pending", "=", True)], limit=limit)
+        for a in pending:
+            try:
+                a._recompute_subjective_results(commit=True)
+            except Exception:
+                _logger.exception(
+                    "Threshold recompute failed for assessment %s", a.id)
 
     @api.depends("response_ids")
     def _compute_response_count(self):
         for rec in self:
             rec.response_count = len(rec.response_ids)
 
-    @api.depends("day_ids")
-    def _compute_day_count(self):
+    @api.depends("assessment_evaluator_ids.invite_state")
+    def _compute_invite_summary(self):
         for rec in self:
-            rec.day_count = len(rec.day_ids)
+            evs = rec.assessment_evaluator_ids
+            sent = len(evs.filtered(lambda e: e.invite_state == "sent"))
+            queued = len(evs.filtered(lambda e: e.invite_state == "queued"))
+            failed = len(evs.filtered(lambda e: e.invite_state == "failed"))
+            parts = []
+            if queued:
+                parts.append("%d queued" % queued)
+            if sent:
+                parts.append("%d sent" % sent)
+            if failed:
+                parts.append("%d failed" % failed)
+            rec.invite_summary = "  ·  ".join(parts)
 
-    @api.depends("day_session_ids")
-    def _compute_day_session_count(self):
-        for rec in self:
-            rec.day_session_count = len(rec.day_session_ids)
+    def action_requeue_all_invitations(self):
+        """Re-queue every not-yet-sent candidate (e.g. to retry failures)."""
+        self.ensure_one()
+        self.assessment_evaluator_ids.action_requeue_invitation()
 
-    @api.depends("category_id")
+    @api.depends("generator_id")
     def _compute_total_questions_available(self):
         Question = self.env["etp.assessment.pro.question"]
         for rec in self:
-            if rec.category_id:
+            if rec.generator_id:
                 rec.total_questions_available = Question.search_count([
-                    ("category_id", "=", rec.category_id.id),
+                    ("generator_id", "=", rec.generator_id.id),
                     ("active", "=", True),
                 ])
             else:
@@ -237,42 +276,28 @@ class EtpAssessment(models.Model):
             if rec.start_date and rec.end_date and rec.start_date >= rec.end_date:
                 raise ValidationError("End Date must be after Start Date.")
 
-    @api.constrains("assessment_mode", "category_id")
-    def _check_single_requires_category(self):
-        # Mode-specific NOT NULL surrogate: column stays nullable for multi_day.
-        for rec in self:
-            if rec.assessment_mode == "single" and not rec.category_id:
-                raise ValidationError(
-                    "Single-mode assessments require a question category."
-                )
-
-    # SINGLE-MODE lifecycle.
     def action_start(self):
         for rec in self:
-            if rec.assessment_mode != "single":
-                raise UserError(
-                    "Single-mode action. Use 'Generate Plan' for multi-day "
-                    "assessments."
-                )
             if rec.state != "draft":
                 raise UserError("Only draft assessments can be started.")
             if not rec.evaluator_ids:
                 raise UserError("Please assign at least one candidate before starting.")
-            if not rec.category_id:
-                raise UserError("Please select a question category.")
+            if not rec.generator_id:
+                raise UserError("Please select a question generator.")
 
             available_questions = self.env["etp.assessment.pro.question"].search([
-                ("category_id", "=", rec.category_id.id), ("active", "=", True),
-            ])
+                ("generator_id", "=", rec.generator_id.id), ("active", "=", True),
+            ]).filtered(
+                lambda q: q._has_required_images() and q._has_required_videos())
             if not available_questions:
                 raise UserError(
-                    "No active questions found in the selected category.")
+                    "No active questions found for the selected generator.")
 
             limit = rec.question_limit or len(available_questions)
             if limit > len(available_questions):
                 raise UserError(
                     f"Requested {limit} questions but only "
-                    f"{len(available_questions)} available in this category.")
+                    f"{len(available_questions)} available in this generator.")
 
             all_question_ids = available_questions.ids
             rec.write({
@@ -282,6 +307,7 @@ class EtpAssessment(models.Model):
             })
 
             for evaluator in rec.evaluator_ids:
+                rec._ensure_candidate_user(evaluator)
                 candidate_questions = random.sample(all_question_ids, limit)
                 random.shuffle(candidate_questions)
                 ev = self.env["etp.assessment.pro.evaluator"].create({
@@ -289,8 +315,8 @@ class EtpAssessment(models.Model):
                     "applicant_id": evaluator.id,
                     "question_order": json.dumps(candidate_questions),
                     "access_token": str(uuid.uuid4()),
+                    "invite_state": "queued",
                 })
-                ev._send_single_invitation()
 
     def action_done(self):
         for rec in self:
@@ -311,7 +337,8 @@ class EtpAssessment(models.Model):
                 raise UserError("Only cancelled assessments can be reset to draft.")
             rec.assessment_evaluator_ids.unlink()
             rec.response_ids.unlink()
-            rec.write({"question_ids": [(5, 0, 0)]})
+            rec.write({"question_ids": [(5, 0, 0)],
+                       "start_date": False, "end_date": False})
         self.write({"state": "draft"})
 
     @api.constrains("start_date", "end_date")
@@ -328,8 +355,6 @@ class EtpAssessment(models.Model):
                     "End Date must be on or after the Start Date.")
 
     def _ensure_candidate_user(self, applicant):
-        # Bind candidate to a PORTAL login so the exam guard recognizes them.
-        # Idempotent. Returns 'exists' | 'linked' | 'created' | 'skipped'.
         applicant = applicant.sudo()
         if applicant.candidate_user_id:
             return "exists"
@@ -338,41 +363,43 @@ class EtpAssessment(models.Model):
             return "skipped"
         Users = self.env["res.users"].sudo()
         user = Users.with_context(active_test=False).search(
-            [("login", "=", email)], limit=1)
-        status = "linked"
+            [("login", "=ilike", email)], limit=1)
+        if user and user._is_internal():
+            _logger.warning(
+                "Candidate %s email %s matches an internal user (id=%s); not "
+                "binding — resolve manually.", applicant.partner_name, email, user.id)
+            return "skipped"
+        created = False
         if not user:
             company = (
                 self.env.ref("base.main_company", raise_if_not_found=False)
                 or self.env["res.company"].search([], limit=1, order="id asc")
             )
             portal = self.env.ref("base.group_portal")
-            user_vals = {
+            user = Users.with_company(company).with_context(
+                no_reset_password=True,
+                mail_create_nosubscribe=True,
+                mail_create_nolog=True,
+                tracking_disable=True,
+            ).create({
                 "name": applicant.partner_name or email,
                 "login": email,
                 "email": email,
                 "company_id": company.id,
                 "company_ids": [(6, 0, [company.id])],
                 "group_ids": [(6, 0, [portal.id])],
-            }
-            user = Users.with_company(company).with_context(
-                no_reset_password=True,
-                mail_create_nosubscribe=True,
-                mail_create_nolog=True,
-                tracking_disable=True,
-            ).create(user_vals)
-            status = "created"
-            try:
-                user.action_reset_password()
-            except Exception:
-                _logger.exception(
-                    "Portal signup invite failed for candidate %s (%s)",
-                    applicant.partner_name, email)
-        if not user.active:
-            user.active = True
+            })
+            created = True
+        if not created and not user.active:
+            _logger.warning(
+                "Candidate %s email %s matches a DEACTIVATED portal user "
+                "(id=%s); linking but NOT reactivating — enable it manually if "
+                "this candidate should sit the exam.",
+                applicant.partner_name, email, user.id)
         applicant.candidate_user_id = user.id
         if not applicant.partner_id and user.partner_id:
             applicant.partner_id = user.partner_id.id
-        return status
+        return "created" if created else "linked"
 
     def action_import_candidates_csv(self):
         self.ensure_one()
@@ -473,24 +500,16 @@ class EtpAssessment(models.Model):
             "target": "new",
         }
 
-    # LLM scoring — one inline Vertex call per candidate (no broker, per D3);
-    # implementation in services/scoring.py.
     def action_llm_score_all(self):
         """Admin trigger: queue every submitted, unscored candidate for
         subjective grading. The background cron drains them in batches of 20 —
         no LLM call runs in this request, so the admin UI never blocks."""
         self.ensure_one()
-        # Filter on the ACTUAL responses (robust to a stale evaluator llm_state):
-        # any submitted candidate with a needs_llm answer not yet scored.
         todo = self.assessment_evaluator_ids.filtered(
             lambda ev: ev.state == "submitted" and any(
                 r.needs_llm and r.llm_state != "scored" for r in ev.response_ids))
         if not todo:
             raise UserError("No submitted candidates awaiting subjective scoring.")
-        # Force pending so the cron drains them — covers evaluators stuck at a
-        # stale state (e.g. image_ab answered with verdicts only, submitted
-        # before verdict-only grading existed). score_evaluator picks up the
-        # not_needed/pending responses.
         todo.write({"scoring_requested": True, "llm_state": "pending"})
         return {
             "type": "ir.actions.client",
@@ -529,23 +548,34 @@ class EtpAssessment(models.Model):
         batches of 20 per tick. Only candidates explicitly flagged via 'Run
         Subjective Evaluation' (scoring_requested) are graded — nothing runs on
         the candidate's exam path."""
-        # Advisory lock so two cron workers don't double-score (auto-releases at commit).
+        self.env.cr.execute("SELECT pg_advisory_unlock_all()")
         self.env.cr.execute(
-            "SELECT pg_try_advisory_xact_lock(%s)", (827193,))
+            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_AUTOSCORE,))
         if not self.env.cr.fetchone()[0]:
             return
-        evaluators = self.env["etp.assessment.pro.evaluator"].search([
-            ("state", "=", "submitted"),
-            ("scoring_requested", "=", True),
-            ("llm_state", "in", ("pending", "scoring", "partial", "failed")),
-        ], limit=20)
-        for ev in evaluators:
+        try:
+            evaluators = self.env["etp.assessment.pro.evaluator"].search([
+                ("state", "=", "submitted"),
+                ("scoring_requested", "=", True),
+                ("llm_state", "in", ("pending", "scoring", "partial", "failed")),
+            ], limit=20)
+            for ev in evaluators:
+                try:
+                    with self.env.cr.savepoint():
+                        ev.action_llm_score()
+                    self.env.cr.commit()
+                except Exception:
+                    _logger.exception(
+                        "Auto-score failed for evaluator %s", ev.id)
+                    continue
+        finally:
             try:
-                ev.action_llm_score()
+                self.env.cr.execute(
+                    "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_AUTOSCORE,))
             except Exception:
-                _logger.exception(
-                    "Auto-score failed for evaluator %s", ev.id)
-                continue
+                _logger.warning(
+                    "auto-score advisory lock %s not released this tick",
+                    ADVISORY_LOCK_AUTOSCORE)
 
     def action_export_results(self):
         """Export the scorecard: one row per candidate."""
@@ -560,7 +590,6 @@ class EtpAssessment(models.Model):
         return export_svc.export_responses(self)
 
     def _check_plan_complete(self):
-        # Flip assessment to done once every assigned candidate is submitted.
         for rec in self:
             evs = rec.assessment_evaluator_ids
             if evs and all(e.state == "submitted" for e in evs):
@@ -575,23 +604,44 @@ class EtpAssessmentEvaluator(models.Model):
     _rec_name = "applicant_id"
 
     assessment_id = fields.Many2one(
-        "etp.assessment.pro", required=True, ondelete="cascade")
+        "etp.assessment.pro", required=True, ondelete="cascade", index=True)
     applicant_id = fields.Many2one(
         "hr.applicant", string="Candidate", required=True, ondelete="restrict")
+    invite_state = fields.Selection(
+        [("none", "Not Invited"), ("queued", "Queued"),
+         ("sent", "Sent"), ("failed", "Failed")],
+        default="none", index=True, copy=False, string="Invite",
+        help="Invitation email status. Launch queues invites; a background cron "
+             "sends them in batches so a large cohort never blocks the request.")
+    invite_error = fields.Char(readonly=True, copy=False)
+
+    def init(self):
+        self._cr.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS etp_pro_evaluator_uniq_assess_appl
+            ON etp_assessment_pro_evaluator (assessment_id, applicant_id)
+        """)
 
     def _candidate_user(self):
-        # Resolve portal login: direct applicant link, else partner-matched user.
         self.ensure_one()
         user = self.applicant_id.candidate_user_id
         if not user and self.applicant_id.partner_id:
             user = self.env["res.users"].sudo().search(
                 [("partner_id", "=", self.applicant_id.partner_id.id)], limit=1)
+        if not user and (self.applicant_id.email_from or "").strip():
+            # Security: widens candidate auth — an internal user (never bound
+            # as a candidate) is matched by login==email as their own candidate.
+            user = self.env["res.users"].sudo().with_context(
+                active_test=False).search(
+                [("login", "=ilike", self.applicant_id.email_from.strip())],
+                limit=1)
         return user
     access_token = fields.Char(
         string="Access Token", index=True, copy=False,
         default=lambda self: str(uuid.uuid4()))
     question_order = fields.Text(string="Shuffled Question Order (JSON)")
     started_at = fields.Datetime(string="Started At")
+    submitted_at = fields.Datetime(
+        string="Submitted On", readonly=True, copy=False)
     deadline_datetime = fields.Datetime(
         string="Candidate Deadline", compute="_compute_deadline_datetime",
         store=True)
@@ -616,9 +666,6 @@ class EtpAssessmentEvaluator(models.Model):
     response_ids = fields.One2many(
         "etp.assessment.pro.response", "assessment_evaluator_id",
         string="Responses")
-    day_session_ids = fields.One2many(
-        "etp.assessment.pro.day.session", "evaluator_id",
-        string="Day Sessions")
 
     is_locked = fields.Boolean(default=False, string="Locked")
     is_violated = fields.Boolean(default=False, string="Violated", readonly=True)
@@ -630,7 +677,6 @@ class EtpAssessmentEvaluator(models.Model):
              "Compared against assessment.max_violations to decide auto-submit.",
     )
 
-    # llm_state drives the cron drainer + UI badge.
     llm_state = fields.Selection(
         [
             ("pending", "Pending"),
@@ -638,10 +684,13 @@ class EtpAssessmentEvaluator(models.Model):
             ("scored", "Scored"),
             ("partial", "Partial"),
             ("failed", "Failed"),
+            ("error", "Scoring Error"),
         ],
         default="pending",
         string="Subjective Scoring",
         copy=False,
+        help="error = at least one of the candidate's answers hit a hard "
+             "scoring error after all retries (surfaced, not silently scored).",
     )
     objective_total = fields.Integer(
         related="total_score", store=True, string="Objective Total", readonly=True)
@@ -656,6 +705,40 @@ class EtpAssessmentEvaluator(models.Model):
         compute="_compute_llm_progress", store=True, string="Subjective Pending")
     llm_scored_at = fields.Datetime(string="Subjective Scored At", readonly=True)
     llm_error = fields.Char(string="Subjective Error", readonly=True)
+    scoring_error_flag = fields.Char(
+        compute="_compute_scoring_error_flag", store=True, string="Scoring Error",
+        help="Shows '!' when a subjective answer hit a terminal scoring error "
+             "(Vertex failure): the candidate can't be finalized until an admin "
+             "runs 'Reset & Re-score Errored'.")
+
+    @api.depends("response_ids.llm_state")
+    def _compute_scoring_error_flag(self):
+        for rec in self:
+            rec.scoring_error_flag = "!" if any(
+                r.llm_state == "error" for r in rec.response_ids) else False
+
+    integrity_alert = fields.Boolean(
+        compute="_compute_integrity_alert", store=True,
+        string="Integrity Alert",
+        help="True when any of this candidate's answers tripped a scoring "
+             "integrity signal (empty/injection gate or answer-key drift), so "
+             "an admin can spot and filter flagged candidates. Display only; "
+             "never affects the score or pass/fail.")
+
+    @api.depends("response_ids.integrity_alert")
+    def _compute_integrity_alert(self):
+        for rec in self:
+            rec.integrity_alert = any(
+                r.integrity_alert for r in rec.response_ids)
+
+    def write(self, vals):
+        if vals.get("state") == "submitted":
+            stamp = fields.Datetime.now()
+            for rec in self.filtered(lambda r: not r.submitted_at):
+                # Nested write carries no 'state' key, so it cannot recurse here.
+                super(EtpAssessmentEvaluator, rec).write(
+                    {"submitted_at": stamp})
+        return super().write(vals)
 
     score_percent = fields.Float(
         string="Score %", compute="_compute_result", store=True)
@@ -676,33 +759,11 @@ class EtpAssessmentEvaluator(models.Model):
              "runs during the exam.",
     )
 
-    # Admin-facing post-scoring summary card, derived from the same stored
-    # response fields as scoring so it can't disagree with the breakdown below.
     result_summary = fields.Html(
         string="Result Summary", compute="_compute_result_summary",
         sanitize=False,
         help="Post-scoring overview for this candidate: objective and "
              "subjective tallies, total, percentage, and pass/fail.")
-
-    # Day progress label — drives the My Assessments badge.
-    days_total = fields.Integer(
-        compute="_compute_day_progress", store=True)
-    days_done = fields.Integer(
-        compute="_compute_day_progress", store=True)
-    day_progress_label = fields.Char(
-        compute="_compute_day_progress", store=True, string="Day Progress")
-
-    @api.depends("day_session_ids", "day_session_ids.state")
-    def _compute_day_progress(self):
-        for rec in self:
-            sessions = rec.day_session_ids
-            rec.days_total = len(sessions)
-            rec.days_done = len(sessions.filtered(
-                lambda s: s.state in ("submitted", "scored", "missed")))
-            rec.day_progress_label = (
-                f"{rec.days_done} / {rec.days_total}"
-                if rec.days_total else "—"
-            )
 
     @api.depends(
         "state", "result", "score_percent", "pass_threshold",
@@ -723,12 +784,10 @@ class EtpAssessmentEvaluator(models.Model):
         for rec in self:
             submitted = rec.response_ids.filtered(
                 lambda r: r.state == "submitted")
-            # Objective tally: "correct" = full marks on that question.
             obj = submitted.filtered(lambda r: r.has_objective)
             obj_total = len(obj)
             obj_correct = len(obj.filtered(
                 lambda r: r.max_score and r.score >= r.max_score))
-            # Subjective tally: needs_llm rows, pass = llm_passed once scored.
             subj = submitted.filtered(lambda r: r.needs_llm)
             subj_total = len(subj)
             subj_scored = subj.filtered(lambda r: r.llm_state == "scored")
@@ -753,7 +812,6 @@ class EtpAssessmentEvaluator(models.Model):
                     'scored.</div>')
                 continue
 
-            # Result badge.
             if rec.result == "pass":
                 badge = ('<span class="badge text-bg-success" '
                          'style="font-size:1rem;padding:0.5em 0.9em">PASS</span>')
@@ -825,45 +883,30 @@ class EtpAssessmentEvaluator(models.Model):
             scored = need.filtered(lambda r: r.llm_state == "scored")
             rec.llm_total_score = sum(scored.mapped("llm_score"))
             rec.llm_max_score = sum(need.mapped("llm_max_score"))
-            # 'error' is terminal (surfaced to admin), NOT pending — it must not
-            # pin the candidate result at pending forever. Only states the cron
-            # will still act on count as pending.
             rec.subjective_pending = len(need.filtered(
-                lambda r: r.llm_state in ("pending", "queued", "failed")))
+                lambda r: r.llm_state in (
+                    "pending", "queued", "failed", "error")))
 
     @api.depends("total_score", "max_possible_score", "llm_total_score",
                  "llm_max_score", "subjective_pending", "state",
                  "total_questions", "answered_count",
                  "response_ids.llm_state")
     def _compute_result(self):
-        threshold = self._get_pass_threshold()
         for rec in self:
+            raw_t = rec.assessment_id.subjective_threshold
+            threshold = raw_t if 0.0 <= raw_t <= 100.0 \
+                else DEFAULT_SUBJECTIVE_THRESHOLD
             rec.pass_threshold = threshold
-            # EQUAL MARKS: denominator is ALL assigned questions (answered or
-            # not) so skipping a subjective one can't raise the candidate's %.
             earned = (rec.total_score or 0) + (rec.llm_total_score or 0)
             possible = rec.total_questions or 0
-            # Fallback when total_questions is unavailable (still equal-marks).
             if not possible:
                 possible = (rec.max_possible_score or 0) + (rec.llm_max_score or 0)
             rec.score_percent = round(
                 (earned / possible) * 100.0, 2) if possible else 0.0
-            # Only meaningful once submitted with no subjective work pending —
-            # never fail mid-scoring (exhausted LLM calls resolve as scored fails).
             if rec.state != "submitted" or rec.subjective_pending or not possible:
                 rec.result = "pending"
             else:
                 rec.result = "pass" if rec.score_percent >= threshold else "fail"
-
-    @api.model
-    def _get_pass_threshold(self):
-        raw = self.env["ir.config_parameter"].sudo().get_param(
-            "etp_assessment_pro.pass_threshold", "70")
-        try:
-            val = float(raw)
-        except (TypeError, ValueError):
-            val = 70.0
-        return val if 0 <= val <= 100 else 70.0
 
     def _compute_subjective_rollup(self):
         for rec in self:
@@ -871,9 +914,6 @@ class EtpAssessmentEvaluator(models.Model):
             if not need:
                 rec.llm_state = "scored"
             elif all(r.llm_state in ("scored", "error") for r in need):
-                # All answers reached a terminal state. If any hit a hard
-                # scoring error, surface it as 'error' rather than a clean
-                # 'scored'; otherwise the candidate is fully scored.
                 if any(r.llm_state == "error" for r in need):
                     rec.llm_state = "error"
                 else:
@@ -900,7 +940,7 @@ class EtpAssessmentEvaluator(models.Model):
                          if emp.candidate_user_id else "") or "")
             if not to_email:
                 base = self.env["ir.config_parameter"].sudo().get_param(
-                    "web.base.url") or "http://localhost:8069"
+                    "web.base.url", "")
                 link = f"{base}/pro_assessment/{rec.access_token}"
                 self.env["mail.mail"].sudo().create({
                     "subject": f"[NO EMAIL] {rec.assessment_id.name}",
@@ -913,8 +953,52 @@ class EtpAssessmentEvaluator(models.Model):
                     "auto_delete": False,
                 })
                 continue
-            # force_send: invitations go out immediately, not via mail-queue cron.
-            tpl.send_mail(rec.id, force_send=True)
+            tpl.send_mail(rec.id, force_send=False)
+
+    def _deliver_invitation(self):
+        """Send this candidate's invitation(s): a one-time set-password link (if
+        they've never logged in) + the day/single exam invitation. Exam mail
+        queues to the mail cron (force_send=False). Exceptions propagate so the
+        invite cron can flag this candidate 'failed'."""
+        self.ensure_one()
+        user = self.applicant_id.candidate_user_id
+        if user and not user.login_date and not user._is_internal():
+            user.sudo().with_context(
+                create_user=1, import_file=False, install_mode=False,
+            ).action_reset_password()
+        self._send_single_invitation()
+
+    @api.model
+    def _cron_send_pending_invitations(self, batch=25):
+        """Drain queued candidate invitations in committed batches so a large
+        cohort never blocks the launch request. Per-candidate savepoint+commit;
+        a failed send flags the candidate 'failed' (visible in the UI, re-queue
+        to retry) rather than aborting the whole run."""
+        pending = self.search([("invite_state", "=", "queued")], limit=batch)
+        for ev in pending:
+            try:
+                with self.env.cr.savepoint():
+                    ev._deliver_invitation()
+                    ev.invite_state = "sent"
+                    ev.invite_error = False
+                self.env.cr.commit()
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception(
+                    "Invite send failed for candidate %s (evaluator %s)",
+                    ev.applicant_id.partner_name, ev.id)
+                try:
+                    with self.env.cr.savepoint():
+                        ev.invite_state = "failed"
+                        ev.invite_error = str(exc)[:200]
+                    self.env.cr.commit()
+                except Exception:
+                    _logger.exception(
+                        "Invite cron: could not flag evaluator %s failed", ev.id)
+
+    def action_requeue_invitation(self):
+        """Re-queue selected candidates (e.g. after a failed send) for the cron."""
+        self.filtered(lambda e: e.invite_state != "sent").write(
+            {"invite_state": "queued", "invite_error": False})
 
     def action_llm_score(self):
         """Trigger subjective scoring for this candidate; returns count scored."""
@@ -937,9 +1021,49 @@ class EtpAssessmentEvaluator(models.Model):
                 })
                 continue
             rec._compute_subjective_rollup()
-            rec.day_session_ids._rollup_day_score()
             rec._apply_results_disclosure()
         return scored
+
+    def action_queue_llm_score(self):
+        """P2-2: queue this candidate for the background grader instead of
+        calling Vertex inline in the request (a slow model blows the timeout)."""
+        for rec in self:
+            if rec.state != "submitted":
+                raise UserError(
+                    f"Candidate '{rec.applicant_id.partner_name}' has not "
+                    f"submitted — scoring runs on submitted assessments only.")
+        self.write({"scoring_requested": True, "llm_state": "pending"})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Subjective Grading Queued",
+                "message": "Queued for the background grader — refresh shortly.",
+                "type": "success", "sticky": False,
+            },
+        }
+
+    def action_reset_errored_scoring(self):
+        """Reset answers stuck in terminal 'error' (e.g. scored while Vertex was
+        down) back to 'pending' and re-queue; 'scored' answers are untouched."""
+        reset = 0
+        for rec in self:
+            errored = rec.response_ids.filtered(lambda r: r.llm_state == "error")
+            if not errored:
+                continue
+            errored.write({"llm_state": "pending", "llm_attempts": 0})
+            rec.write({"scoring_requested": True, "llm_state": "pending"})
+            reset += len(errored)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Re-queued for scoring",
+                "message": f"Reset {reset} errored answer(s) to pending; the "
+                           f"background grader will retry them.",
+                "type": "success", "sticky": False,
+            },
+        }
 
     def action_export_responses(self):
         """Per-candidate Export Responses: one row per answer for this candidate."""
@@ -965,20 +1089,14 @@ class EtpAssessmentEvaluator(models.Model):
             },
         }
 
-    @api.depends("day_session_ids.total_questions", "question_order")
+    @api.depends("question_order")
     def _compute_total_questions(self):
-        # Multi-day rolls up from day sessions; single-mode falls back to
-        # question_order length (else _check_all_submitted breaks for flat tests).
         for rec in self:
-            if rec.day_session_ids:
-                rec.total_questions = sum(
-                    rec.day_session_ids.mapped("total_questions"))
-            else:
-                try:
-                    rec.total_questions = len(
-                        json.loads(rec.question_order or "[]"))
-                except (ValueError, TypeError):
-                    rec.total_questions = 0
+            try:
+                rec.total_questions = len(
+                    json.loads(rec.question_order or "[]"))
+            except (ValueError, TypeError):
+                rec.total_questions = 0
 
     @api.depends("response_ids", "response_ids.state", "response_ids.score")
     def _compute_progress(self):
@@ -1004,32 +1122,14 @@ class EtpAssessmentEvaluator(models.Model):
             return False
         return fields.Datetime.now() > self.deadline_datetime
 
-    def _rollup_overall_from_days(self):
-        """Multi-day finalizer: submit the evaluator once every day_session is done."""
-        for rec in self:
-            sessions = rec.day_session_ids
-            if not sessions:
-                continue
-            terminal = ("submitted", "scored", "missed")
-            if all(s.state in terminal for s in sessions):
-                rec.write({"state": "submitted", "is_locked": True})
-                rec.assessment_id._check_plan_complete()
-                rec._apply_results_disclosure()
-
     def _apply_results_disclosure(self):
         """Reveal results per assessment.results_release; never un-releases."""
         for rec in self:
             if rec.results_released:
                 continue
             mode = rec.assessment_id.results_release
-            sessions = rec.day_session_ids
             done_single = rec.state == "submitted" and not rec.subjective_pending
-            if mode == "immediate":
-                reveal = (any(s.state == "scored" for s in sessions)
-                          if sessions else done_single)
-            else:
-                reveal = False
-            if reveal:
+            if mode == "immediate" and done_single:
                 rec.results_released = True
 
 
@@ -1042,16 +1142,12 @@ class EtpAssessmentResponse(models.Model):
         "etp.assessment.pro", required=True, ondelete="cascade")
     assessment_evaluator_id = fields.Many2one(
         "etp.assessment.pro.evaluator", string="Candidate Assignment",
-        ondelete="cascade")
-    # day_session_id is the multi-day link; null on single-mode responses.
-    # Indexed because portal lookups filter by day_session_id heavily.
-    day_session_id = fields.Many2one(
-        "etp.assessment.pro.day.session", string="Day Session",
         ondelete="cascade", index=True)
     evaluator_id = fields.Many2one(
         "hr.applicant", string="Candidate", required=True)
     question_id = fields.Many2one(
-        "etp.assessment.pro.question", required=True, ondelete="cascade")
+        "etp.assessment.pro.question", required=True, ondelete="cascade",
+        index=True)
     justification = fields.Text()
     line_ids = fields.One2many(
         "etp.assessment.pro.response.line", "response_id",
@@ -1072,10 +1168,6 @@ class EtpAssessmentResponse(models.Model):
     needs_llm = fields.Boolean(
         compute="_compute_scoring_kind", store=True, string="Needs LLM")
 
-    # ── LLM SCORING (v6): the LLM's 0-100 quality score is the IMMUTABLE TRUTH,
-    # written once by the scorer. Everything the candidate's mark/pass depends on
-    # is COMPUTED from it against the live Settings threshold, so changing the
-    # threshold re-decides pass/fail without re-running the LLM. ──
     llm_raw_100 = fields.Float(
         string="Subjective Score (0-100)", readonly=True, copy=False,
         help="The grader's raw 0-100 quality score for this answer. Immutable "
@@ -1100,7 +1192,6 @@ class EtpAssessmentResponse(models.Model):
         help="Always 1 for a needs_llm answer (equal marks). Computed, so it "
              "never drifts as scoring progresses.")
     llm_feedback = fields.Text(string="Subjective Reasoning", readonly=True, copy=False)
-    # ── SOP v6 audit trail (stored verbatim from the grader, per field) ──
     llm_gate = fields.Char(
         string="Scoring Gate", readonly=True, copy=False,
         help="The SOP gate that fired (empty_answer, off_topic, wrong_item, "
@@ -1160,7 +1251,6 @@ class EtpAssessmentResponse(models.Model):
         compute="_compute_answer_summary", string="Candidate Answer")
     correct_summary = fields.Char(
         compute="_compute_answer_summary", string="Correct Answer")
-    # image_ab is graded objective verdicts + (optionally) an LLM justification.
     ab_mcq_pct = fields.Float(
         compute="_compute_ab_scores", string="Verdict %",
         help="image_ab: % of scoring axes whose chosen verdict matches the key "
@@ -1171,11 +1261,109 @@ class EtpAssessmentResponse(models.Model):
              "else ceil(0.75*verdict% + 0.25*justification%). Pass/fail vs the "
              "threshold gives the 1 mark.")
 
+    integrity_alert = fields.Boolean(
+        string="Integrity Alert", compute="_compute_integrity_alert",
+        store=True, copy=False,
+        help="Read-only audit flag: True when the scoring audit signals an "
+             "integrity event — a Phase-1 gate (empty_answer/injection_attempt), "
+             "a Phase-3 answer-key drift, or an integrity/key_drift flag. "
+             "Display + filter only; never affects the score or pass/fail.")
+    ab_verdict_pct = fields.Float(
+        string="AB Verdict %", compute="_compute_audit_subscores",
+        help="image_ab verdict-lane sub-score read from the scoring audit "
+             "(0-100). Display-only; does NOT affect llm_raw_100 or the mark.")
+    ab_justification_pct = fields.Float(
+        string="AB Justification %", compute="_compute_audit_subscores",
+        help="image_ab justification-lane sub-score from the audit (0-100); "
+             "0 when the answer was verdict-only. Display-only.")
+    label_coverage_pct = fields.Float(
+        string="Label Coverage %", compute="_compute_audit_subscores",
+        help="image_label coverage sub-score (attempted/total boxes, 0-100) "
+             "read from the audit. Display-only.")
+    label_correctness_pct = fields.Float(
+        string="Label Correctness %", compute="_compute_audit_subscores",
+        help="image_label correctness sub-score (grader accuracy, 0-100) read "
+             "from the audit. Display-only.")
+
+    @staticmethod
+    def _audit_json(text):
+        """Parse a stored audit JSON blob to a python object, never raising on
+        empty or malformed content (returns None instead)."""
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except (ValueError, TypeError):
+            return None
+
+    @api.depends("llm_gate", "llm_flags_json", "llm_result_json")
+    def _compute_integrity_alert(self):
+        """Surface (read-only) whether this answer's scoring audit signals an
+        integrity event: a Phase-1 gate (empty_answer/injection_attempt), a
+        Phase-3 key drift, or an integrity/key_drift flag in the flags/audit
+        JSON. Parsed defensively — bad/empty JSON is never an alert and never
+        crashes. Does NOT touch llm_raw_100, the mark, or pass/fail."""
+        gate_alerts = ("empty_answer", "injection_attempt", "key_drift")
+        flag_alerts = ("integrity_alert", "key_drift")
+        for rec in self:
+            alert = (rec.llm_gate or "").strip() in gate_alerts
+            if not alert:
+                flags = rec._audit_json(rec.llm_flags_json)
+                if isinstance(flags, list):
+                    alert = any(
+                        str(f).strip().lower() in flag_alerts for f in flags)
+            if not alert:
+                audit = rec._audit_json(rec.llm_result_json)
+                if isinstance(audit, dict):
+                    if audit.get("integrity_gated") or \
+                            audit.get("integrity_key_drift"):
+                        alert = True
+                    else:
+                        afl = audit.get("flags")
+                        if isinstance(afl, list):
+                            alert = any(
+                                str(f).strip().lower() in flag_alerts
+                                for f in afl)
+            rec.integrity_alert = alert
+
+    @staticmethod
+    def _pct_from_fraction(value):
+        """Turn a stored 0..1 audit sub-score into a 0-100 percentage, defaulting
+        to 0.0 for a missing/None/non-numeric value (never raises)."""
+        try:
+            return round(max(0.0, float(value)) * 100.0, 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @api.depends("llm_result_json")
+    def _compute_audit_subscores(self):
+        """Surface the Phase-2 (image_ab) and Phase-4 (image_label) sub-scores
+        the grader already recorded in llm_result_json, as read-only 0-100
+        percentages. These MIRROR the audit only: they never recompute or affect
+        llm_raw_100, the earned mark, or pass/fail. Absent/malformed audit -> 0."""
+        for rec in self:
+            audit = rec._audit_json(rec.llm_result_json)
+            ab = audit.get("ab_scores") if isinstance(audit, dict) else None
+            lab = audit.get("label_scores") if isinstance(audit, dict) else None
+            ab = ab if isinstance(ab, dict) else {}
+            lab = lab if isinstance(lab, dict) else {}
+            rec.ab_verdict_pct = rec._pct_from_fraction(ab.get("verdict_score"))
+            rec.ab_justification_pct = rec._pct_from_fraction(
+                ab.get("justification_score"))
+            rec.label_coverage_pct = rec._pct_from_fraction(lab.get("coverage"))
+            rec.label_correctness_pct = rec._pct_from_fraction(
+                lab.get("correctness"))
+
+    def init(self):
+        self._cr.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS etp_pro_response_uniq_eval_q_sess
+            ON etp_assessment_pro_response
+               (assessment_evaluator_id, question_id)
+        """)
+
     @api.depends("line_ids.selected_option_id",
                  "question_id.question_dimension_ids.option_line_ids.is_correct")
     def _compute_answer_summary(self):
-        # SECURITY: own-records rule already scoped self to the candidate's own
-        # responses, so sudo here is a read-only display bypass over own data.
         for rec in self:
             rec_s = rec.sudo()
             chosen = [
@@ -1191,35 +1379,18 @@ class EtpAssessmentResponse(models.Model):
                         correct.append(ol.name)
             rec.correct_summary = ", ".join(correct)
 
-    @api.model
-    def _subjective_threshold_100(self):
-        """Per-answer subjective pass bar on a 0-100 scale (default 70). A
-        legacy 0-1 value (e.g. '0.7') is tolerated by scaling up. This is read
-        live on every recompute, so changing it in Settings re-decides every
-        answer's pass/fail."""
-        raw = self.env["ir.config_parameter"].sudo().get_param(
-            "etp_assessment_pro.subjective_pass_threshold", "70")
-        try:
-            val = float(raw)
-        except (TypeError, ValueError):
-            return 70.0
-        if val <= 1.0:
-            val = val * 100.0
-        return val if 0.0 <= val <= 100.0 else 70.0
-
     def _image_ab_mcq_pct(self):
         """image_ab verdicts, objective: the % of scoring axes whose chosen
         verdict exactly matches the keyed verdict (no LLM)."""
         self.ensure_one()
         total = correct = 0
         for qd in self.question_id.question_dimension_ids:
-            key = set(qd.option_line_ids.filtered("is_correct")
-                      .mapped("master_option_id").ids)
+            key = set(qd.option_line_ids.filtered("is_correct").ids)
             if not key:
                 continue
             total += 1
             chosen = {line.selected_option_id.id for line in self.line_ids
-                      if line.dimension_id.id == qd.dimension_id.id
+                      if line.question_dimension_id.id == qd.id
                       and line.selected_option_id}
             if chosen == key:
                 correct += 1
@@ -1236,12 +1407,14 @@ class EtpAssessmentResponse(models.Model):
             and (self.justification or "").strip())
 
     @api.depends("question_id.question_type", "line_ids.selected_option_id",
+                 "line_ids.question_dimension_id",
                  "question_id.question_dimension_ids.option_line_ids.is_correct",
-                 "llm_raw_100",
-                 "assessment_id.require_justification_image_comparison")
+                 "llm_raw_100", "llm_state")
     def _compute_ab_scores(self):
-        """image_ab verdict% (objective) and final% (verdict-only, or the
-        ceil'd 0.75/0.25 blend when the justification is required)."""
+        """image_ab verdict% (objective, live from the picks) and final%. Once the
+        scorer has run, final% mirrors the immutable blended llm_raw_100 (verdict
+        lane, or 0.75*verdict + 0.25*justification); before scoring it shows the
+        verdict-only estimate."""
         for rec in self:
             if rec.question_id.question_type != "image_ab":
                 rec.ab_mcq_pct = 0.0
@@ -1249,9 +1422,8 @@ class EtpAssessmentResponse(models.Model):
                 continue
             mcq = rec._image_ab_mcq_pct()
             rec.ab_mcq_pct = round(mcq, 2)
-            if rec.assessment_id.require_justification_image_comparison:
-                rec.ab_final_pct = float(
-                    math.ceil(0.75 * mcq + 0.25 * (rec.llm_raw_100 or 0.0)))
+            if rec.llm_state == "scored":
+                rec.ab_final_pct = round(rec.llm_raw_100 or 0.0, 2)
             else:
                 rec.ab_final_pct = float(math.ceil(mcq))
 
@@ -1264,16 +1436,15 @@ class EtpAssessmentResponse(models.Model):
         in Settings re-decides pass/fail for every already-scored answer without
         re-running the LLM. EQUAL MARKS: max is always 1, mark is 1 when the raw
         score clears the threshold else 0 (a gated/zero answer fails)."""
-        threshold = self._subjective_threshold_100()
         for rec in self:
+            raw_t = rec.assessment_id.subjective_threshold
+            threshold = raw_t if 0.0 <= raw_t <= 100.0 \
+                else DEFAULT_SUBJECTIVE_THRESHOLD
             if rec.question_id.question_type == "image_ab":
-                # image_ab's mark is its blended (verdict + justification) score
-                # vs the threshold. The verdict part is objective and known at
-                # submit; the justification part (when required) is the LLM raw.
-                final = rec.ab_final_pct or 0.0
-                rec.llm_raw_score = round(final / 100.0, 4)
+                raw100 = rec.llm_raw_100 or 0.0
+                rec.llm_raw_score = round(raw100 / 100.0, 4)
                 rec.llm_max_score = 1
-                passed = rec.llm_state == "scored" and final >= threshold
+                passed = rec.llm_state == "scored" and raw100 >= threshold
                 rec.llm_passed = passed
                 rec.llm_score = 1 if passed else 0
                 continue
@@ -1286,8 +1457,6 @@ class EtpAssessmentResponse(models.Model):
             raw100 = rec.llm_raw_100 or 0.0
             rec.llm_raw_score = round(raw100 / 100.0, 4)
             rec.llm_max_score = 1
-            # Only a SCORED answer can pass; pending/error/failed earn 0 but
-            # still count against the candidate (max stays 1).
             passed = rec.llm_state == "scored" and raw100 >= threshold
             rec.llm_passed = passed
             rec.llm_score = 1 if passed else 0
@@ -1303,34 +1472,25 @@ class EtpAssessmentResponse(models.Model):
     @api.depends("question_id", "question_id.question_type", "justification",
                  "line_ids.selected_option_id")
     def _compute_scoring_kind(self):
-        # EQUAL MARKS: has_objective = mcq/msq (code-marked); needs_llm =
-        # subjective_* and image_ab/image_text (LLM-marked, not code-objective).
         for rec in self:
             qtype = rec.question_id.question_type
             rec.has_objective = qtype in ("mcq", "msq")
             just = (rec.justification or "").strip()
             is_placeholder = just.startswith("[Auto-submitted")
             if qtype == "image_ab":
-                # The image_ab answer IS the per-axis verdicts (line_ids); the
-                # justification is supplementary. Grade it whenever verdicts
-                # exist and never gate on the justification — a verdicts-only
-                # answer MUST still be scored (LLM grades verdict match + any
-                # justification). Auto-submitted placeholders stay ungraded.
                 rec.needs_llm = bool(rec.line_ids) and not is_placeholder
             else:
                 rec.needs_llm = (
-                    qtype in ("subjective_justification", "subjective_rubric",
-                              "image_text")
+                    qtype in ("subjective_rubric",
+                              "image_prompt", "image_label", "video_prompt")
                     and bool(just)
                     and not is_placeholder
                 )
 
-    @api.depends("line_ids.selected_option_id",
+    @api.depends("line_ids.selected_option_id", "line_ids.question_dimension_id",
                  "question_id.question_type",
                  "question_id.question_dimension_ids.option_line_ids.is_correct")
     def _compute_score(self):
-        # EQUAL MARKS, all-or-nothing: mcq/msq score 1 only if chosen master
-        # option set exactly equals the correct set; others are 0/0 (LLM-marked).
         for rec in self:
             qtype = rec.question_id.question_type
             if qtype not in ("mcq", "msq"):
@@ -1340,22 +1500,19 @@ class EtpAssessmentResponse(models.Model):
             objective_dims = rec.question_id.question_dimension_ids.filtered(
                 lambda qd: qd.option_line_ids.filtered("is_correct"))
             if not objective_dims:
-                # Mis-keyed question (no correct option): score 0/1 (not 0/0) so
-                # it still counts against the candidate rather than vanishing.
                 rec.score = 0
                 rec.max_score = 1
                 continue
             all_correct = True
             for qd in objective_dims:
                 correct_for_dim = {
-                    ol.master_option_id.id
-                    for ol in qd.option_line_ids.filtered("is_correct")
-                    if ol.master_option_id}
+                    ol.id
+                    for ol in qd.option_line_ids.filtered("is_correct")}
                 chosen_for_dim = {
                     line.selected_option_id.id
                     for line in rec.line_ids
                     if line.selected_option_id
-                    and line.dimension_id.id == qd.dimension_id.id}
+                    and line.question_dimension_id.id == qd.id}
                 if chosen_for_dim != correct_for_dim:
                     all_correct = False
                     break
@@ -1371,27 +1528,22 @@ class EtpAssessmentResponse(models.Model):
                 raise UserError(
                     "This assessment is already locked. Cannot modify responses.")
             qtype = rec.question_id.question_type
-            # image_text is hybrid: always needs the written response, and also
-            # needs a pick per gate dimension only when the question carries any.
             has_dims = bool(rec.question_id.question_dimension_ids)
             if qtype in ("mcq", "msq", "image_ab") and not rec.line_ids:
                 raise UserError(
                     "Please answer at least one dimension before submitting.")
-            if qtype in ("subjective_justification", "subjective_rubric",
-                         "image_text") \
+            if qtype in ("subjective_rubric",
+                         "image_prompt", "image_label", "video_prompt") \
                     and not (rec.justification or "").strip():
                 raise UserError(
                     "Please provide a justification before submitting.")
-            if qtype == "image_text" and has_dims and not rec.line_ids:
+            if qtype in ("image_prompt", "image_label") and has_dims \
+                    and not rec.line_ids:
                 raise UserError(
                     "Please answer the multiple-choice checks before "
                     "submitting.")
             rec.write({"state": "submitted"})
 
-            # Queue subjective scoring on submit — NEVER scored inline on the
-            # candidate's path. image_ab ALWAYS enqueues (its verdicts are the
-            # answer, even with a blank justification); the others only when a
-            # justification was written.
             if qtype == "image_ab" or (rec.justification or "").strip():
                 rec._enqueue_subjective_scoring()
 
@@ -1403,15 +1555,17 @@ class EtpAssessmentResponse(models.Model):
         inline on the candidate's submit — it is admin-triggered (Run Subjective
         Evaluation) and drained by the cron in batches of 20. If the assessment
         opts into auto-queue (llm_auto_score), flag the evaluator so the cron
-        picks it up next tick — still batched, never on the candidate's path."""
+        picks it up next tick — still batched, never on the candidate's path.
+
+        A verdict-only image_ab (toggle off, or a blank justification) needs no
+        Vertex call: its deterministic verdict score is settled here and stored
+        as the immutable llm_raw_100 through the scorer's single-write path."""
+        from ..services import scoring as scoring_svc
         auto_eval_ids = set()
         repend_eval_ids = set()
         for rec in self:
             qtype = rec.question_id.question_type
             if qtype == "image_ab":
-                # Verdicts are objective (scored now). Only an answer that needs
-                # the LLM (required + non-blank justification) is deferred;
-                # verdict-only answers are fully determined at submit -> scored.
                 if not rec.line_ids:
                     rec.llm_state = "not_needed"
                 elif rec._image_ab_uses_llm():
@@ -1421,7 +1575,9 @@ class EtpAssessmentResponse(models.Model):
                         if rec.assessment_id.llm_auto_score:
                             auto_eval_ids.add(rec.assessment_evaluator_id.id)
                 else:
-                    rec.llm_state = "scored"
+                    scoring_svc._store_ab_verdict_only(rec)
+                    if rec.assessment_evaluator_id:
+                        repend_eval_ids.add(rec.assessment_evaluator_id.id)
                 continue
             if not (rec.justification or "").strip() or not rec.needs_llm:
                 rec.llm_state = "not_needed"
@@ -1434,9 +1590,6 @@ class EtpAssessmentResponse(models.Model):
         if auto_eval_ids:
             self.env["etp.assessment.pro.evaluator"].browse(
                 auto_eval_ids).write({"scoring_requested": True})
-        # A response moved (back) to 'pending' must re-derive its evaluator's
-        # rollup: the cron/auto path gates on the evaluator's stored llm_state,
-        # so an already-'scored' candidate would otherwise never be re-graded.
         if repend_eval_ids:
             self.env["etp.assessment.pro.evaluator"].browse(
                 repend_eval_ids)._compute_subjective_rollup()
@@ -1444,10 +1597,6 @@ class EtpAssessmentResponse(models.Model):
     def _check_all_submitted(self):
         evaluator = self.assessment_evaluator_id
         if not evaluator:
-            return
-        # Multi-day path: rollup is driven by day.session._rollup_day_score,
-        # don't flip the evaluator here.
-        if self.day_session_id:
             return
         total_expected = evaluator.total_questions
         submitted_count = self.env["etp.assessment.pro.response"].search_count([
@@ -1480,12 +1629,11 @@ class EtpAssessmentResponseLine(models.Model):
 
     response_id = fields.Many2one(
         "etp.assessment.pro.response", required=True, ondelete="cascade")
-    dimension_id = fields.Many2one(
-        "etp.assessment.pro.dimension", required=True, ondelete="restrict")
-    # References the MASTER option; portal submits master IDs and _compute_score
-    # compares against question.dimension.option_line.master_option_id.
+    question_dimension_id = fields.Many2one(
+        "etp.assessment.pro.question.dimension",
+        string="Dimension", required=True, ondelete="restrict")
     selected_option_id = fields.Many2one(
-        "etp.assessment.pro.dimension.option",
+        "etp.assessment.pro.question.dimension.option",
         string="Selected Option",
         ondelete="restrict",
     )

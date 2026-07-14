@@ -1,0 +1,2628 @@
+/* ETP Assessment — backend (admin) polish.
+
+   A premium, cohesive design layer for this module's own admin screens.
+   EVERYTHING visual is scoped under `.o_etp_backend`, a class hook added to
+   this module's top-level form / list / settings roots (it lands on the
+   `.o_form_renderer` / `.o_list_renderer` via the arch `class` attribute), so
+   unrelated Odoo apps are NEVER touched. Only the pre-existing sheet-width
+   helpers below stay global (they were already relied on by the wide /
+   evaluator forms). Mirrors the candidate portal: charcoal ink + vivid
+   indigo/violet accent, layered soft elevation, calm motion. */
+
+/* ---- existing wide-form helpers (unchanged) ---------------------------- */
+.o_etp_wide_form,
+.o_etp_evaluator_form {
+    .o_form_sheet_bg {
+        max-width: none !important;
+        margin-right: 0 !important;
+    }
+    .o_form_sheet {
+        max-width: none !important;
+    }
+}
+
+.modal-dialog:has(.o_etp_evaluator_form) {
+    max-width: 1400px;
+    width: 92vw;
+}
+
+/* =======================================================================
+   DESIGN TOKENS (mirror the portal accent + elevation scale)
+   ======================================================================= */
+.o_etp_backend {
+    --etp-accent:        #5b4be6;
+    --etp-accent-600:    #4a3ad1;
+    --etp-accent-700:    #3b2fa8;
+    --etp-accent-400:    #8b7bff;
+    --etp-accent-soft:   #efedfe;
+    --etp-accent-softer: #f6f5ff;
+    --etp-accent-ring:   rgba(91, 75, 230, 0.28);
+    --etp-accent-grad:   linear-gradient(135deg, #6a5bf0 0%, #4a3ad1 100%);
+    --etp-ink:           #12141c;
+    --etp-ink-700:       #1b1e29;
+    --etp-bg:            #f4f5fb;
+    --etp-surface:       #ffffff;
+    --etp-surface-2:     #fbfbfe;
+    --etp-text:          #14161f;
+    --etp-muted:         #565d6e;
+    --etp-faint:         #7c8395;
+    --etp-border:        #e8eaf3;
+    --etp-border-strong: #d5d9e6;
+
+    --etp-pass:          #1c9c5b;
+    --etp-fail:          #d64545;
+
+    --etp-radius:        16px;
+    --etp-radius-sm:     11px;
+    --etp-radius-xs:     8px;
+    --etp-shadow-sm:     0 1px 2px rgba(18, 20, 28, 0.05),
+                         0 8px 20px -14px rgba(30, 24, 80, 0.22);
+    --etp-shadow:        0 1px 2px rgba(18, 20, 28, 0.05),
+                         0 20px 46px -26px rgba(30, 24, 80, 0.34);
+    --etp-shadow-accent: 0 10px 22px -12px rgba(91, 75, 230, 0.6);
+    --etp-ease:          cubic-bezier(0.4, 0, 0.2, 1);
+    --etp-fast:          0.14s;
+}
+
+/* =======================================================================
+   FORM — sheet becomes a floating card; roomier, calmer rhythm
+   ======================================================================= */
+.o_etp_backend.o_form_view,
+.o_etp_backend .o_form_view,
+.o_etp_backend.o_form_renderer {
+    .o_form_sheet_bg {
+        background:
+            radial-gradient(900px 340px at 50% -8%, var(--etp-accent-softer) 0%, rgba(244, 245, 251, 0) 60%),
+            var(--etp-bg);
+        padding-top: 18px;
+        padding-bottom: 26px;
+        border-top: 1px solid var(--etp-border);
+    }
+
+    .o_form_sheet {
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow);
+        padding: 26px 30px 30px;
+    }
+}
+
+/* title block */
+.o_etp_backend {
+    .oe_title {
+        margin-bottom: 6px;
+
+        h1, h2 {
+            input, .o_input, .o_field_char input, span {
+                font-weight: 750;
+                letter-spacing: -0.015em;
+            }
+        }
+        input.o_input, .o_field_widget input {
+            font-size: 1.65rem;
+            line-height: 1.2;
+        }
+    }
+
+    /* <separator> section labels get an accent tick + calm weight */
+    .o_horizontal_separator,
+    .o_group .o_horizontal_separator {
+        color: var(--etp-ink);
+        font-weight: 700;
+        font-size: 0.95rem;
+        letter-spacing: 0.01em;
+        text-transform: none;
+        padding-left: 13px;
+        border-left: 3px solid var(--etp-accent);
+        border-radius: 1px;
+        margin-top: 10px;
+        margin-bottom: 12px;
+    }
+
+    /* field labels — quiet, uppercase-ish, consistent */
+    .o_form_label,
+    .o_inner_group .o_form_label {
+        color: var(--etp-muted);
+        font-weight: 600;
+    }
+
+    /* text inputs / selects — accent focus ring */
+    .o_field_widget input.o_input,
+    .o_field_widget textarea.o_input,
+    .o_field_widget .o_input {
+        border-radius: var(--etp-radius-xs);
+        transition: border-color var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease);
+    }
+    .o_field_widget input.o_input:focus,
+    .o_field_widget textarea.o_input:focus,
+    .o_field_widget .o_input:focus,
+    .o_field_widget.o_field_highlight input {
+        border-color: var(--etp-accent) !important;
+        box-shadow: 0 0 0 0.18rem var(--etp-accent-ring) !important;
+        outline: none;
+    }
+
+    /* readonly url/email fields + monospace-ish tokens */
+    .o_field_widget .o_form_uri { color: var(--etp-accent-600); }
+}
+
+/* =======================================================================
+   FORM HEADER + STATUSBAR — branded ribbon
+   ======================================================================= */
+.o_etp_backend {
+    .o_form_statusbar {
+        background: linear-gradient(180deg, var(--etp-surface) 0%, var(--etp-surface-2) 100%);
+        border-bottom: 1px solid var(--etp-border);
+
+        /* the active/current stage pill */
+        .o_statusbar_status .o_arrow_button.btn-primary,
+        .o_statusbar_status .o_arrow_button.o_arrow_button_current {
+            color: var(--etp-accent-700);
+            font-weight: 700;
+        }
+        .o_statusbar_status .o_arrow_button.o_arrow_button_current::before,
+        .o_statusbar_status .o_arrow_button.o_arrow_button_current::after {
+            border-left-color: var(--etp-accent-soft);
+        }
+        .o_statusbar_status .o_arrow_button.o_arrow_button_current {
+            background-color: var(--etp-accent-soft);
+        }
+    }
+
+    /* header action buttons — gradient primary with sheen-free lift */
+    .btn-primary,
+    .o_form_statusbar .btn-primary,
+    .oe_highlight {
+        background: linear-gradient(180deg, var(--etp-accent) 0%, var(--etp-accent-600) 100%);
+        border-color: var(--etp-accent-600);
+        color: #fff;
+        font-weight: 650;
+        box-shadow: var(--etp-shadow-accent);
+        transition: background var(--etp-fast) var(--etp-ease),
+                    border-color var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease),
+                    transform var(--etp-fast) var(--etp-ease);
+
+        &:hover, &:focus, &:active {
+            background: linear-gradient(180deg, var(--etp-accent-600) 0%, var(--etp-accent-700) 100%) !important;
+            border-color: var(--etp-accent-700) !important;
+            color: #fff !important;
+            transform: translateY(-1px);
+            box-shadow: 0 14px 26px -12px rgba(91, 75, 230, 0.7) !important;
+        }
+        &:active { transform: translateY(0); }
+    }
+
+    /* secondary / outline buttons in the sheet + statusbar */
+    .btn-secondary,
+    .o_form_statusbar .btn-secondary {
+        border-radius: var(--etp-radius-xs);
+        font-weight: 600;
+        transition: background var(--etp-fast) var(--etp-ease),
+                    border-color var(--etp-fast) var(--etp-ease);
+        &:hover { border-color: var(--etp-border-strong); }
+    }
+    .btn-link { color: var(--etp-accent-600); font-weight: 600; }
+    .btn-link:hover { color: var(--etp-accent-700); }
+}
+
+/* =======================================================================
+   NOTEBOOK — modern tabs (Question Drafts / Resources / etc.)
+   ======================================================================= */
+.o_etp_backend {
+    .o_notebook {
+        .nav-tabs {
+            border-bottom: 1px solid var(--etp-border);
+            gap: 2px;
+
+            .nav-link {
+                position: relative;
+                border: 0;
+                color: var(--etp-muted);
+                font-weight: 600;
+                padding: 10px 16px;
+                border-radius: var(--etp-radius-xs) var(--etp-radius-xs) 0 0;
+                transition: color var(--etp-fast) var(--etp-ease),
+                            background var(--etp-fast) var(--etp-ease);
+
+                &::after {
+                    content: "";
+                    position: absolute;
+                    left: 12px;
+                    right: 12px;
+                    bottom: -1px;
+                    height: 2px;
+                    border-radius: 2px 2px 0 0;
+                    background: var(--etp-accent);
+                    transform: scaleX(0);
+                    transform-origin: center;
+                    transition: transform var(--etp-fast) var(--etp-ease);
+                }
+
+                &:hover {
+                    color: var(--etp-accent-600);
+                    background: var(--etp-accent-softer);
+                }
+                &.active {
+                    color: var(--etp-accent-700);
+                    font-weight: 700;
+                    background: transparent;
+                    border: 0;
+                    &::after { transform: scaleX(1); }
+                }
+            }
+        }
+    }
+}
+
+/* =======================================================================
+   NESTED CARDS — inner groups, o2m tables, alerts
+   ======================================================================= */
+.o_etp_backend {
+    /* one-2-many / embedded list frames get a soft card frame */
+    .o_field_x2many .o_list_renderer,
+    .o_field_x2many .o_list_view {
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        overflow: hidden;
+    }
+
+    .alert {
+        border-radius: var(--etp-radius-sm);
+        border-width: 1px;
+    }
+    .alert-info {
+        background: var(--etp-accent-softer);
+        border-color: rgba(91, 75, 230, 0.18);
+        color: #35306b;
+    }
+
+    /* chatter breathing room */
+    .o_chatter,
+    .o-mail-Chatter {
+        border-left: 1px solid var(--etp-border);
+    }
+}
+
+/* =======================================================================
+   QUESTION FORM — Image Evaluation tab.
+   S3-offloaded pictures have an empty Binary and only a `*_url` char, so
+   they now render through the native `image_url` widget (an <img> from the
+   URL). These rules only FRAME + space the thumbnails, style the action
+   toolbar, and turn the Answer-Key (JSON) block into a soft code card —
+   presentational only, all scoped under `.o_etp_backend`.
+   ======================================================================= */
+.o_etp_backend {
+    /* info banner: icon + copy on one tidy row */
+    .etp-imgeval-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+
+        i {
+            margin-top: 2px;
+            color: var(--etp-accent);
+            font-size: 1rem;
+        }
+    }
+
+    /* the two action buttons sit on their own toolbar strip */
+    .etp-imgeval-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 4px 0 14px;
+    }
+
+    .etp-imgeval {
+        /* lift the embedded image_ids list to match other module tables */
+        .o_field_x2many .o_list_renderer {
+            box-shadow: var(--etp-shadow-sm);
+        }
+        .o_list_table thead th {
+            background: linear-gradient(180deg, #f7f8fc 0%, #eef0fb 100%);
+        }
+        .o_list_table tbody td.o_data_cell {
+            vertical-align: middle;
+        }
+
+        /* both the Binary `image` widget and the URL `image_url` widget
+           render an <img>; frame whichever one has data as a neat thumb */
+        .o_field_image img,
+        .o_field_image_url img {
+            border-radius: var(--etp-radius-xs);
+            border: 1px solid var(--etp-border);
+            background: var(--etp-surface-2);
+            object-fit: cover;
+            box-shadow: 0 1px 2px rgba(18, 20, 28, 0.06);
+            transition: transform var(--etp-fast) var(--etp-ease),
+                        box-shadow var(--etp-fast) var(--etp-ease);
+        }
+        .o_field_image img:hover,
+        .o_field_image_url img:hover {
+            transform: scale(1.04);
+            box-shadow: var(--etp-shadow-sm);
+        }
+        /* the image_url widget's broken/placeholder fallback stays quiet */
+        .o_field_image_url {
+            display: inline-flex;
+            align-items: center;
+        }
+    }
+
+    /* Answer-Key (JSON) reads as a soft code card */
+    .etp-akey {
+        background: var(--etp-surface-2);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        padding: 12px 14px;
+        margin-top: 8px;
+
+        textarea.o_input {
+            font-family: ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace;
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+    }
+}
+
+/* =======================================================================
+   LIST VIEWS — crisper header, row rhythm, hover, badges
+   ======================================================================= */
+.o_etp_backend.o_list_renderer,
+.o_etp_backend .o_list_renderer,
+.o_etp_backend.o_list_view,
+.o_etp_backend .o_list_view {
+    .o_list_table {
+        thead th {
+            background: linear-gradient(180deg, #f7f8fc 0%, #f2f3fb 100%);
+            color: var(--etp-muted);
+            font-weight: 700;
+            font-size: 0.78rem;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--etp-border) !important;
+            padding-top: 12px;
+            padding-bottom: 12px;
+        }
+        thead th.o_column_sortable:hover { color: var(--etp-accent-600); }
+
+        tbody tr.o_data_row {
+            transition: background var(--etp-fast) var(--etp-ease),
+                        box-shadow var(--etp-fast) var(--etp-ease);
+
+            td { border-color: var(--etp-border) !important; }
+
+            &:hover {
+                background: var(--etp-accent-softer);
+                box-shadow: inset 3px 0 0 0 var(--etp-accent);
+            }
+            &.o_data_row_selected {
+                background: var(--etp-accent-soft);
+                box-shadow: inset 3px 0 0 0 var(--etp-accent);
+            }
+        }
+
+        /* group / total rows */
+        tbody tr.o_group_header {
+            background: var(--etp-surface-2);
+            font-weight: 700;
+            color: var(--etp-text);
+        }
+    }
+
+    /* footer sums */
+    tfoot { font-weight: 700; color: var(--etp-text); border-top: 2px solid var(--etp-border); }
+}
+
+/* =======================================================================
+   LLM USAGE / BUDGET LIST — the token/cost ledger.
+   The <list class="o_etp_backend o_etp_llm_usage"> lands both classes on
+   the list renderer root, so `.o_etp_backend.o_etp_llm_usage` IS that root.
+   Numbers read as a tidy monospaced ledger; the Est. Cost column is the
+   headline, so it gets accent weight in cells, header, and the total row.
+   ======================================================================= */
+.o_etp_backend.o_etp_llm_usage {
+    .o_list_table {
+        /* every numeric column aligns on the decimal, ledger-style */
+        td.o_list_number,
+        tfoot td.o_list_number {
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
+            letter-spacing: 0.01em;
+        }
+
+        /* Est. Cost (USD) is the headline metric — accent + weight.
+           Odoo tags the header th with data-name and each body/foot td
+           with name, so we can pick the column out precisely. */
+        thead th[data-name='cost_usd'] {
+            color: var(--etp-accent-600);
+        }
+        tbody td[name='cost_usd'] {
+            font-weight: 700;
+            color: var(--etp-accent-600);
+        }
+
+        /* the decoration-bf on cost_usd bolds the cell in every theme;
+           lift it a touch further with the accent tint */
+        tbody td[name='cost_usd'].fw-bold {
+            color: var(--etp-accent-600);
+        }
+
+        /* subtle total-row emphasis: the ledger's bottom line stands out */
+        tfoot {
+            background: var(--etp-surface-2);
+
+            td[name='cost_usd'] {
+                font-weight: 800;
+                color: var(--etp-accent-600);
+            }
+        }
+    }
+}
+
+/* =======================================================================
+   BADGES / PILLS — state, difficulty, type fields shown as badges
+   ======================================================================= */
+.o_etp_backend {
+    .o_field_badge .badge,
+    .o_field_badge > span,
+    .badge {
+        border-radius: 999px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        padding: 0.38em 0.74em;
+    }
+
+    /* Only the "neutral"/decorated selection badges (no semantic bg colour)
+       pick up the accent tint — semantic pass/fail (success/danger/warning)
+       keep their meaning. */
+    .o_field_badge .badge:not([class*="bg-"]):not([class*="text-bg-"]) {
+        background: var(--etp-accent-soft);
+        color: var(--etp-accent-700);
+    }
+}
+
+/* =======================================================================
+   SETTINGS — this module's <app> block styled as tidy cards
+   (the app node carries `.o_etp_backend`; scope everything under it)
+   ======================================================================= */
+.o_etp_backend.o_setting_container,
+.o_etp_backend .o_setting_container,
+.app_settings_block.o_etp_backend {
+    .o_setting_box {
+        border-radius: var(--etp-radius-sm);
+        transition: background var(--etp-fast) var(--etp-ease);
+        &:hover { background: var(--etp-accent-softer); }
+    }
+    .o_form_label { font-weight: 600; }
+    h2, .o_setting_container_title {
+        color: var(--etp-ink);
+        font-weight: 750;
+    }
+}
+
+/* =======================================================================
+   KANBAN — premium product cards (Assessments + Questions)
+   The <kanban class="o_etp_backend"> lands on the kanban renderer root,
+   so every selector below is already scoped to this module's boards.
+   Fields are only restyled/rearranged — nothing new is bound.
+   ======================================================================= */
+.o_etp_backend.o_kanban_renderer,
+.o_etp_backend .o_kanban_renderer {
+    background: transparent;
+
+    /* group column titles read cleanly on the light board */
+    .o_kanban_header .o_column_title,
+    .o_kanban_group .o_kanban_header_title {
+        color: var(--etp-ink);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+    }
+
+    /* ungrouped boards flow as a full-width responsive card grid instead of a
+       single left-pinned column (leaderboard opts out — it stacks full-width) */
+    &.o_kanban_ungrouped:not(.o_etp_leaderboard),
+    .o_kanban_renderer.o_kanban_ungrouped:not(.o_etp_leaderboard) {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 16px;
+        align-items: start;
+    }
+}
+
+.o_etp_backend {
+    /* strip Odoo's default tile chrome so our inner card owns the look */
+    .o_kanban_record {
+        padding: 0;
+        margin-bottom: 10px;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        border-radius: var(--etp-radius);
+        overflow: visible;
+
+        &::after { display: none; }          /* kill default hover outline */
+        &:focus, &:focus-within { outline: none; }
+    }
+
+    /* the card itself — crisp light surface, indigo accents */
+    .etp-kanban-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 24px 26px 22px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+        overflow: hidden;
+        transition: transform var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease),
+                    border-color var(--etp-fast) var(--etp-ease);
+
+        /* accent header strip */
+        .etp-kc-accent {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 6px;
+            background: var(--etp-accent-grad);
+        }
+
+        &:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--etp-shadow);
+            border-color: var(--etp-border-strong);
+        }
+    }
+
+    /* head row: title + state pill */
+    .etp-kc-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 2px;
+
+        .badge { flex: 0 0 auto; white-space: nowrap; }
+    }
+
+    .etp-kc-title {
+        display: block;
+        font-weight: 750;
+        font-size: 1.2rem;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
+        color: var(--etp-ink);
+    }
+
+    /* sub line (category chip) */
+    .etp-kc-sub {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        color: var(--etp-muted);
+        font-weight: 600;
+        font-size: 0.85rem;
+
+        i { color: var(--etp-accent-400); }
+        .o_field_widget {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    /* stat chip row (assessment card) */
+    .etp-kc-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 6px;
+        padding-top: 16px;
+        border-top: 1px solid var(--etp-border);
+    }
+
+    .etp-kc-stat {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        border: 1px solid var(--etp-border);
+        color: var(--etp-text);
+        font-weight: 700;
+        font-size: 0.9rem;
+        line-height: 1;
+
+        i { color: var(--etp-accent); font-size: 0.88rem; }
+        .o_field_widget { font-weight: 700; }
+    }
+
+    /* tag row (question card) */
+    .etp-kc-tags {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-top: 2px;
+    }
+}
+
+/* =======================================================================
+   EVALUATOR — "Result Summary" reimagined as a PROGRESS DASHBOARD
+   (score ring + stat cards + progress bars + details card). Every
+   selector is nested under `.o_etp_backend`, so nothing leaks. Only
+   native widgets (percentpie / progressbar / badge) are used; the pie
+   is masked into a donut ring purely in CSS.
+   ======================================================================= */
+.o_etp_backend {
+    .etp-dash {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        margin-top: 6px;
+    }
+
+    /* ---- hero header band --------------------------------------------- */
+    .etp-dash-head {
+        position: relative;
+        overflow: hidden;
+        padding: 30px 32px;
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        background:
+            radial-gradient(120% 160% at 100% -30%, rgba(139, 123, 255, 0.20) 0%, rgba(139, 123, 255, 0) 55%),
+            radial-gradient(90% 140% at -5% 130%, rgba(74, 58, 209, 0.22) 0%, rgba(74, 58, 209, 0) 60%),
+            var(--etp-accent-grad);
+        box-shadow: var(--etp-shadow-accent), var(--etp-shadow-sm);
+        color: #fff;
+        isolation: isolate;
+
+        /* fine hairline grid / mesh texture over the accent wash */
+        &::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+            background-size: 26px 26px;
+            -webkit-mask: radial-gradient(120% 120% at 100% 0%, #000 0%, transparent 70%);
+                    mask: radial-gradient(120% 120% at 100% 0%, #000 0%, transparent 70%);
+        }
+    }
+    .etp-dash-head-glow {
+        position: absolute;
+        top: -60%;
+        right: -8%;
+        width: 320px;
+        height: 320px;
+        z-index: -1;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 68%);
+        pointer-events: none;
+    }
+    .etp-dash-head-inner {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+    }
+    .etp-dash-head-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        align-self: flex-start;
+        padding: 5px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        backdrop-filter: blur(4px);
+        font-size: 0.68rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: rgba(255, 255, 255, 0.95);
+
+        i { font-size: 0.72rem; color: #ffe37a; }
+    }
+    .etp-dash-head-title {
+        margin: 4px 0 0;
+        font-size: 2rem;
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+        color: #fff;
+        text-shadow: 0 2px 16px rgba(20, 12, 60, 0.30);
+    }
+    .etp-dash-head-sub {
+        font-size: 0.9rem;
+        font-weight: 500;
+        letter-spacing: 0.005em;
+        color: rgba(255, 255, 255, 0.82);
+    }
+
+    /* ---- hero: ring + stat grid --------------------------------------- */
+    .etp-dash-hero {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 22px;
+        padding: 22px 24px;
+        background:
+            radial-gradient(680px 220px at 12% -20%, var(--etp-accent-softer) 0%, rgba(246, 245, 255, 0) 62%),
+            var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+    }
+
+    /* score ring block */
+    .etp-dash-ring {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        flex: 0 0 auto;
+        min-width: 190px;
+        padding-right: 24px;
+        border-right: 1px solid var(--etp-border);
+
+        .o_field_percent_pie {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+
+        /* enlarge + recolour the native pie, then mask it into a donut */
+        .o_pie {
+            --PercentPieField-size: 174px;
+            --PercentPieField-color-active: var(--etp-accent);
+            --PercentPieField-color-static: var(--etp-accent-soft);
+            --PercentPieField-gap: 0;
+            margin: 0 !important;
+            filter: drop-shadow(0 10px 20px rgba(91, 75, 230, 0.26));
+            -webkit-mask: radial-gradient(farthest-side,
+                transparent calc(100% - 18px), #000 calc(100% - 17px));
+                    mask: radial-gradient(farthest-side,
+                transparent calc(100% - 18px), #000 calc(100% - 17px));
+        }
+
+        /* value + caption centred inside the ring hole */
+        .o_pie_info {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            text-align: center;
+            pointer-events: none;
+        }
+        .o_pie_value {
+            font-size: 2.15rem;
+            font-weight: 800;
+            line-height: 1;
+            letter-spacing: -0.03em;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
+            color: var(--etp-ink);
+        }
+        .o_pie_text {
+            display: block;              /* default is display:none */
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: var(--etp-muted);
+        }
+
+        .etp-dash-ring-foot {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+
+            .badge { font-size: 0.82rem; padding: 0.4em 0.9em; }
+        }
+        .etp-dash-thr {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--etp-faint);
+
+            .o_field_widget { display: inline; font-weight: 700; color: var(--etp-muted); }
+        }
+    }
+
+    /* stat cards grid */
+    .etp-stat-grid {
+        flex: 1 1 380px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 14px;
+        align-content: center;
+    }
+
+    .etp-stat-card {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 16px 18px;
+        background:
+            linear-gradient(180deg, var(--etp-surface) 0%, var(--etp-surface-2) 100%);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        box-shadow: var(--etp-shadow-sm);
+        overflow: hidden;
+        transition: transform var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease),
+                    border-color var(--etp-fast) var(--etp-ease);
+
+        /* hairline top accent, revealed on hover */
+        &::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--etp-accent-grad);
+            opacity: 0;
+            transform: scaleX(0.4);
+            transform-origin: left;
+            transition: opacity var(--etp-fast) var(--etp-ease),
+                        transform var(--etp-fast) var(--etp-ease);
+        }
+
+        &:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--etp-shadow);
+            border-color: var(--etp-border-strong);
+
+            &::before { opacity: 1; transform: scaleX(1); }
+        }
+    }
+
+    .etp-stat-ico {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        background: var(--etp-accent-soft);
+        color: var(--etp-accent);
+        font-size: 1.05rem;
+
+        &.etp-ico-subj  { background: #eef4ff; color: #2f6bd6; }
+        &.etp-ico-answered { background: #e9f9f0; color: #1c9c5b; }
+        &.etp-ico-warn  { background: #fff3e2; color: #d98217; }
+    }
+
+    .etp-stat-body { min-width: 0; }
+
+    .etp-stat-num {
+        display: flex;
+        align-items: baseline;
+        gap: 5px;
+        font-size: 1.55rem;
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        color: var(--etp-ink);
+
+        .o_field_widget { font-weight: 800; font-variant-numeric: tabular-nums; }
+    }
+    .etp-stat-den {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: var(--etp-faint);
+
+        .o_field_widget { font-weight: 700; color: var(--etp-faint); }
+    }
+    .etp-stat-cap {
+        margin-top: 3px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--etp-muted);
+    }
+    .etp-stat-warn {
+        .etp-stat-num, .etp-stat-num .o_field_widget { color: #b96a0c; }
+        &::before { background: linear-gradient(135deg, #f0a63a 0%, #d98217 100%); }
+    }
+
+    .etp-dash-rings {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 22px;
+        width: 100%;
+
+        .etp-dash-ring {
+            border-right: 0;
+            padding-right: 0;
+            min-width: 0;
+        }
+    }
+    .etp-ico-fail { background: #fdecec; color: #d64545; }
+    .etp-stat-good {
+        .etp-stat-num, .etp-stat-num .o_field_widget { color: #1c9c5b; }
+        &::before { background: linear-gradient(135deg, #34c47e 0%, #1c9c5b 100%); }
+    }
+    .etp-stat-bad {
+        .etp-stat-num, .etp-stat-num .o_field_widget { color: #d64545; }
+        &::before { background: linear-gradient(135deg, #e96a6a 0%, #d64545 100%); }
+    }
+
+    /* ---- progress bars ------------------------------------------------ */
+    .etp-dash-bars {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 20px 24px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+    }
+    .etp-bar-row {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        align-items: center;
+        gap: 16px;
+
+        .etp-bar-label {
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--etp-muted);
+            i { color: var(--etp-accent-400); margin-right: 6px; }
+        }
+
+        /* let the native progressbar span the row + taller track */
+        .o_field_progressbar {
+            width: 100%;
+            .o_progressbar, .progress {
+                width: 100% !important;
+                height: 22px;
+                border-radius: 999px;
+                background: var(--etp-accent-softer);
+                box-shadow: inset 0 1px 2px rgba(30, 24, 80, 0.08);
+                overflow: hidden;
+            }
+            .o_progressbar_value, .progress-bar {
+                background:
+                    linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 48%),
+                    var(--etp-accent-grad) !important;
+                font-weight: 800;
+                font-variant-numeric: tabular-nums;
+                border-radius: 999px;
+                box-shadow: 0 2px 6px -1px rgba(91, 75, 230, 0.45);
+            }
+            .o_progressbar_complete { color: var(--etp-muted); font-weight: 700; }
+        }
+    }
+
+    /* ---- secondary details card --------------------------------------- */
+    .etp-dash-meta {
+        padding: 6px 22px 14px;
+        background: var(--etp-surface-2);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+
+        .o_horizontal_separator { margin-top: 6px; }
+    }
+
+    /* ---- polished Score-Details table (embedded o2m) ------------------ */
+    .o_notebook .o_field_x2many {
+        .o_list_renderer {
+            box-shadow: var(--etp-shadow-sm);
+        }
+        .o_list_table thead th {
+            background: linear-gradient(180deg, #f7f8fc 0%, #eef0fb 100%);
+        }
+    }
+
+    /* ---- CSS charts (computed HTML fields) ---------------------------- */
+    .etp-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 18px;
+    }
+    .etp-chart-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 20px 22px;
+        background:
+            radial-gradient(140% 90% at 0% 0%, var(--etp-accent-softer) 0%, rgba(246, 245, 255, 0) 42%),
+            var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+        overflow: hidden;
+        transition: transform var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease),
+                    border-color var(--etp-fast) var(--etp-ease);
+
+        &:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--etp-shadow);
+            border-color: var(--etp-border-strong);
+        }
+
+        .o_field_widget, .o_field_html { width: 100%; }
+    }
+    .etp-chart-wide { grid-column: 1 / -1; }
+
+    .etp-chart-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--etp-muted);
+
+        i { color: var(--etp-accent); }
+    }
+    .etp-chart-empty {
+        padding: 18px 4px;
+        text-align: center;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--etp-faint);
+    }
+
+    /* horizontal bars — avg score per assessment */
+    .etp-cbar-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .etp-cbar-row {
+        display: grid;
+        grid-template-columns: minmax(90px, 190px) 1fr auto;
+        align-items: center;
+        gap: 12px;
+
+        &:hover .etp-cbar-fill { filter: saturate(1.12) brightness(1.03); }
+        &:hover .etp-cbar-name { color: var(--etp-ink); }
+    }
+    .etp-cbar-name {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--etp-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: color var(--etp-fast) var(--etp-ease);
+    }
+    .etp-cbar-track {
+        position: relative;
+        height: 16px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        box-shadow: inset 0 1px 2px rgba(30, 24, 80, 0.08);
+        overflow: hidden;
+    }
+    .etp-cbar-fill {
+        display: block;
+        height: 100%;
+        min-width: 3px;
+        border-radius: 999px;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0) 46%),
+            var(--etp-accent-grad);
+        box-shadow: 0 1px 5px -1px rgba(91, 75, 230, 0.5);
+        transition: filter var(--etp-fast) var(--etp-ease);
+    }
+    .etp-cbar-val {
+        min-width: 46px;
+        text-align: right;
+        font-size: 0.82rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        color: var(--etp-ink);
+    }
+
+    /* per-candidate scores chart: rows are anchors to each result */
+    .etp-cand-scores {
+        a.etp-cbar-row {
+            text-decoration: none;
+            color: inherit;
+            padding: 4px 6px;
+            border-radius: 10px;
+            transition: background var(--etp-fast) var(--etp-ease);
+
+            &:hover { background: var(--etp-accent-softer); }
+        }
+        .etp-cbar-val {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            min-width: 86px;
+        }
+    }
+
+    /* cost by project — stacked authoring/evaluation split per generator */
+    .etp-proj-hint {
+        margin-left: auto;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: none;
+        letter-spacing: 0;
+        color: var(--etp-faint);
+    }
+    .etp-proj-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+    .etp-proj-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px 14px;
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        background: var(--etp-surface-2);
+        transition: border-color var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease);
+
+        &:hover {
+            border-color: var(--etp-border-strong);
+            box-shadow: var(--etp-shadow-sm);
+        }
+    }
+    .etp-proj-row--un {
+        border-style: dashed;
+        background: repeating-linear-gradient(135deg,
+            rgba(91, 75, 230, 0.03) 0 10px, transparent 10px 20px);
+    }
+    .etp-proj-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .etp-proj-name {
+        font-size: 0.92rem;
+        font-weight: 700;
+        color: var(--etp-ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 260px;
+    }
+    .etp-proj-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    .etp-proj-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 9px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        color: var(--etp-accent-700);
+        font-size: 0.72rem;
+        font-weight: 700;
+
+        i { font-size: 0.7rem; opacity: 0.85; }
+    }
+    .etp-proj-chip--file {
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        color: var(--etp-muted);
+        font-weight: 600;
+        max-width: 240px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .etp-proj-cost {
+        margin-left: auto;
+        font-size: 0.9rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        color: var(--etp-ink);
+    }
+    .etp-proj-track {
+        display: flex;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        box-shadow: inset 0 1px 2px rgba(30, 24, 80, 0.08);
+        overflow: hidden;
+    }
+    .etp-proj-seg {
+        height: 100%;
+        min-width: 2px;
+        transition: filter var(--etp-fast) var(--etp-ease);
+
+        &:first-child { border-radius: 999px 0 0 999px; }
+        &:last-child { border-radius: 0 999px 999px 0; }
+    }
+    .etp-proj-seg--auth {
+        background: linear-gradient(90deg,
+            var(--etp-accent-400) 0%, var(--etp-accent) 100%);
+    }
+    .etp-proj-seg--eval {
+        background: linear-gradient(90deg,
+            #f0a63a 0%, #e8842b 100%);
+    }
+    .etp-proj-seg--un {
+        background: repeating-linear-gradient(45deg,
+            var(--etp-border-strong) 0 6px, var(--etp-border) 6px 12px);
+        border-radius: 999px;
+    }
+    .etp-proj-row:hover .etp-proj-seg { filter: saturate(1.12) brightness(1.03); }
+    .etp-proj-foot {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        font-size: 0.74rem;
+    }
+    .etp-proj-legend {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 700;
+        color: var(--etp-text);
+
+        &::before {
+            content: "";
+            width: 9px;
+            height: 9px;
+            border-radius: 3px;
+        }
+    }
+    .etp-proj-legend--auth::before {
+        background: var(--etp-accent);
+    }
+    .etp-proj-legend--eval::before {
+        background: #e8842b;
+    }
+    .etp-proj-foot-sp {
+        margin-left: auto;
+        color: var(--etp-faint);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* donut — pass / fail / pending */
+    .etp-donut-wrap {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        flex-wrap: wrap;
+    }
+    .etp-donut {
+        position: relative;
+        flex: 0 0 auto;
+        width: 152px;
+        height: 152px;
+        border-radius: 50%;
+        filter: drop-shadow(0 12px 22px rgba(18, 20, 28, 0.16));
+    }
+    .etp-donut-hole {
+        position: absolute;
+        inset: 26px;
+        border-radius: 50%;
+        background:
+            radial-gradient(circle at 50% 35%, var(--etp-surface) 0%, var(--etp-surface-2) 100%);
+        box-shadow: inset 0 2px 5px rgba(18, 20, 28, 0.10),
+                    0 1px 0 rgba(255, 255, 255, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        /* centered decorative label */
+        &::after {
+            content: "Results";
+            font-size: 0.62rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--etp-faint);
+        }
+    }
+    .etp-donut-legend {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+
+        li {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--etp-border);
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--etp-muted);
+
+            &:last-child { border-bottom: 0; padding-bottom: 0; }
+        }
+        b {
+            margin-left: auto;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
+            color: var(--etp-ink);
+        }
+    }
+    .etp-dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 3px;
+        flex: 0 0 auto;
+        box-shadow: 0 1px 3px rgba(18, 20, 28, 0.2);
+
+        &.etp-dot-pass    { background: var(--etp-pass); }
+        &.etp-dot-fail    { background: var(--etp-fail); }
+        &.etp-dot-pending { background: var(--etp-muted); }
+    }
+
+    /* distribution — vertical bars across score buckets */
+    .etp-dist-wrap {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        align-items: end;
+        min-height: 170px;
+    }
+    .etp-dist-col {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        height: 100%;
+        justify-content: flex-end;
+
+        &:hover .etp-dist-bar { filter: saturate(1.12) brightness(1.03); }
+        &:hover .etp-dist-count { color: var(--etp-accent); }
+    }
+    .etp-dist-count {
+        font-size: 0.95rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        color: var(--etp-ink);
+        transition: color var(--etp-fast) var(--etp-ease);
+    }
+    .etp-dist-bar-track {
+        display: flex;
+        align-items: flex-end;
+        width: 100%;
+        max-width: 54px;
+        height: 120px;
+        background: var(--etp-accent-softer);
+        border-radius: var(--etp-radius-xs);
+        box-shadow: inset 0 1px 2px rgba(30, 24, 80, 0.08);
+        overflow: hidden;
+    }
+    .etp-dist-bar {
+        display: block;
+        width: 100%;
+        min-height: 3px;
+        border-radius: var(--etp-radius-xs) var(--etp-radius-xs) 0 0;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 40%),
+            var(--etp-accent-grad);
+        box-shadow: 0 -1px 6px -1px rgba(91, 75, 230, 0.4);
+        transition: filter var(--etp-fast) var(--etp-ease);
+    }
+    .etp-dist-label {
+        font-size: 0.68rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+        color: var(--etp-muted);
+    }
+
+    /* ---- detail row: performance breakdown + recent submissions ------- */
+    .etp-detail-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+        gap: 18px;
+    }
+
+    /* per-assessment performance table */
+    .etp-brk {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .etp-brk-head,
+    .etp-brk-row {
+        display: grid;
+        grid-template-columns:
+            minmax(0, 1.4fr) 48px 48px minmax(90px, 1fr) 52px;
+        align-items: center;
+        gap: 10px;
+    }
+    .etp-brk-head {
+        padding: 0 10px 8px;
+        border-bottom: 1px solid var(--etp-border);
+        font-size: 0.66rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--etp-faint);
+
+        .etp-brk-c-num { text-align: right; }
+    }
+    .etp-brk-row {
+        padding: 9px 10px;
+        border-radius: var(--etp-radius-xs);
+        text-decoration: none;
+        color: inherit;
+        transition: background var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease);
+
+        &:hover {
+            background: var(--etp-accent-softer);
+            box-shadow: inset 2px 0 0 var(--etp-accent);
+
+            .etp-brk-name { color: var(--etp-accent-700); }
+            .etp-brk-bar-fill { filter: saturate(1.12) brightness(1.03); }
+        }
+    }
+    .etp-brk-name {
+        font-size: 0.84rem;
+        font-weight: 600;
+        color: var(--etp-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: color var(--etp-fast) var(--etp-ease);
+    }
+    .etp-brk-num {
+        text-align: right;
+        font-size: 0.82rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        color: var(--etp-ink);
+    }
+    .etp-brk-avg { color: var(--etp-accent-700); }
+    .etp-brk-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .etp-brk-bar-track {
+        position: relative;
+        flex: 1 1 auto;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        box-shadow: inset 0 1px 2px rgba(30, 24, 80, 0.08);
+        overflow: hidden;
+    }
+    .etp-brk-bar-fill {
+        display: block;
+        height: 100%;
+        min-width: 3px;
+        border-radius: 999px;
+        background:
+            linear-gradient(90deg, var(--etp-pass) 0%, #35b473 100%);
+        transition: filter var(--etp-fast) var(--etp-ease);
+    }
+    .etp-brk-bar-pct {
+        flex: 0 0 auto;
+        min-width: 38px;
+        text-align: right;
+        font-size: 0.76rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        color: var(--etp-muted);
+    }
+    .etp-brk-empty,
+    .etp-feed-empty {
+        padding: 26px 16px;
+        text-align: center;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--etp-faint);
+        border: 1px dashed var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+    }
+
+    /* recent submissions feed */
+    .etp-feed {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .etp-feed-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px;
+        border-radius: var(--etp-radius-xs);
+        text-decoration: none;
+        color: inherit;
+        transition: background var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease);
+
+        & + .etp-feed-row { border-top: 1px solid var(--etp-border); }
+
+        &:hover {
+            background: var(--etp-accent-softer);
+            box-shadow: inset 2px 0 0 var(--etp-accent);
+            border-top-color: transparent;
+
+            .etp-feed-name { color: var(--etp-accent-700); }
+        }
+    }
+    .etp-feed-main {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+    .etp-feed-name {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--etp-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: color var(--etp-fast) var(--etp-ease);
+    }
+    .etp-feed-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.76rem;
+        font-weight: 500;
+        color: var(--etp-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .etp-feed-date {
+        position: relative;
+        padding-left: 8px;
+        color: var(--etp-faint);
+        font-variant-numeric: tabular-nums;
+
+        &::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: calc(50% - 2px);
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: var(--etp-border-strong);
+        }
+    }
+    .etp-feed-end {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 0 0 auto;
+    }
+    .etp-feed-score {
+        font-size: 0.86rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        color: var(--etp-ink);
+    }
+    .etp-feed-pill {
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        box-shadow: var(--etp-shadow-sm);
+
+        &.etp-feed-pill-pass {
+            background: rgba(28, 156, 91, 0.12);
+            color: var(--etp-pass);
+        }
+        &.etp-feed-pill-fail {
+            background: rgba(214, 69, 69, 0.12);
+            color: var(--etp-fail);
+        }
+        &.etp-feed-pill-pending {
+            background: var(--etp-accent-softer);
+            color: var(--etp-muted);
+        }
+    }
+
+    @media (max-width: 900px) {
+        .etp-detail-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+        .etp-brk-head { display: none; }
+        .etp-brk-row {
+            grid-template-columns: minmax(0, 1fr) 44px;
+            grid-auto-rows: auto;
+            row-gap: 8px;
+
+            .etp-brk-bar { grid-column: 1 / -1; }
+        }
+    }
+}
+
+/* =======================================================================
+   DASHBOARD — entrance choreography (respects reduced-motion).
+   Cards rise/fade with a stagger; bars and rings grow into place via
+   clip-path (no layout thrash). Wrapped in no-preference so motion-
+   sensitive users get the static, fully-rendered dashboard.
+   ======================================================================= */
+@keyframes etp-rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes etp-ring-in {
+    from { opacity: 0; transform: rotate(-14deg) scale(0.94); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes etp-grow-x {
+    from { clip-path: inset(0 100% 0 0); }
+    to   { clip-path: inset(0 0 0 0); }
+}
+@keyframes etp-grow-y {
+    from { clip-path: inset(100% 0 0 0); }
+    to   { clip-path: inset(0 0 0 0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .o_etp_backend {
+        .etp-dash-head { animation: etp-rise 0.5s var(--etp-ease) both; }
+
+        .etp-dash-hero,
+        .etp-dash-bars,
+        .etp-chart-grid { animation: etp-rise 0.5s var(--etp-ease) both; }
+        .etp-dash-hero  { animation-delay: 0.05s; }
+        .etp-dash-bars  { animation-delay: 0.28s; }
+        .etp-chart-grid { animation-delay: 0.34s; }
+
+        /* staggered stat cards */
+        .etp-stat-grid .etp-stat-card {
+            animation: etp-rise 0.46s var(--etp-ease) both;
+            &:nth-child(1) { animation-delay: 0.08s; }
+            &:nth-child(2) { animation-delay: 0.13s; }
+            &:nth-child(3) { animation-delay: 0.18s; }
+            &:nth-child(4) { animation-delay: 0.23s; }
+            &:nth-child(5) { animation-delay: 0.28s; }
+            &:nth-child(6) { animation-delay: 0.33s; }
+        }
+
+        /* rings swing into place */
+        .etp-dash-ring .o_pie,
+        .etp-donut { animation: etp-ring-in 0.62s var(--etp-ease) both; }
+        .etp-donut { animation-delay: 0.4s; }
+
+        /* progress + chart bars grow in */
+        .etp-bar-row .o_progressbar_value,
+        .etp-bar-row .progress-bar,
+        .etp-cbar-fill { animation: etp-grow-x 0.75s var(--etp-ease) both; }
+        .etp-cbar-fill { animation-delay: 0.42s; }
+        .etp-bar-row .o_progressbar_value,
+        .etp-bar-row .progress-bar { animation-delay: 0.34s; }
+
+        .etp-dist-bar { animation: etp-grow-y 0.7s var(--etp-ease) both 0.44s; }
+    }
+}
+
+/* =======================================================================
+   DASHBOARD v2 — deeper polish layer (app "Assessment Analytics" only).
+   Scoped under `.o_etp_backend .etp-dash-analytics` so the shared
+   evaluator "Result Summary" board (same base hooks, WITHOUT the
+   `.etp-dash-analytics` root class) is never touched. Restyle-only — no
+   new fields; the chart HTML hooks (.etp-cbar-*, .etp-donut*, .etp-dist-*)
+   keep their names and are only re-skinned. Adds: hero aurora + sheen +
+   caption, framed ring panel (inner glow, dividers, under-ring captions),
+   glassy stat cards (gradient hairline border, glossy tinted badges,
+   lift+glow hover), richer chart headers/bars/legend/distribution, a
+   tasteful empty-state, and faint section eyebrows for editorial rhythm.
+   ======================================================================= */
+.o_etp_backend .etp-dash-analytics {
+    --etp-radius-lg: 20px;
+
+    /* ---- faint section-label eyebrows (Overview / Key Metrics / …) ---- */
+    .etp-sec {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 2px 2px -8px;
+    }
+    .etp-sec-eyebrow {
+        flex: 0 0 auto;
+        font-size: 0.68rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        color: var(--etp-faint);
+    }
+    .etp-sec-rule {
+        flex: 1 1 auto;
+        height: 1px;
+        background: linear-gradient(90deg,
+            var(--etp-border-strong) 0%, rgba(213, 217, 230, 0) 100%);
+    }
+
+    /* ---- hero: deeper mesh + aurora + diagonal sheen + caption -------- */
+    .etp-dash-head {
+        border-radius: var(--etp-radius-lg);
+        box-shadow: var(--etp-shadow-accent),
+                    var(--etp-shadow),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.20);
+
+        /* slow-drifting aurora ribbons layered over the existing mesh */
+        .etp-dash-head-aurora {
+            position: absolute;
+            inset: -40% -10% auto -10%;
+            height: 200%;
+            z-index: -1;
+            pointer-events: none;
+            background:
+                radial-gradient(40% 55% at 20% 30%, rgba(139, 123, 255, 0.35) 0%, rgba(139, 123, 255, 0) 70%),
+                radial-gradient(38% 50% at 78% 22%, rgba(120, 220, 255, 0.22) 0%, rgba(120, 220, 255, 0) 72%),
+                radial-gradient(46% 60% at 60% 82%, rgba(255, 160, 220, 0.18) 0%, rgba(255, 160, 220, 0) 70%);
+            filter: blur(6px);
+            opacity: 0.9;
+        }
+
+        /* soft light sweep across the band */
+        &::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: -60%;
+            width: 42%;
+            z-index: -1;
+            background: linear-gradient(100deg,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.20) 50%,
+                rgba(255, 255, 255, 0) 100%);
+            transform: skewX(-16deg);
+            pointer-events: none;
+        }
+    }
+    .etp-dash-head-eyebrow {
+        box-shadow: 0 6px 16px -8px rgba(20, 12, 60, 0.55);
+    }
+    .etp-dash-head-title {
+        font-size: 2.2rem;
+        font-weight: 900;
+        letter-spacing: -0.035em;
+        text-shadow: 0 2px 18px rgba(20, 12, 60, 0.35);
+    }
+    .etp-dash-head-cap {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 8px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: rgba(255, 255, 255, 0.78);
+
+        i {
+            font-size: 0.5rem;
+            color: #7bffb0;
+            filter: drop-shadow(0 0 5px rgba(123, 255, 176, 0.9));
+        }
+    }
+
+    /* ---- framed ring panel: inner glow, dividers, under-ring caps ----- */
+    .etp-dash-hero {
+        border-radius: var(--etp-radius-lg);
+        background:
+            radial-gradient(680px 220px at 12% -20%, var(--etp-accent-soft) 0%, rgba(246, 245, 255, 0) 62%),
+            radial-gradient(120% 120% at 50% 125%, rgba(91, 75, 230, 0.06) 0%, rgba(91, 75, 230, 0) 60%),
+            var(--etp-surface);
+        box-shadow: var(--etp-shadow-sm),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+                    inset 0 0 42px rgba(91, 75, 230, 0.045);
+    }
+    .etp-dash-rings .etp-dash-ring {
+        position: relative;
+        padding: 6px 8px 4px;
+
+        /* soft glow puddle behind each ring */
+        &::before {
+            content: "";
+            position: absolute;
+            top: 6px;
+            left: 50%;
+            width: 152px;
+            height: 152px;
+            transform: translateX(-50%);
+            border-radius: 50%;
+            background: radial-gradient(circle,
+                rgba(91, 75, 230, 0.10) 0%, rgba(91, 75, 230, 0) 68%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        /* thin vertical divider between rings (md+) */
+        &:not(:last-child)::after {
+            content: "";
+            position: absolute;
+            top: 16%;
+            bottom: 30%;
+            right: -11px;
+            width: 1px;
+            background: linear-gradient(180deg,
+                rgba(213, 217, 230, 0) 0%,
+                var(--etp-border-strong) 50%,
+                rgba(213, 217, 230, 0) 100%);
+        }
+
+        .o_field_percent_pie { position: relative; z-index: 1; }
+        /* native in-hole label off — the styled caption below replaces it */
+        .o_pie_text { display: none; }
+    }
+    .etp-ring-cap {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        margin-top: 2px;
+    }
+    .etp-ring-cap-k {
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.10em;
+        color: var(--etp-ink-700);
+    }
+    .etp-ring-cap-d {
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--etp-faint);
+    }
+
+    /* ---- glassy stat cards: hairline gradient border, glossy badge ---- */
+    .etp-stat-grid { gap: 15px; }
+    .etp-stat-card {
+        border-radius: var(--etp-radius-sm);
+        background: linear-gradient(180deg,
+            rgba(255, 255, 255, 0.92) 0%, var(--etp-surface-2) 100%);
+        box-shadow: var(--etp-shadow-sm),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+
+        /* gradient hairline border drawn with a mask ring */
+        &::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(140deg,
+                rgba(139, 123, 255, 0.55) 0%,
+                rgba(139, 123, 255, 0) 42%,
+                rgba(139, 123, 255, 0) 58%,
+                rgba(91, 75, 230, 0.32) 100%);
+            -webkit-mask:
+                linear-gradient(#000 0 0) content-box,
+                linear-gradient(#000 0 0);
+                    mask:
+                linear-gradient(#000 0 0) content-box,
+                linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+                    mask-composite: exclude;
+            opacity: 0.6;
+            pointer-events: none;
+            transition: opacity var(--etp-fast) var(--etp-ease);
+        }
+
+        &:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--etp-shadow),
+                        0 20px 42px -24px var(--etp-accent-ring);
+            &::after { opacity: 1; }
+        }
+    }
+    .etp-stat-ico {
+        position: relative;
+        border-radius: 13px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+                    0 6px 15px -9px rgba(30, 24, 80, 0.55);
+
+        /* glossy top-light overlay (keeps each variant's tint underneath) */
+        &::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: radial-gradient(120% 100% at 30% 12%,
+                rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 55%);
+            pointer-events: none;
+        }
+        i { position: relative; }
+    }
+    .etp-stat-num { font-size: 1.62rem; letter-spacing: -0.035em; }
+    .etp-stat-cap { letter-spacing: 0.06em; color: var(--etp-faint); }
+
+    /* ---- clickable tiles: strip button chrome, keep card look, add
+       hover lift + accent ring + revealed arrow, focus-visible a11y ring */
+    .etp-stat-clickable {
+        appearance: none;
+        -webkit-appearance: none;
+        margin: 0;
+        width: 100%;
+        font: inherit;
+        color: inherit;
+        text-align: inherit;
+        cursor: pointer;
+
+        &:focus { outline: none; }
+        &:focus-visible {
+            outline: none;
+            border-color: var(--etp-accent);
+            box-shadow: var(--etp-shadow-sm),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+                        0 0 0 3px var(--etp-accent-ring);
+        }
+        &:active { transform: translateY(-1px); }
+
+        &:hover {
+            border-color: var(--etp-accent);
+
+            .etp-stat-go {
+                opacity: 1;
+                transform: translateX(0);
+                color: var(--etp-accent);
+            }
+        }
+    }
+    .etp-stat-go {
+        position: absolute;
+        top: calc(50% - 9px);
+        right: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        opacity: 0;
+        transform: translateX(-6px);
+        color: var(--etp-faint);
+        font-size: 0.8rem;
+        pointer-events: none;
+        transition: opacity var(--etp-fast) var(--etp-ease),
+                    transform var(--etp-fast) var(--etp-ease),
+                    color var(--etp-fast) var(--etp-ease);
+    }
+
+    /* ---- chart cards: header rule + tinted badge icon ----------------- */
+    .etp-chart-card {
+        border-radius: var(--etp-radius-lg);
+        box-shadow: var(--etp-shadow-sm),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    }
+    .etp-chart-title {
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--etp-border);
+        font-size: 0.72rem;
+        letter-spacing: 0.09em;
+
+        i {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            border-radius: 8px;
+            background:
+                radial-gradient(120% 120% at 30% 12%, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 55%),
+                var(--etp-accent-soft);
+            color: var(--etp-accent);
+            font-size: 0.8rem;
+            box-shadow: inset 0 0 0 1px rgba(91, 75, 230, 0.10);
+        }
+    }
+
+    /* horizontal bars — crisper track, richer fill, value pills */
+    .etp-cbar-track {
+        height: 18px;
+        background: linear-gradient(180deg,
+            var(--etp-accent-softer) 0%, #eceaff 100%);
+    }
+    .etp-cbar-fill {
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 50%),
+            linear-gradient(90deg, var(--etp-accent-400) 0%, var(--etp-accent) 55%, var(--etp-accent-600) 100%);
+    }
+    .etp-cbar-val {
+        padding: 2px 9px;
+        border-radius: 999px;
+        background: var(--etp-accent-soft);
+        color: var(--etp-accent-700);
+        font-size: 0.78rem;
+    }
+
+    /* donut — crisper hole label + legend chips */
+    .etp-donut-hole {
+        inset: 24px;
+        box-shadow: inset 0 2px 6px rgba(18, 20, 28, 0.12),
+                    0 1px 0 rgba(255, 255, 255, 0.9);
+
+        &::after { font-size: 0.6rem; letter-spacing: 0.16em; }
+    }
+    .etp-donut-legend {
+        gap: 8px;
+
+        li {
+            padding: 7px 11px;
+            border: 1px solid var(--etp-border);
+            border-radius: 10px;
+            background: var(--etp-surface-2);
+            box-shadow: var(--etp-shadow-sm);
+            transition: transform var(--etp-fast) var(--etp-ease),
+                        border-color var(--etp-fast) var(--etp-ease);
+
+            &:last-child { border-bottom: 1px solid var(--etp-border); padding-bottom: 7px; }
+            &:hover { transform: translateX(2px); border-color: var(--etp-border-strong); }
+        }
+    }
+
+    /* distribution — baseline + inner gridlines, richer bars, value bubbles */
+    .etp-dist-bar-track {
+        border-bottom: 2px solid var(--etp-border-strong);
+        background:
+            repeating-linear-gradient(0deg, rgba(91, 75, 230, 0.05) 0 1px, transparent 1px 25%),
+            linear-gradient(180deg, var(--etp-accent-softer) 0%, #eceaff 100%);
+    }
+    .etp-dist-bar {
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 42%),
+            linear-gradient(180deg, var(--etp-accent-400) 0%, var(--etp-accent) 60%, var(--etp-accent-600) 100%);
+    }
+    .etp-dist-count {
+        padding: 1px 9px;
+        border-radius: 999px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        box-shadow: var(--etp-shadow-sm);
+        font-size: 0.85rem;
+    }
+
+    /* tasteful empty-state placeholder */
+    .etp-chart-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 30px 16px;
+        border: 1px dashed var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+        background: repeating-linear-gradient(135deg,
+            rgba(91, 75, 230, 0.03) 0 10px, transparent 10px 20px);
+        color: var(--etp-faint);
+
+        &::before {
+            content: "\f080";              /* fa-bar-chart */
+            font-family: "FontAwesome";
+            font-size: 1.6rem;
+            line-height: 1;
+            opacity: 0.5;
+            color: var(--etp-accent-400);
+        }
+    }
+}
+
+/* ---- v2 motion: aurora drift + light sweep (reduced-motion safe) ------ */
+@keyframes etp-aurora {
+    0%   { transform: translate3d(-3%, -2%, 0) scale(1.05); opacity: 0.72; }
+    100% { transform: translate3d(4%, 2%, 0) scale(1.12);  opacity: 1; }
+}
+@keyframes etp-sheen {
+    0%        { left: -60%; }
+    55%, 100% { left: 128%; }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .o_etp_backend .etp-dash-analytics {
+        .etp-dash-head-aurora {
+            animation: etp-aurora 15s ease-in-out infinite alternate;
+        }
+        .etp-dash-head::after {
+            animation: etp-sheen 7.5s var(--etp-ease) 0.8s infinite;
+        }
+    }
+}
+
+/* =======================================================================
+   LEADERBOARD — ranked candidate cards (Leaderboard notebook page).
+   A <kanban class="o_etp_backend o_etp_leaderboard"> inside the
+   assessment_evaluator_ids o2m. The two classes land on the kanban
+   renderer root, so `.o_etp_backend.o_etp_leaderboard` IS that root and
+   every selector below stays scoped to this board. Cards stack
+   full-width in score order (default_order="score_percent desc"); the
+   top-3 DOM rows get gold/silver/bronze medals via :nth-child (kanban
+   can't compute a row index in XML); a gradient score bar carries a
+   pass-threshold tick and takes pass/fail colour from the `result`
+   field. Only existing model fields are bound — nothing new.
+   ======================================================================= */
+.o_etp_backend.o_etp_leaderboard {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: transparent;
+    padding: 4px 2px 6px;
+
+    /* strip Odoo's default tile chrome; our inner card owns the look */
+    .o_kanban_record {
+        width: 100%;
+        max-width: 940px;
+        padding: 0;
+        margin: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        border-radius: var(--etp-radius);
+
+        &::after { display: none; }
+        &:focus, &:focus-within { outline: none; }
+    }
+    /* grid-fill ghosts must not create empty gaps in the flex column */
+    .o_kanban_record.o_kanban_ghost { display: none; }
+
+    /* ---- the row card ------------------------------------------------- */
+    .etp-lb-card {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 15px 22px 15px 15px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-left: 4px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+        transition: transform var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease),
+                    border-color var(--etp-fast) var(--etp-ease);
+
+        &:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--etp-shadow);
+        }
+    }
+    /* result-driven accent (preserve pass=green / fail=red semantics) */
+    .etp-lb-pass    { border-left-color: #1c9c5b; }
+    .etp-lb-fail    { border-left-color: #e0533d; }
+    .etp-lb-pending { border-left-color: var(--etp-border-strong); }
+
+    /* ---- rank medal (generic; top-3 recoloured by :nth-child) ---------- */
+    .etp-lb-rank {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: var(--etp-accent-softer);
+        border: 1px solid var(--etp-border);
+        color: var(--etp-faint);
+        font-size: 1.1rem;
+        box-shadow: inset 0 1px 2px rgba(18, 20, 28, 0.05);
+    }
+    .o_kanban_record:nth-child(1) .etp-lb-rank {
+        background: linear-gradient(145deg, #ffe38f 0%, #f5b301 100%);
+        border-color: #e0a500;
+        color: #7a5300;
+        box-shadow: 0 7px 18px -7px rgba(245, 179, 1, 0.75);
+    }
+    .o_kanban_record:nth-child(2) .etp-lb-rank {
+        background: linear-gradient(145deg, #f4f6fa 0%, #c3c9d6 100%);
+        border-color: #b3bac9;
+        color: #5b6273;
+        box-shadow: 0 7px 18px -8px rgba(120, 130, 150, 0.55);
+    }
+    .o_kanban_record:nth-child(3) .etp-lb-rank {
+        background: linear-gradient(145deg, #f0c9a3 0%, #cd7f32 100%);
+        border-color: #b3712c;
+        color: #613307;
+        box-shadow: 0 7px 18px -8px rgba(205, 127, 50, 0.55);
+    }
+
+    /* ---- main column -------------------------------------------------- */
+    .etp-lb-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .etp-lb-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+    .etp-lb-name {
+        min-width: 0;
+        font-weight: 750;
+        font-size: 1.08rem;
+        letter-spacing: -0.01em;
+        color: var(--etp-ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        .o_field_widget, a {
+            color: inherit;
+            font-weight: inherit;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+    .etp-lb-pills {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex: 0 0 auto;
+    }
+
+    /* ---- score bar + threshold tick ----------------------------------- */
+    .etp-lb-barwrap {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+    .etp-lb-track {
+        position: relative;
+        flex: 1 1 auto;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        border: 1px solid var(--etp-border);
+        overflow: hidden;
+    }
+    .etp-lb-fill {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        min-width: 6px;
+        max-width: 100%;
+        border-radius: 999px;
+        background: var(--etp-accent-grad);
+        transition: width 0.5s var(--etp-ease);
+    }
+    /* pass/fail recolour the fill; pending keeps the indigo accent */
+    .etp-lb-pass .etp-lb-fill {
+        background: linear-gradient(135deg, #26b06d 0%, #1c9c5b 100%);
+    }
+    .etp-lb-fail .etp-lb-fill {
+        background: linear-gradient(135deg, #f2745e 0%, #e0533d 100%);
+    }
+    /* pass-mark indicator riding on the track */
+    .etp-lb-thr {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        transform: translateX(-1px);
+        background: rgba(18, 20, 28, 0.42);
+        z-index: 2;
+        pointer-events: none;
+    }
+    .etp-lb-pct {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: baseline;
+        justify-content: flex-end;
+        min-width: 62px;
+        font-weight: 800;
+        font-size: 1.15rem;
+        letter-spacing: -0.02em;
+        color: var(--etp-ink);
+
+        .o_field_widget { font-weight: 800; }
+    }
+    .etp-lb-pct-sym {
+        margin-left: 1px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--etp-faint);
+    }
+
+    /* ---- stat chips + subjective-state badge -------------------------- */
+    .etp-lb-chips {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+    .etp-lb-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 11px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        border: 1px solid var(--etp-border);
+        font-size: 0.8rem;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--etp-text);
+
+        i { color: var(--etp-accent); font-size: 0.8rem; }
+        .etp-lb-chip-k { color: var(--etp-muted); font-weight: 600; }
+        .etp-lb-chip-v,
+        .etp-lb-chip-v .o_field_widget { font-weight: 800; color: var(--etp-ink); }
+    }
+}
+
+@media (max-width: 991px) {
+    .o_etp_backend {
+        .etp-dash-head { padding: 22px 22px; }
+        .etp-dash-head-title { font-size: 1.6rem; }
+        .etp-dash-analytics .etp-dash-head-title { font-size: 1.7rem; }
+        .etp-dash-analytics .etp-dash-rings .etp-dash-ring:not(:last-child)::after { display: none; }
+        .etp-dash-ring {
+            border-right: 0;
+            padding-right: 0;
+            border-bottom: 1px solid var(--etp-border);
+            padding-bottom: 18px;
+            width: 100%;
+        }
+        .etp-bar-row { grid-template-columns: 1fr; gap: 6px; }
+        .etp-cbar-row { grid-template-columns: minmax(70px, 120px) 1fr auto; gap: 8px; }
+        .etp-donut-wrap { justify-content: center; }
+    }
+    .o_etp_backend.o_etp_leaderboard {
+        .etp-lb-card { gap: 12px; padding: 13px 16px 13px 13px; }
+        .etp-lb-rank { width: 40px; height: 40px; font-size: 1rem; }
+        .etp-lb-barwrap { flex-wrap: wrap; }
+        .etp-lb-pct { min-width: 0; }
+    }
+}
+
+/* =======================================================================
+   SIMILAR PROJECTS — computed ranked alignment panel (generator form).
+   Presents prompt._similar_prompts() as a premium leaderboard: a medal
+   rank badge (#1–3), the project name as a backend link, a gradient
+   alignment bar with a % readout, and the shared SOP tags as pills tinted
+   by prefix. The HTML is built + escaped in models/prompt.py with
+   numbers-only inline styles (width:NN%); everything here is scoped under
+   `.o_etp_backend` and reuses the shared `--etp-*` tokens.
+   ======================================================================= */
+.o_etp_backend {
+    .etp-simrank-wrap { margin-top: 6px; }
+
+    .etp-simrank {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 20px 22px;
+        background:
+            radial-gradient(140% 90% at 0% 0%, var(--etp-accent-softer) 0%, rgba(246, 245, 255, 0) 42%),
+            var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+    }
+
+    .etp-simrank-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 14px 16px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        box-shadow: var(--etp-shadow-sm);
+        transition: transform var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease),
+                    border-color var(--etp-fast) var(--etp-ease);
+
+        &:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--etp-shadow);
+            border-color: var(--etp-border-strong);
+
+            .etp-simrank-fill { filter: saturate(1.12) brightness(1.03); }
+        }
+    }
+
+    /* rank badge — neutral by default, medal gradient for the podium */
+    .etp-simrank-rank {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 11px;
+        background: var(--etp-accent-softer);
+        border: 1px solid var(--etp-border);
+        color: var(--etp-muted);
+        font-weight: 800;
+        font-size: 0.95rem;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    }
+    .etp-simrank-rank--top {
+        color: #fff;
+        border-color: transparent;
+        background: var(--etp-accent-grad);
+        box-shadow: var(--etp-shadow-accent);
+    }
+
+    .etp-simrank-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .etp-simrank-top {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .etp-simrank-name {
+        max-width: calc(100% - 5rem);
+        font-weight: 700;
+        font-size: 0.98rem;
+        letter-spacing: -0.01em;
+        color: var(--etp-accent-600);
+        text-decoration: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        transition: color var(--etp-fast) var(--etp-ease);
+
+        &:hover { color: var(--etp-accent-700); text-decoration: underline; }
+    }
+    .etp-simrank-cat {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--etp-faint);
+
+        i { color: var(--etp-accent-400); }
+    }
+    .etp-simrank-pct {
+        margin-left: auto;
+        font-size: 0.92rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        color: var(--etp-ink);
+    }
+
+    .etp-simrank-bar {
+        position: relative;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--etp-accent-softer);
+        box-shadow: inset 0 1px 2px rgba(30, 24, 80, 0.08);
+        overflow: hidden;
+    }
+    .etp-simrank-fill {
+        display: block;
+        height: 100%;
+        min-width: 3px;
+        border-radius: 999px;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0) 46%),
+            var(--etp-accent-grad);
+        box-shadow: 0 1px 5px -1px rgba(91, 75, 230, 0.5);
+        transition: filter var(--etp-fast) var(--etp-ease);
+    }
+
+    .etp-simrank-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .etp-simrank-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 9px;
+        border-radius: 999px;
+        background: var(--etp-accent-soft);
+        color: var(--etp-accent-700);
+        border: 1px solid transparent;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        line-height: 1.4;
+    }
+    /* prefix-tinted pills (task > domain/skill > modality/output-format) */
+    .etp-simrank-tag--task {
+        background: #efe9ff; color: #4a3ad1; border-color: rgba(91, 75, 230, 0.20);
+    }
+    .etp-simrank-tag--domain {
+        background: #e6f6ef; color: #157a48; border-color: rgba(28, 156, 91, 0.20);
+    }
+    .etp-simrank-tag--skill {
+        background: #eef4ff; color: #2f6bd6; border-color: rgba(47, 107, 214, 0.20);
+    }
+    .etp-simrank-tag--modality {
+        background: #fff3e2; color: #b96a0c; border-color: rgba(217, 130, 23, 0.20);
+    }
+    .etp-simrank-tag--output-format {
+        background: #fdecf4; color: #b83280; border-color: rgba(184, 50, 128, 0.20);
+    }
+
+    .etp-simrank-empty {
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+        padding: 22px;
+        color: var(--etp-faint);
+        font-size: 0.9rem;
+        font-weight: 600;
+
+        i { color: var(--etp-accent-400); font-size: 1.05rem; }
+    }
+}
+
+/* entrance: rows rise with a light stagger, bar grows in (reduced-motion
+   safe) — reuses the shared etp-rise / etp-grow-x keyframes */
+@media (prefers-reduced-motion: no-preference) {
+    .o_etp_backend .etp-simrank-row {
+        animation: etp-rise 0.4s var(--etp-ease) both;
+        &:nth-child(1) { animation-delay: 0.04s; }
+        &:nth-child(2) { animation-delay: 0.08s; }
+        &:nth-child(3) { animation-delay: 0.12s; }
+        &:nth-child(4) { animation-delay: 0.16s; }
+        &:nth-child(5) { animation-delay: 0.20s; }
+        &:nth-child(6) { animation-delay: 0.24s; }
+        &:nth-child(7) { animation-delay: 0.28s; }
+        &:nth-child(8) { animation-delay: 0.32s; }
+    }
+    .o_etp_backend .etp-simrank-fill {
+        animation: etp-grow-x 0.7s var(--etp-ease) both 0.2s;
+    }
+}
+
+@media (max-width: 991px) {
+    .o_etp_backend .etp-simrank-name { max-width: 100%; }
+}

@@ -8,31 +8,33 @@ from ..constants import (
     QUESTION_TYPE_CODES as _QUESTION_TYPES,
     DIFFICULTY_CODES as _DIFFICULTIES,
     IMAGE_QUESTION_TYPES as _IMAGE_TYPES,
+    VIDEO_QUESTION_TYPES as _VIDEO_TYPES,
     MEDIUM_CODES as _MEDIA,
     AB_DIMENSION_NAMES as _AB_DIM_NAMES,
     AB_CHOICES as _AB_CHOICES,
     AB_CHOICE_SET as _AB_CHOICE_SET,
+    AB_FLAWED_SIDES,
+    ab_side_verdict, ab_other_side,
+    ab_flip_construction_keys, ab_specs_from_construction_keys,
+    validate_flaw_plan, normalize_flaw_plan,
     QUESTION_TYPE_PROMPT_LIST,
     VERTEX_DEFAULT_LOCATION,
     VERTEX_DEFAULT_MODEL,
+    GENERATION_DEFAULT_MODEL,
     VERTEX_GLOBAL_LOCATION,
+    VIDEO_DEFAULT_MODEL,
+    VIDEO_DEFAULT_LOCATION,
+    VIDEO_DEFAULT_DURATION_S,
+    ADVISORY_LOCK_VERTEX_BEARER,
     text_has_source_reference,
 )
 
 _logger = logging.getLogger(__name__)
 
-INLINE_SKILL_GEN_PROMPT = (
-    "You are an expert assessment designer. Read the provided SOP / vendor / "
-    "client documents and extract a JSON array of distinct skills a candidate "
-    "must be tested on. Each item must be a JSON object with keys: "
-    'name (string, short), description (string), tags (string, comma-separated), '
-    'medium (one of text/image - the source medium the skill is about), '
-    'question_type (one of ' + QUESTION_TYPE_PROMPT_LIST + '), '
-    'question_count (integer 3-10), '
-    'time_minutes (integer 5-30), difficulty (easy/medium/hard). '
-    "Use image_ab or image_text ONLY when medium is image. Return ONLY a "
-    "JSON array, no markdown."
-)
+# video_prompt is the video twin of image_prompt: it authors an image_specs
+# draft (briefs + answer key) rather than options, so it routes through the same
+# _build_image_draft_fields / forced-directive gate as the image types.
+_IMAGE_OR_VIDEO_TYPES = frozenset(_IMAGE_TYPES | _VIDEO_TYPES)
 
 INLINE_QUESTION_PROMPT = (
     "You are an expert assessment author. Generate questions for the given "
@@ -42,17 +44,13 @@ INLINE_QUESTION_PROMPT = (
     'difficulty (easy/medium/hard), and the answer-key '
     "fields its type needs: mcq -> options (list) + correct_answer (string); "
     "msq -> options (list) + correct_answer (list); subjective_rubric -> "
-    "rubric (object with checklist/constraints/pass_condition); "
-    "subjective_justification -> no rubric (graded on the prompt). For the "
+    "rubric (object with checklist/constraints/pass_condition). For the "
     "image types the per-request directive gives the exact image_specs shape; "
     "do NOT emit options/correct_answer for image types. Every question MUST be "
     "self-contained: never reference the SOP, source, or guidelines — bake the "
     "deciding facts into the scenario itself."
 )
 
-# Appended to EVERY question-generation user message — code-controlled, so the
-# self-contained rule holds even if an admin overrides the system prompt or the
-# bundled prompts/question.md fails to load. The candidate never sees the source.
 _SELF_CONTAINED_RULE = (
     "\n\nHARD RULE — SELF-CONTAINED: Every question MUST be answerable from the "
     "scenario you write plus the candidate's skill ALONE. NEVER reference, cite, "
@@ -62,10 +60,6 @@ _SELF_CONTAINED_RULE = (
     "official_reasoning."
 )
 
-# The prompt rule alone is not reliable for spec-reading skills (the model keeps
-# writing "According to the SOP..."), so generation REGENERATES the batch when any
-# item still cites the source, then drops any residual offender (logged) — a clean
-# bank is guaranteed regardless of model compliance or a stale prompt override.
 _GEN_SELF_CONTAINED_MAX_ATTEMPTS = 3
 _SOURCE_LEAK_CORRECTION = (
     "\n\nCORRECTION — your previous attempt is REJECTED: one or more questions "
@@ -108,7 +102,6 @@ def _param(env, key, default=""):
 def _vertex_creds(env):
     return (
         _param(env, "etp_assessment_pro.vertex_project_id"),
-        # Gemini-3 series is served on the ``global`` endpoint.
         _param(env, "etp_assessment_pro.vertex_location", VERTEX_DEFAULT_LOCATION),
         _param(env, "etp_assessment_pro.vertex_model", VERTEX_DEFAULT_MODEL),
         _param(env, "etp_assessment_pro.vertex_api_key"),
@@ -118,6 +111,22 @@ def _vertex_creds(env):
 def _vertex_image_model(env):
     """The single configured model (image rendering is unified with every other task)."""
     return _vertex_creds(env)[2]
+
+
+_HTTPX_CLIENT = None
+
+
+def _httpx():
+    """SVC-5: one pooled, thread-safe httpx client reused across Vertex calls
+    instead of building and tearing one down per request."""
+    global _HTTPX_CLIENT
+    if _HTTPX_CLIENT is None:
+        import httpx
+        _HTTPX_CLIENT = httpx.Client(
+            timeout=httpx.Timeout(connect=30, read=180, write=60, pool=30),
+            limits=httpx.Limits(max_keepalive_connections=20,
+                                max_connections=50))
+    return _HTTPX_CLIENT
 
 
 def _minted_bearer(env):
@@ -131,6 +140,13 @@ def _minted_bearer(env):
     expires_at = int(
         ICP.get_param("etp_assessment_pro.vertex_minted_token_expires", "0") or 0
     )
+    if cached and time.time() < expires_at - 300:
+        return cached
+    env.cr.execute(
+        "SELECT pg_advisory_xact_lock(%s)", (ADVISORY_LOCK_VERTEX_BEARER,))
+    cached = ICP.get_param("etp_assessment_pro.vertex_minted_token", "") or ""
+    expires_at = int(
+        ICP.get_param("etp_assessment_pro.vertex_minted_token_expires", "0") or 0)
     if cached and time.time() < expires_at - 300:
         return cached
     try:
@@ -156,14 +172,14 @@ def _minted_bearer(env):
         "exp": now + 3600,
     }
     assertion = _jwt.encode(claim, sa["private_key"], algorithm="RS256")
-    with httpx.Client(timeout=30) as client:
-        resp = client.post(
-            sa["token_uri"],
-            data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-                "assertion": assertion,
-            },
-        )
+    resp = _httpx().post(
+        sa["token_uri"],
+        data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": assertion,
+        },
+        timeout=30,
+    )
     if resp.status_code != 200:
         raise RuntimeError(
             "Service account token exchange failed [%s]: %s"
@@ -248,15 +264,6 @@ def _load_bundled_prompt(filename):
         return ""
 
 
-def _get_skill_gen_prompt(env):
-    p = (env["ir.config_parameter"].sudo().get_param(
-        "etp_assessment_pro.skill_gen_prompt", "") or "").strip()
-    if p:
-        return p
-    bundled = _load_bundled_prompt("skill_gen.md")
-    return bundled.strip() if bundled.strip() else INLINE_SKILL_GEN_PROMPT
-
-
 def _get_question_prompt(env):
     p = (env["ir.config_parameter"].sudo().get_param(
         "etp_assessment_pro.question_prompt", "") or "").strip()
@@ -266,8 +273,6 @@ def _get_question_prompt(env):
     return bundled.strip() if bundled.strip() else INLINE_QUESTION_PROMPT
 
 
-# Best-effort USD rates per model (in/out per 1M tokens + per image); cost_usd
-# is a budgeting estimate, tunable without touching the ledger.
 _PRICING = {
     "gemini-3.1-pro-preview": {"in": 2.00, "out": 12.00, "image": 0.0},
     "gemini-3-pro-image":     {"in": 2.00, "out": 12.00, "image": 0.134},
@@ -278,12 +283,31 @@ _PRICING = {
 }
 _DEFAULT_PRICE = {"in": 1.0, "out": 5.0, "image": 0.0}
 
+# --- VIDEO (Veo) pricing: billed PER SECOND of generated clip, NOT per token.
+# Kept separate from _PRICING so the per-1k-token math above is never touched.
+# Public list rates (USD per second of output); audio-on Veo 3.x ~ $0.40/s,
+# the 'fast' variants ~ $0.15/s, Veo 2 ~ $0.35/s. Each Veo submit = one clip.
+_VIDEO_PRICING = {
+    "veo-3.1-generate-001":       0.40,
+    "veo-3.1-fast-generate-001":  0.15,
+    "veo-3.0-generate-001":       0.40,
+    "veo-3.0-fast-generate-001":  0.15,
+    "veo-2.0-generate-001":       0.35,
+}
+_DEFAULT_VIDEO_RATE = 0.40
+
 
 def _estimate_cost(model, tokens_in, tokens_out, thoughts, image_count):
     p = _PRICING.get(model or "", _DEFAULT_PRICE)
-    out_tok = (tokens_out or 0) + (thoughts or 0)  # thinking is billed as output
+    out_tok = (tokens_out or 0) + (thoughts or 0)
     return (((tokens_in or 0) * p["in"] + out_tok * p["out"]) / 1_000_000.0
             + (image_count or 0) * p["image"])
+
+
+def _estimate_video_cost(model, video_seconds):
+    """Per-second Veo cost for one generated clip. Independent of token math."""
+    rate = _VIDEO_PRICING.get(model or "", _DEFAULT_VIDEO_RATE)
+    return (video_seconds or 0.0) * rate
 
 
 def _log_usage(env, model, usage_meta, image_count, ctx):
@@ -294,6 +318,9 @@ def _log_usage(env, model, usage_meta, image_count, ctx):
         ti = int(meta.get("promptTokenCount") or 0)
         to = int(meta.get("candidatesTokenCount") or 0)
         th = int(meta.get("thoughtsTokenCount") or 0)
+        vsec = float(ctx.get("video_seconds") or 0.0)
+        cost = (_estimate_video_cost(model, vsec) if vsec > 0
+                else _estimate_cost(model, ti, to, th, image_count))
         env["etp.assessment.pro.llm.usage"].sudo().create({
             "operation": ctx.get("operation") or "other",
             "model": model or "",
@@ -301,20 +328,17 @@ def _log_usage(env, model, usage_meta, image_count, ctx):
             "tokens_out": to,
             "thoughts_tokens": th,
             "image_count": image_count or 0,
-            "cost_usd": _estimate_cost(model, ti, to, th, image_count),
+            "video_seconds": vsec,
+            "cost_usd": cost,
             "prompt_id": ctx.get("prompt_id") or False,
-            "skill_id": ctx.get("skill_id") or False,
             "evaluator_id": ctx.get("evaluator_id") or False,
             "note": (ctx.get("note") or "")[:120],
         })
-        # Per-call ledger line so every LLM call's cost/tokens are visible in the
-        # console (the module runs with logfile off). This is the one chokepoint
-        # every text AND image call passes through.
         _logger.info(
             "etp_assessment LLM usage: op=%s model=%s in=%d out=%d thoughts=%d "
-            "images=%d cost=$%.4f note=%s",
+            "images=%d vsec=%.1f cost=$%.4f note=%s",
             ctx.get("operation") or "other", model or "", ti, to, th,
-            image_count or 0, _estimate_cost(model, ti, to, th, image_count),
+            image_count or 0, vsec, cost,
             (ctx.get("note") or "")[:60])
     except Exception:
         _logger.exception("etp_assessment: LLM usage log failed")
@@ -327,12 +351,10 @@ class LLMRefusalError(RuntimeError):
     """
 
 
-# finishReason values meaning "no usable answer"; STOP/MAX_TOKENS still carry text.
 _BLOCKING_FINISH_REASONS = {
     "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
     "IMAGE_SAFETY", "OTHER",
 }
-# Prose openings a model uses when it refuses instead of emitting JSON.
 _REFUSAL_MARKERS = (
     "i cannot fulfill", "i can't fulfill", "i cannot create",
     "i can't create", "i cannot generate", "i can't generate",
@@ -347,7 +369,7 @@ def _detect_refusal_text(text):
     if not t:
         return "the model returned an empty response"
     head = t[:400].lower()
-    if t[:1] in ("[", "{"):  # already JSON -> not a refusal
+    if t[:1] in ("[", "{"):
         return None
     for marker in _REFUSAL_MARKERS:
         if marker in head:
@@ -369,12 +391,8 @@ def _apply_thinking_budget(gen_config, model):
     gen_config["thinkingConfig"] = {"thinkingBudget": 0}
 
 
-# Hard ceiling for the MAX_TOKENS auto-retry so a think-loop can't escalate unbounded.
 _MAX_OUTPUT_TOKENS_CEILING = 64000
 
-# Starting output budget for JSON generation calls; must hold hidden thinking
-# tokens AND the JSON, since Gemini-3 ignores thinkingBudget=0. A ceiling, not a
-# charge; the doubling retry can still escalate to _MAX_OUTPUT_TOKENS_CEILING.
 _GEN_MAX_OUTPUT_TOKENS = 32000
 
 
@@ -392,14 +410,18 @@ def _json_parses(text):
 
 def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
                  temperature=0.4, usage_ctx=None, response_json=False,
-                 response_schema=None):
-    """Single text generateContent call with a built-in MAX_TOKENS recovery.
+                 response_schema=None, user_parts=None, model=None):
+    """Single generateContent call with a built-in MAX_TOKENS recovery.
 
     Heavy hidden 'thinking' can eat the whole budget (finishReason=MAX_TOKENS,
     no parts); we retry once with a doubled budget (<= _MAX_OUTPUT_TOKENS_CEILING).
+    ``user_parts`` (a list of Gemini content parts) supersedes ``user_text`` for
+    multimodal calls (e.g. a native SOP document); ``model`` overrides the
+    default configured model.
     """
     import httpx
-    _project, _loc, model, _key = _vertex_creds(env)
+    _project, _loc, default_model, _key = _vertex_creds(env)
+    model = model or default_model
     url, headers = _gemini_request(env, model, "generateContent")
 
     attempt_tokens = max_tokens
@@ -410,33 +432,30 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
             "temperature": temperature,
         }
         _apply_thinking_budget(gen_config, model)
-        # Force valid-JSON output so a prose refusal can't crash the parser.
-        # (gemini-3-pro-image honours responseMimeType for its answer parts; its
-        # reasoning comes back separately as thought parts, which we skip.)
         if response_json:
             gen_config["responseMimeType"] = "application/json"
             if response_schema:
                 gen_config["responseSchema"] = response_schema
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+            "contents": [{"role": "user",
+                          "parts": user_parts or [{"text": user_text}]}],
             "generationConfig": gen_config,
         }
         _logger.info(
             "etp_assessment Vertex call: model=%s max_tokens=%d json=%s attempt=%d",
             model, attempt_tokens, response_json, attempt + 1,
         )
-        with httpx.Client(
-            timeout=httpx.Timeout(connect=30, read=180, write=60, pool=30)
-        ) as client:
-            resp = client.post(url, json=payload, headers=headers)
+        resp = _httpx().post(url, json=payload, headers=headers)
         if resp.status_code != 200:
+            if resp.status_code == 429:
+                raise VertexQuotaError(
+                    f"Vertex quota exhausted [429]: {resp.text[:200]}")
             raise RuntimeError(
                 f"Vertex error [{resp.status_code}]: {resp.text[:400]}"
             )
         data = resp.json()
         _log_usage(env, model, data.get("usageMetadata"), 0, usage_ctx)
-        # Prompt-level block (whole request rejected before any candidate).
         block = (data.get("promptFeedback") or {}).get("blockReason")
         if block:
             raise LLMRefusalError(
@@ -453,16 +472,11 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
             raise LLMRefusalError(
                 "the model stopped without an answer (reason: %s). This usually "
                 "means a safety block or a medium mismatch." % finish)
-        # Gemini IMAGE models (used here as the single model) split a long text
-        # answer across MANY text parts; reading only parts[0] truncated the JSON
-        # mid-stream. Concatenate every text part, skipping hidden 'thought'
-        # parts. No-op for normal text models, which return a single part.
         parts = ((cand.get("content") or {}).get("parts")) or []
         text = "".join(
             p["text"] for p in parts
             if isinstance(p, dict) and p.get("text") and not p.get("thought"))
         if not text:
-            # MAX_TOKENS with no parts == budget went to hidden thinking; retry bigger.
             if (finish == "MAX_TOKENS" and attempt == 0
                     and attempt_tokens < _MAX_OUTPUT_TOKENS_CEILING):
                 attempt_tokens = min(attempt_tokens * 2,
@@ -473,8 +487,6 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
                 continue
             raise LLMRefusalError(
                 "the model returned no text content (finishReason: %s)" % finish)
-        # MAX_TOKENS with partial text == truncated mid-stream; retry bigger
-        # rather than hand the caller half a JSON array.
         if (finish == "MAX_TOKENS" and attempt == 0
                 and attempt_tokens < _MAX_OUTPUT_TOKENS_CEILING):
             attempt_tokens = min(attempt_tokens * 2, _MAX_OUTPUT_TOKENS_CEILING)
@@ -485,8 +497,6 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
         refusal = _detect_refusal_text(text)
         if refusal:
             raise LLMRefusalError(refusal)
-        # Truncated/garbled JSON under finishReason=STOP slips past the retries
-        # above; detect it and retry bigger so heavy-thinking runs self-heal.
         if (response_json and attempt == 0
                 and attempt_tokens < _MAX_OUTPUT_TOKENS_CEILING
                 and not _json_parses(text)):
@@ -506,9 +516,14 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
         "(finishReason: %s)" % last_finish)
 
 
+class VertexQuotaError(RuntimeError):
+    """Vertex returned HTTP 429 (quota / rate limit). Transient: the caller
+    re-queues and retries later instead of marking the item permanently failed."""
+
+
 def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
     """Text->image via the Gemini image model. Returns ``(b64_str, mime)``;
-    raises RuntimeError when no image part comes back (e.g. a safety block)."""
+    raises VertexQuotaError on 429, RuntimeError when no image part comes back."""
     import httpx
     model = _vertex_image_model(env)
     url, headers = _gemini_request(env, model, "generateContent")
@@ -523,10 +538,10 @@ def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
         },
     }
     _logger.info("etp_assessment Vertex image gen: model=%s", model)
-    with httpx.Client(
-        timeout=httpx.Timeout(connect=30, read=180, write=60, pool=30)
-    ) as client:
-        resp = client.post(url, json=payload, headers=headers)
+    resp = _httpx().post(url, json=payload, headers=headers)
+    if resp.status_code == 429:
+        raise VertexQuotaError(
+            f"Vertex image quota exhausted [429]: {resp.text[:200]}")
     if resp.status_code != 200:
         raise RuntimeError(
             f"Vertex image error [{resp.status_code}]: {resp.text[:400]}"
@@ -552,6 +567,170 @@ def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
         "Vertex image response had no image part (safety block / refusal?): "
         f"{str(data)[:300]}"
     )
+
+
+def _video_model(env):
+    return _param(env, "etp_assessment_pro.video_model", VIDEO_DEFAULT_MODEL) \
+        or VIDEO_DEFAULT_MODEL
+
+
+def _video_location(env):
+    return _param(
+        env, "etp_assessment_pro.video_location", VIDEO_DEFAULT_LOCATION) \
+        or VIDEO_DEFAULT_LOCATION
+
+
+def _video_default_duration(env):
+    raw = _param(env, "etp_assessment_pro.video_default_duration_s", "")
+    try:
+        return int(float(raw)) if str(raw).strip() else VIDEO_DEFAULT_DURATION_S
+    except (TypeError, ValueError):
+        return VIDEO_DEFAULT_DURATION_S
+
+
+def video_generation_available(env):
+    """Config gate for async Veo generation: True only when a Veo model AND a
+    resolvable Vertex bearer are present. When it is False the submit trigger
+    leaves a video_prompt draft 'pending' so the admin fills its clips by
+    upload (Phase 1) — video generation is strictly optional."""
+    if not _video_model(env):
+        return False
+    try:
+        return bool(_vertex_bearer(env))
+    except Exception:  # noqa: BLE001 - a creds error means "not available"
+        return False
+
+
+def _veo_url(env, model, location, suffix):
+    project = _vertex_creds(env)[0] \
+        or _param(env, "etp_assessment_pro.vertex_project_id")
+    host = f"https://{location}-aiplatform.googleapis.com"
+    return (f"{host}/v1/projects/{project}/locations/{location}"
+            f"/publishers/google/models/{model}:{suffix}")
+
+
+def _brief_prompt_text(brief):
+    if isinstance(brief, str):
+        return brief
+    if isinstance(brief, dict):
+        return brief.get("prompt") or ""
+    return ""
+
+
+def submit_video_op(env, brief, *, model=None, location=None, duration_s=None,
+                    aspect="16:9", prompt_id=None):
+    """Submit ONE Veo long-running text-to-video op and return its operation
+    NAME (the poll handle). ``brief`` is the clip brief (a dict with a "prompt",
+    or the prompt string). Model/location resolve from the video_model /
+    video_location params (defaults veo-3.1-generate-001 / us-central1 — Veo
+    404s on 'global', so never reuse the gemini location). Raises
+    VertexQuotaError on 429 so the caller re-queues without failing."""
+    model = model or _video_model(env)
+    location = location or _video_location(env)
+    bearer = _minted_bearer(env) or _vertex_bearer(env)
+    if not bearer:
+        raise ValueError(
+            "Veo video generation needs a Vertex OAuth bearer (service-account "
+            "JSON or a static access token). Configure it or leave video_prompt "
+            "clips upload-only.")
+    prompt_text = _brief_prompt_text(brief)
+    if duration_s is None:
+        duration_s = (brief.get("duration_s") or brief.get("durationSeconds")) \
+            if isinstance(brief, dict) else None
+        duration_s = int(duration_s) if duration_s else _video_default_duration(env)
+    url = _veo_url(env, model, location, "predictLongRunning")
+    headers = {"Content-Type": "application/json",
+               "Authorization": f"Bearer {bearer}"}
+    payload = {
+        "instances": [{"prompt": prompt_text}],
+        "parameters": {
+            "durationSeconds": int(duration_s),
+            "generateAudio": True,
+            "sampleCount": 1,
+            "aspectRatio": aspect or "16:9",
+        },
+    }
+    _logger.info("etp_assessment Veo submit: model=%s loc=%s dur=%ss",
+                 model, location, duration_s)
+    resp = _httpx().post(url, json=payload, headers=headers)
+    if resp.status_code == 429:
+        raise VertexQuotaError(
+            f"Veo submit quota exhausted [429]: {resp.text[:200]}")
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Veo submit error [{resp.status_code}]: {resp.text[:400]}")
+    op_name = (resp.json() or {}).get("name")
+    if not op_name:
+        raise RuntimeError(
+            f"Veo submit returned no operation name: {resp.text[:300]}")
+    _log_usage(env, model, None, 0,
+               {"operation": "submit_video_op",
+                "video_seconds": int(duration_s),
+                "prompt_id": prompt_id or False,
+                "note": (prompt_text or "")[:80]})
+    return op_name
+
+
+def _extract_video_payload(resp):
+    """Pull ``(video_b64, gcs_uri)`` out of a done Veo operation response,
+    walking the several shapes Veo returns (videos / generatedSamples /
+    predictions, each carrying inline base64 bytes and/or a GCS uri)."""
+    if not isinstance(resp, dict):
+        return None, None
+    items = []
+    for key in ("videos", "generatedSamples", "generated_videos",
+                "predictions"):
+        val = resp.get(key)
+        if isinstance(val, list):
+            items.extend(val)
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        b64 = (item.get("bytesBase64Encoded") or item.get("videoBytes")
+               or item.get("b64_json"))
+        gcs = item.get("gcsUri") or item.get("uri") or item.get("gcs_uri")
+        video = item.get("video")
+        if isinstance(video, dict):
+            b64 = b64 or video.get("bytesBase64Encoded") \
+                or video.get("videoBytes")
+            gcs = gcs or video.get("gcsUri") or video.get("uri") \
+                or video.get("gcs_uri")
+        if b64 or gcs:
+            return b64, gcs
+    return None, None
+
+
+def fetch_video_op(env, op_name, *, model, location):
+    """Poll ONE Veo op, returning ``{done, video_b64, gcs_uri, error}`` parsed
+    defensively. Raises VertexQuotaError on 429 (transient: the caller keeps the
+    op and retries next tick)."""
+    model = model or _video_model(env)
+    location = location or _video_location(env)
+    bearer = _minted_bearer(env) or _vertex_bearer(env)
+    if not bearer:
+        raise ValueError("Veo poll needs a Vertex OAuth bearer.")
+    url = _veo_url(env, model, location, "fetchPredictOperation")
+    headers = {"Content-Type": "application/json",
+               "Authorization": f"Bearer {bearer}"}
+    resp = _httpx().post(url, json={"operationName": op_name}, headers=headers)
+    if resp.status_code == 429:
+        raise VertexQuotaError(
+            f"Veo poll quota exhausted [429]: {resp.text[:200]}")
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Veo poll error [{resp.status_code}]: {resp.text[:400]}")
+    data = resp.json() if resp.content else {}
+    out = {"done": False, "video_b64": None, "gcs_uri": None, "error": None}
+    if not isinstance(data, dict):
+        return out
+    out["done"] = bool(data.get("done"))
+    err = data.get("error")
+    if isinstance(err, dict) and err:
+        out["error"] = str(err.get("message") or err)[:300]
+    b64, gcs = _extract_video_payload(data.get("response") or {})
+    out["video_b64"] = b64
+    out["gcs_uri"] = gcs
+    return out
 
 
 def _unwrap_json_list(value):
@@ -580,7 +759,6 @@ def _extract_json_array(text):
         return _unwrap_json_list(json.loads(text))
     except Exception:
         pass
-    # Try a bare array first, then an object we can unwrap to its inner array.
     for pattern in (r"\[.*\]", r"\{.*\}"):
         m = re.search(pattern, text, re.DOTALL)
         if m:
@@ -595,8 +773,113 @@ def _extract_json_array(text):
     )
 
 
-# A text->image prompt is a detailed, self-contained brief (every deciding
-# detail spelled out, on-image text quoted exactly) for evidence-grade images.
+_DETECT_SYSTEM_PROMPT = (
+    "You are a precise visual object detector. Return ONLY the JSON array the "
+    "user requests, matching the response schema, with no markdown or prose."
+)
+
+_DETECT_PROMPT = (
+    "Identify DISTINCT TYPES of objects in this image for a visual quiz. "
+    "Choose the single clearest example of each different object category and give "
+    "it its own tight 2D bounding box, a short lowercase label (1-2 words, e.g. "
+    "'car', 'bus', 'dog', 'tree', 'building', 'person', 'sign'), and a one-line "
+    "description. Each label MUST be a different category: never repeat the same "
+    "label and never return two boxes of the same object type. Maximize the VARIETY "
+    "of categories present (vehicles, animals, people, plants, buildings, signs, "
+    "everyday items, etc.). Never box the whole scene, sky, road, or background; "
+    "each box must be tight around exactly one object. Order top-to-bottom, "
+    "left-to-right. Return 3-15 boxes, each a UNIQUE object type."
+)
+
+_UI_PROMPT = (
+    "This is a screenshot of a website or app interface. Detect the INTERACTIVE, "
+    "clickable elements a user could act on: buttons, links, navigation menu items, "
+    "tabs, icons (search, cart, menu, profile, back), input and search fields, "
+    "logos, and call-to-action elements. For each, return a tight 2D bounding box, "
+    "a short label naming the element and its action (e.g. 'search button', "
+    "'cart icon', 'sign in', 'menu', 'add to cart', 'home link'), and a one-line "
+    "description of what it does. Number EVERY distinct clickable element separately, "
+    "even if several are the same type (e.g. multiple 'buy' buttons). Do not box "
+    "large non-interactive regions, background images, or paragraphs of body text. "
+    "Order top-to-bottom, left-to-right. Return the 5-40 clearest interactive elements."
+)
+
+BOX_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "box_2d": {
+                "type": "ARRAY",
+                "items": {"type": "INTEGER"},
+                "minItems": 4,
+                "maxItems": 4,
+            },
+            "label": {"type": "STRING"},
+            "description": {"type": "STRING"},
+        },
+        "required": ["box_2d", "label"],
+    },
+}
+
+
+def _detection_model(env):
+    return _param(env, "etp_assessment_pro.detection_model") \
+        or _generation_model(env)
+
+
+def detect_image_elements(env, image_b64, ui=False, model=None, usage_ctx=None):
+    """Detect distinct objects (or interactive UI elements when ``ui``) in the
+    base64 PNG, returning ``[{"box_2d":[ymin,xmin,ymax,xmax], "label", "description"}]``
+    with boxes normalized to Gemini's 0-1000 space. De-duplicates object
+    categories (unique lowercase label) for non-ui, keeps every element for ui,
+    mirroring the reference prototype.
+
+    ``usage_ctx`` lets the caller thread the owning generator (``prompt_id``) onto
+    the logged usage row so this detection spend attributes as that project's
+    authoring cost instead of landing in the dashboard's Unattributed bucket; the
+    operation is always forced to ``detect_image_elements``."""
+    model = model or _detection_model(env)
+    prompt = _UI_PROMPT if ui else _DETECT_PROMPT
+    user_parts = [
+        {"inlineData": {"mimeType": "image/png", "data": image_b64}},
+        {"text": prompt},
+    ]
+    ctx = dict(usage_ctx or {})
+    ctx["operation"] = "detect_image_elements"
+    ctx.setdefault("note", "ui" if ui else "objects")
+    raw = _call_vertex(
+        env, _DETECT_SYSTEM_PROMPT, user_text="", user_parts=user_parts,
+        model=model, max_tokens=8000, temperature=0.0, response_json=True,
+        response_schema=BOX_SCHEMA, usage_ctx=ctx)
+    detections = []
+    for it in _extract_json_array(raw):
+        if not isinstance(it, dict):
+            continue
+        box = it.get("box_2d")
+        if not isinstance(box, list) or len(box) != 4:
+            continue
+        try:
+            coords = [int(round(float(c))) for c in box]
+        except (TypeError, ValueError):
+            continue
+        detections.append({
+            "box_2d": coords,
+            "label": str(it.get("label") or "").strip(),
+            "description": str(it.get("description") or "").strip(),
+        })
+    if ui:
+        return detections
+    seen = set()
+    unique = []
+    for det in detections:
+        key = det["label"].lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(det)
+    return unique
+
+
 _IMG_PROMPT_RULE = (
     "Each image prompt MUST be a DETAILED, self-contained scene brief that "
     "states EVERY visually deciding detail (subjects, layout/composition, "
@@ -613,77 +896,457 @@ def _ab_fallback_dims():
             for name in _AB_DIM_NAMES.values()]
 
 
-def _resolve_ab_dimensions(skill):
-    """A/B axes + verdicts from the skill's ``image_ab_dimension_ids``, else the constant rubric."""
-    if skill and skill.image_ab_dimension_ids:
-        dims = []
-        for d in skill.image_ab_dimension_ids:
-            choices = [o.name for o in d.option_ids if o.name]
-            if d.name and choices:
-                dims.append({"label": d.name, "choices": choices})
-        if dims:
-            return dims
-    return _ab_fallback_dims()
+def _image_type_contract(qtype, ab_dims=None):
+    """The per-type ``image_specs`` OUTPUT CONTRACT body only (no "generate N"
+    preamble), so it can be appended BOTH to the exclusive forced-type directive
+    AND to the generic multi-type SOP directive without over-pinning the run to a
+    single type. For image_ab this is the flaw_plan/construction_keys contract the
+    platform materializes into the answer key (Phase 3)."""
+    if qtype == "image_ab":
+        return (
+            "FLAW-INJECTION (mandatory): from a single TARGET brief, plan a PAIR "
+            "of images and plant deliberate, VISIBLE flaws so the answer key is "
+            "ground-truth BY CONSTRUCTION. Output image_specs = {\"flaw_plan\": {"
+            '"faithful_side": "a" | "b" | null, "worker_prompt": "the TRUE target '
+            'brief shown to the candidate (what a correct image should depict)", '
+            '"render_prompts": {"a": "a COMPLETE self-contained brief for image '
+            'A", "b": "a COMPLETE self-contained brief for image B"}, "planted": '
+            '{"a": ["visible flaw on A", ...], "b": ["visible flaw on B", ...]}, '
+            '"construction_keys": {"IF": "<verdict>", "VQ": "<verdict>", "LAI": '
+            '"<verdict>", "OC": "<verdict>"}}}. '
+            "Rules: worker_prompt is the single target the candidate is judged "
+            "against and MAY differ in wording from BOTH render prompts. "
+            "render_prompts.a and render_prompts.b are each a FULL standalone "
+            "brief — a flawed side is a COMPLETE rewrite that embeds the flaw, "
+            "NOT 'clean plus a note'. planted lists the concrete, VISIBLE flaws "
+            "per side (wrong object counts, misspellings, extra/missing/floating "
+            "elements); a flaw must be visible in the RENDERED image, never one "
+            "that lives only in the prompt text. PER-DIMENSION MODEL: each "
+            "planted flaw decides EXACTLY ONE dimension (IF, VQ, or LAI). You may "
+            "flaw ONE side (set faithful_side to the OTHER, its planted list "
+            "EMPTY) or BOTH sides (set faithful_side null, BOTH planted lists "
+            "NON-EMPTY). A dimension NO flaw touches is 'Both Good'. A side that "
+            "carries a flaw on one dimension MAY STILL WIN a DIFFERENT dimension "
+            "(name that side) when the other side's flaw on that dimension is "
+            "worse. When BOTH sides are flawed on the SAME dimension it is 'Both "
+            "Bad'. construction_keys must cover EXACTLY IF, VQ, LAI, OC; each "
+            "verdict is one of [Response A, Response B, Both Good, Both Bad], "
+            "EXCEPT OC which is ONLY Response A or Response B and MUST ALWAYS be "
+            "DECIDED to one side by a correctness-before-polish tiebreak (the "
+            "side needing fewer corrections to be right wins) — OC is NEVER Both "
+            "Good or Both Bad even when both sides are flawed. EVERY verdict must "
+            "be JUSTIFIED by the planted flaws (the flaw that decides a dimension, "
+            "or the absence of one for 'Both Good'/'Both Bad'). ACROSS THIS BATCH "
+            "spread the planted flaws so every dimension (IF, VQ, LAI, OC) is a "
+            "decisive verdict on at least one item rather than the default Both "
+            "Good, no dimension carries the same verdict on every item, and which "
+            "dimension is decisive varies item to item — a set where one "
+            "dimension always ties is a planning failure. LEGACY shape still "
+            "accepted (mapped automatically): flawed_side + clean_prompt + "
+            "flawed_prompt + injected_flaws, but PREFER the worker_prompt / "
+            "render_prompts / planted shape. Do NOT emit image_a_prompt / "
+            "image_b_prompt or a free-form dimensions map; the platform derives "
+            "the two images and the answer key from the flaw_plan."
+        )
+    if qtype == "image_prompt":
+        return (
+            'Shape: {"name": "...", "question_type": "image_prompt", "prompt": '
+            '"...", "difficulty": "medium", "image_specs": {"images": [...], '
+            '"answer_key": {"ideal_prompt": "...", "mandatory_elements": ["..."], '
+            '"penalty_rules": ["..."], "scoring_guide": "..."}}}. TWO supported '
+            "forms: (1) FROM-SCRATCH — exactly ONE image with slot \"single\"; the "
+            "candidate WRITES the text-to-image prompt that would produce that "
+            "image, graded against ideal_prompt. (2) TRANSFORMATION / COMPARE — "
+            'exactly TWO images: one with slot "reference" (the starting / input '
+            'image) and one with slot "output" (the target / result image); the '
+            "candidate WRITES the transformation prompt that turns the reference "
+            "INTO the output, and ideal_prompt describes that reference->output "
+            "transformation. PREFER the 2-image form whenever the task is to edit, "
+            "transform, restyle, or compare one image into another — the candidate "
+            "must SEE both the reference and the output to write the prompt. Each "
+            'image needs a REQUIRED detailed self-contained "prompt" brief. Show '
+            "the candidate the rendered image(s); the stimulus must SHOW the "
+            "evidence, never a caption that states the answer."
+        )
+    if qtype == "video_prompt":
+        return (
+            'Shape: {"name": "...", "question_type": "video_prompt", "prompt": '
+            '"...", "difficulty": "medium", "image_specs": {"videos": [...], '
+            '"answer_key": {"ideal_prompt": "...", "mandatory_elements": ["..."], '
+            '"penalty_rules": ["..."], "scoring_guide": "..."}}}. The VIDEO twin '
+            "of image_prompt. TWO supported forms. (1) FROM-SCRATCH — exactly ONE "
+            'clip with slot "single"; the candidate WRITES the text-to-video '
+            "prompt that would produce that clip, graded against ideal_prompt. "
+            "(2) TRANSFORMATION / COMPARE (PREFER) — exactly TWO clips: one with "
+            'slot "reference" (the starting / input clip) and one with slot '
+            '"output" (the target / result clip); the candidate WRITES the '
+            "transformation prompt that turns the reference clip INTO the output "
+            "clip, and ideal_prompt describes that reference->output "
+            "TRANSFORMATION. Prefer the 2-clip form whenever the task is to edit, "
+            "restyle, re-time, or compare one clip into another — the candidate "
+            "must SEE both the reference and the output to write the prompt. Each "
+            'clip needs a REQUIRED detailed self-contained "prompt" brief stating '
+            "subject, MOTION/action, camera, visual STYLE, SCENE STRUCTURE (any "
+            "cut/scene divisions), background/lighting, DURATION, and any AUDIO / "
+            "dialogue (or explicit silence). ideal_prompt must COVER the "
+            "transformation as a checklist a grader can verify: name the shared "
+            "STYLE, the concrete content CHANGES, the SCENE DIVISIONS, the "
+            "AUDIO/SILENCE handling, any LENGTH change, and the DIALOGUE format. "
+            "Show the candidate the clip(s); the stimulus must SHOW the evidence, "
+            "never a caption that states the answer. The clips are UPLOADED by an "
+            "admin or generated later — you author only the briefs + answer key."
+        )
+    return (
+        'Shape: {"name": "...", "question_type": "image_label", "prompt": '
+        '"...", "difficulty": "medium", "image_specs": {...}}. EXACTLY ONE image '
+        'with slot "single" is shown; the candidate LABELS the elements in it. '
+        "TWO supported forms. (1) DENSE SCREENSHOT LABELLING (PREFER for app / "
+        "website / UI screenshots): the ONE image brief depicts an interface "
+        "carrying MULTIPLE (5-15) interactive elements, and you number and label "
+        "EVERY one of them. Emit image_specs = {\"images\": [{\"slot\": "
+        '"single", "label": "Screenshot", "prompt": "<detailed self-contained '
+        'brief for a single screenshot showing every listed interactive '
+        'element, quoting each visible control label verbatim>"}], '
+        '"application": "<what app / site the screenshot depicts>", '
+        '"coverage_expected": "yes" | "no", "boxes": [{"number": 1, "box_2d": '
+        "[ymin,xmin,ymax,xmax], \"element\": \"<short name of the control>\", "
+        '"functionality": "<the ACTION it performs, e.g. \'Opens the cart\'>"}, '
+        "..., {\"number\": N, ...}], \"answer_key\": {\"ideal_labels\": "
+        '{"1": "<functionality of box 1>", ..., "N": "<functionality of box '
+        'N>"}, "mandatory_elements": ["..."], "penalty_rules": ["..."], '
+        '"scoring_guide": "..."}}. Rules for the dense form: box_2d is an '
+        "APPROXIMATE normalized rectangle [ymin,xmin,ymax,xmax] on a 0-1000 grid "
+        "locating that control in your briefed screenshot (top-left origin); the "
+        "platform draws the numbered boxes from these coordinates, so place one "
+        "box per interactive control and keep them in reading order "
+        "(top-to-bottom, left-to-right). functionality grades what the control "
+        "DOES, not merely its name. answer_key.ideal_labels is the PER-BOX MAP "
+        "keyed by box number to the same functionality. coverage_expected is "
+        '"yes" when EVERY interactive element in the briefed screenshot has a '
+        'box; set it "no" ONLY when you deliberately leave ONE interactive '
+        'element un-boxed, and then also emit "omitted_element": {"tag": "...", '
+        '"text": "...", "reason": "..."} naming the element you left out, so the '
+        'coverage answer is "No" BY CONSTRUCTION. (2) SINGLE-BOX (legacy, still '
+        'valid for a photo/defect with ONE region): image_specs = {"images": '
+        '[{"slot": "single", "label": "Image", "prompt": "..."}], "answer_key": '
+        '{"ideal_labels": "<single-string answer key>", "mandatory_elements": '
+        '["..."], "penalty_rules": ["..."], "scoring_guide": "..."}} — '
+        "ideal_labels is a plain string, no boxes. In BOTH forms the image "
+        '"prompt" is REQUIRED and the stimulus must SHOW the evidence, never a '
+        "caption that states the answer."
+    )
 
 
 def _image_question_directive(qtype, count, ab_dims=None):
-    """Directive appended to the question prompt for renderable image briefs + answer key."""
+    """Exclusive directive that pins a whole run to one image type: the "generate
+    N of type X" preamble plus that type's image_specs contract. Used on the
+    forced-type path for a run forced to a single image type."""
     base = (
         f"Generate exactly {count} question(s) of type '{qtype}' as one JSON "
         "array. Do NOT emit mcq-style \"options\"/\"correct_answer\". Every "
         "item MUST contain a non-empty \"image_specs\" object. " + _IMG_PROMPT_RULE + " "
     )
-    if qtype == "image_ab":
-        dims = ab_dims or _ab_fallback_dims()
-        axes_lines = "\n".join(
-            "  - %s: one of [%s]" % (d["label"], ", ".join(d["choices"]))
-            for d in dims)
-        ex_label = dims[0]["label"] if dims else "Overall Choice"
-        ex_choice = (dims[0]["choices"][0]
-                     if dims and dims[0]["choices"] else "Response A")
-        return base + (
-            'Shape: {"name": "...", "question_type": "image_ab", "prompt": '
-            '"...", "difficulty": "medium", "image_specs": {"image_a_prompt": '
-            '"detailed self-contained brief for Response A", "image_b_prompt": '
-            '"detailed self-contained brief for Response B", "dimensions": '
-            '{"%s": "%s"}, "official_reasoning": "why those ratings are '
-            'correct"}}. ' % (ex_label, ex_choice)
-            + "Score EXACTLY these dimensions, using each label verbatim as a "
-            "key of \"dimensions\", and pick ONE verdict from that axis's "
-            "allowed list:\n" + axes_lines + "\n"
-            "Do NOT invent other dimensions and do NOT use a verdict outside a "
-            "dimension's allowed list. image_a_prompt and image_b_prompt are "
-            "REQUIRED. CRITICAL: A and B MUST differ in the ONE deciding detail "
-            "AND in at least two incidental dimensions (framing, palette, or "
-            "background) so two renders cannot come out near identical. The "
-            "deciding detail must be VISIBLE in the rendered image, never only "
-            "in the prompt text, and must NOT be a label that spells out the "
-            "answer. Do not depend on text being unreadable or on a tiny "
-            "pixel-exact difference the renderer cannot guarantee."
-        )
-    return base + (
-        'Shape: {"name": "...", "question_type": "image_text", "prompt": '
-        '"...", "difficulty": "medium", "image_specs": {"images": [{"slot": '
-        '"single", "label": "Image", "prompt": "detailed self-contained brief '
-        'for the stimulus"}], "answer_key": {"ideal_answer": "...", '
-        '"mandatory_elements": ["..."], "penalty_rules": ["..."], '
-        '"scoring_guide": "..."}}}. Emit EXACTLY ONE image with slot "single": '
-        "this is a one-image prompt-writing / labelling question where the "
-        "candidate writes a text answer graded against the answer_key. The "
-        'image "prompt" is REQUIRED. The stimulus must SHOW the evidence the '
-        "question is about, never a caption that states the answer."
-    )
+    return base + _image_type_contract(qtype, ab_dims)
+
+
+def _image_contracts_note(ab_dims=None):
+    """The image_specs OUTPUT CONTRACTS appended to the GENERIC multi-type SOP
+    directive so every image item the model chooses to author is well-formed —
+    crucially image_ab's flaw_plan — and survives _validate_question_item instead
+    of being dropped as malformed."""
+    contracts = " ".join(
+        "For %s items: %s" % (qt, _image_type_contract(qt, ab_dims))
+        for qt in ("image_ab", "image_prompt", "image_label", "video_prompt"))
+    return (
+        "\n\nIMAGE-TYPE OUTPUT CONTRACTS (mandatory whenever you author an image "
+        "question — an image item whose image_specs does not match the shape "
+        "for its type is DISCARDED): " + contracts)
 
 
 def _image_brief(scene):
     """Wrap a scene description in the strict render brief (single source of truth)."""
     return (
-        "Generate exactly one image and no other text: a clean, photorealistic "
-        "image. It must show every detail this brief states; the brief is the "
+        "Generate exactly one photorealistic image and no other text. Render the "
+        "description literally even where it asks for flaws, misspellings, or "
+        "impossible physics. It must show every detail this brief states; the brief is the "
         "single source of truth, follow it alone and treat it as the only "
         "attempt at the scene. Render any quoted text, labels, and numbers "
         "exactly and legibly:\n" + (scene or "")
     )
+
+
+def _flaw_official_reasoning(flawed_side, injected_flaws):
+    """The hidden answer-key rationale for a flaw-injected image_ab, naming the
+    clean winner and the concrete flaws injected into the losing image."""
+    clean = ab_side_verdict(ab_other_side(flawed_side))
+    flawed = ab_side_verdict(flawed_side)
+    flaws = "; ".join(injected_flaws)
+    return ("%s is correct by construction: it renders the brief cleanly, while "
+            "%s carries deliberately injected flaws (%s). %s therefore wins "
+            "Overall Choice." % (clean, flawed, flaws, clean))
+
+
+def _flaw_official_reasoning_both(keys, planted):
+    """Answer-key rationale for a BOTH-flawed image_ab pair: both sides carry
+    planted flaws, so each dimension follows the worse flaw ('Both Bad' where
+    they are equally bad) and Overall Choice is still decided to one side by the
+    correctness-before-polish tiebreak (the OC construction key)."""
+    a_flaws = "; ".join(planted.get("a") or []) or "none stated"
+    b_flaws = "; ".join(planted.get("b") or []) or "none stated"
+    oc = keys.get("OC") or ""
+    return ("Both images carry deliberately planted flaws (A: %s | B: %s). Each "
+            "dimension follows the worse flaw and is 'Both Bad' where both sides "
+            "are equally bad; Overall Choice is decided to %s by the "
+            "correctness-before-polish tiebreak (the side needing fewer "
+            "corrections to be right)." % (a_flaws, b_flaws, oc or "one side"))
+
+
+def _build_flaw_injected_ab_fields(plan):
+    """Materialize the draft fields for a flaw-injected image_ab from its plan.
+
+    The plan is normalized to the 3-prompt shape first, so the candidate-facing
+    QUESTION prompt (worker_prompt) is kept DISTINCT from the two per-side render
+    prompts. The flawed image is RANDOMLY assigned to slot a or b (defeating
+    position bias); when that differs from the model's chosen side the render
+    prompts + planted flaws are swapped between the slots and the A/B verdicts
+    flipped so construction_keys stay consistent with the rendered slots. The
+    dimension answer key is DERIVED from construction_keys, and the whole plan is
+    persisted so the approve/score-time guards can detect any later key drift."""
+    import random
+    norm = normalize_flaw_plan(plan) or {}
+    keys = dict(norm.get("construction_keys") or {})
+    worker_prompt = norm.get("worker_prompt") or ""
+    render_prompts = dict(norm.get("render_prompts") or {"a": "", "b": ""})
+    planted = {"a": list((norm.get("planted") or {}).get("a") or []),
+               "b": list((norm.get("planted") or {}).get("b") or [])}
+    both_flawed = norm.get("faithful_side") not in AB_FLAWED_SIDES
+    if both_flawed:
+        do_swap = random.choice((False, True))
+    else:
+        do_swap = random.choice(AB_FLAWED_SIDES) != (norm.get("flawed_side") or "")
+    if do_swap:
+        render_prompts = {"a": render_prompts.get("b") or "",
+                          "b": render_prompts.get("a") or ""}
+        planted = {"a": planted["b"], "b": planted["a"]}
+        keys = ab_flip_construction_keys(keys)
+    if both_flawed:
+        final_faithful = "both"
+        final_flawed = "both"
+        injected = planted["a"] + planted["b"]
+        reasoning = _flaw_official_reasoning_both(keys, planted)
+        flawed_prompt = ""
+    else:
+        final_flawed = norm.get("flawed_side") if not do_swap \
+            else ab_other_side(norm.get("flawed_side"))
+        final_faithful = ab_other_side(final_flawed)
+        injected = planted[final_flawed]
+        reasoning = _flaw_official_reasoning(final_flawed, injected)
+        flawed_prompt = render_prompts.get(final_flawed) or ""
+    briefs = [
+        {"slot": "a", "label": "Response A", "prompt": render_prompts.get("a") or ""},
+        {"slot": "b", "label": "Response B", "prompt": render_prompts.get("b") or ""},
+    ]
+    vals = {
+        "image_brief_json": json.dumps(briefs, ensure_ascii=False),
+        "dimensions_json": json.dumps(
+            ab_specs_from_construction_keys(keys), ensure_ascii=False),
+        "flaw_plan_json": json.dumps({
+            "faithful_side": final_faithful,
+            "flawed_side": final_flawed,
+            "worker_prompt": worker_prompt,
+            "render_prompts": render_prompts,
+            "planted": planted,
+            "construction_keys": keys,
+            "clean_prompt": worker_prompt,
+            "flawed_prompt": flawed_prompt,
+            "injected_flaws": injected,
+        }, ensure_ascii=False),
+        "official_reasoning": reasoning,
+    }
+    if worker_prompt:
+        vals["question_prompt"] = worker_prompt
+    return vals
+
+
+_IMAGE_PROMPT_SLOT_ALIASES = {
+    "reference": "reference", "ref": "reference", "input": "reference",
+    "source": "reference", "style": "reference", "before": "reference",
+    "style-reference": "reference", "style reference": "reference",
+    "output": "output", "out": "output", "target": "output",
+    "result": "output", "after": "output", "transformed": "output",
+    "single": "single", "image": "single", "img": "single",
+}
+_IMAGE_PROMPT_SLOT_ORDER = {"reference": 0, "output": 1, "single": 2}
+_IMAGE_PROMPT_SLOT_LABEL = {"reference": "Reference", "output": "Output",
+                            "single": "Image"}
+
+
+def _image_prompt_briefs(images):
+    """Render briefs for an image_prompt item, honouring the reference/output
+    roles so a transform/compare task renders BOTH images (not just the first).
+
+    Each image_specs image carrying a non-empty prompt becomes one brief. A
+    SINGLE image maps to slot 'single' (from-scratch: write the prompt for this
+    one image); TWO or more map to 'reference' then 'output' — honouring any slot
+    the model set and filling the rest in that order — so the reference (input)
+    always precedes the output (target). Returns ``[{slot,label,prompt}]``."""
+    imgs = [i for i in images
+            if isinstance(i, dict) and (i.get("prompt") or "").strip()]
+    if not imgs:
+        return []
+    briefs = [{
+        "slot": _IMAGE_PROMPT_SLOT_ALIASES.get(
+            (i.get("slot") or "").strip().lower(), ""),
+        "label": (i.get("label") or "").strip(),
+        "prompt": i["prompt"],
+    } for i in imgs]
+    if len(briefs) == 1:
+        briefs[0]["slot"] = briefs[0]["slot"] or "single"
+    else:
+        default_order = ["reference", "output"]
+        used = {b["slot"] for b in briefs if b["slot"]}
+        di = 0
+        for b in briefs:
+            if b["slot"]:
+                continue
+            while di < len(default_order) and default_order[di] in used:
+                di += 1
+            b["slot"] = default_order[di] if di < len(default_order) else "output"
+            used.add(b["slot"])
+            di += 1
+    briefs.sort(key=lambda b: _IMAGE_PROMPT_SLOT_ORDER.get(b["slot"], 9))
+    for b in briefs:
+        b["label"] = b["label"] or _IMAGE_PROMPT_SLOT_LABEL.get(
+            b["slot"], b["slot"].title())
+    return briefs
+
+
+def _video_prompt_briefs(videos):
+    """Render briefs for a video_prompt item — the video twin of
+    _image_prompt_briefs. Each clip brief carrying a non-empty prompt becomes one
+    brief; a SINGLE clip maps to slot 'single' (from-scratch), TWO or more map to
+    'reference' then 'output' (the transform/compare pair) honouring any slot the
+    model set, so the reference clip always precedes the output clip. The clip
+    slot vocabulary is identical to image_prompt's, so this reuses the same
+    role-resolution logic. Returns ``[{slot,label,prompt}]``."""
+    return _image_prompt_briefs(videos)
+
+
+def _label_key_sort(k):
+    """Sort per-box map keys numerically, with non-numeric keys last."""
+    try:
+        return (0, int(k))
+    except (TypeError, ValueError):
+        return (1, str(k))
+
+
+def _normalize_box_2d(box):
+    """Coerce a model-supplied box to ``[ymin,xmin,ymax,xmax]`` ints clamped to
+    the 0-1000 grid (Gemini/annotate_image space), or None when malformed."""
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return None
+    try:
+        coords = [int(round(float(c))) for c in box]
+    except (TypeError, ValueError):
+        return None
+    return [max(0, min(1000, c)) for c in coords]
+
+
+def _image_label_boxes(specs):
+    """Ordered per-box plan for a DENSE image_label from ``image_specs``.
+
+    Reads the model's ``boxes`` list ([{number?, box_2d, element|label,
+    functionality|description}]) and, where a box omits its functionality, fills
+    it from the ``answer_key.ideal_labels`` per-box MAP ({number: functionality}).
+    Only boxes carrying a VALID box_2d are kept — we can draw a numbered box only
+    where the model told us it sits — and they are renumbered 1..N in the given
+    reading order. Returns ``[{number, box_2d, element, functionality}]`` (empty
+    when the item is not dense, i.e. no boxes with coordinates)."""
+    answer_key = specs.get("answer_key") or {}
+    ideal = answer_key.get("ideal_labels") if isinstance(answer_key, dict) else None
+    labels_map = ideal if isinstance(ideal, dict) else {}
+    raw_boxes = specs.get("boxes")
+    entries = []
+    if isinstance(raw_boxes, list):
+        for b in raw_boxes:
+            if not isinstance(b, dict):
+                continue
+            box_2d = _normalize_box_2d(b.get("box_2d") or b.get("box"))
+            if not box_2d:
+                continue
+            n = len(entries) + 1
+            element = str(b.get("element") or b.get("label") or "").strip()
+            func = str(
+                b.get("functionality") or b.get("description")
+                or labels_map.get(str(b.get("number") or n))
+                or labels_map.get(str(n)) or "").strip()
+            entries.append({
+                "number": n,
+                "box_2d": box_2d,
+                "element": element or ("Element %d" % n),
+                "functionality": func,
+            })
+    return entries
+
+
+def _image_label_draft_fields(specs):
+    """Answer-key + image-brief draft fields for one image_label item.
+
+    DENSE form (reference proj-2 screenshot labelling): the model authored a
+    single screenshot showing MULTIPLE interactive elements, an ordered ``boxes``
+    plan (each with approximate normalized coordinates + the ACTION it performs),
+    an ``application`` name and a coverage expectation. We persist that as the
+    Phase-4 shapes — ``behavioural_key_json`` (the per-box action key),
+    ``label_boxes_json`` (the numbered-box geometry the overlay is drawn from at
+    approve, reusing imaging.annotate_image — no second Vertex/detection call),
+    ``coverage_expected`` / ``omitted_element_json`` (the coverage gate) and
+    ``label_application`` — so the candidate UI and scoring treat model-authored
+    boxes exactly like DOM-captured ones. ``ideal_labels`` is flattened to a
+    readable STRING in rubric_json so the answer-key editor and the legacy
+    scoring fallback keep working; the per-box map lives in the behavioural key.
+
+    SINGLE-BOX (legacy) form: a lone region + a single-string ideal_labels answer
+    key, unchanged (no boxes, no behavioural key, detection runs post-approve)."""
+    vals = {}
+    briefs = []
+    for img in (specs.get("images") or []):
+        if img.get("prompt"):
+            briefs.append({
+                "slot": "single",
+                "label": img.get("label") or "Image",
+                "prompt": img["prompt"],
+            })
+            break
+    answer_key = dict(specs.get("answer_key") or {})
+    boxes = _image_label_boxes(specs)
+    ideal = answer_key.get("ideal_labels")
+    if isinstance(ideal, dict):
+        answer_key["ideal_labels"] = "\n".join(
+            "%s. %s" % (k, ideal[k]) for k in sorted(ideal, key=_label_key_sort))
+    if boxes:
+        vals["behavioural_key_json"] = json.dumps(
+            [{"number": b["number"], "element": b["element"],
+              "functionality": b["functionality"]} for b in boxes],
+            ensure_ascii=False)
+        vals["label_boxes_json"] = json.dumps(
+            [{"number": b["number"], "box_2d": b["box_2d"],
+              "label": b["element"], "description": b["functionality"]}
+             for b in boxes], ensure_ascii=False)
+        answer_key["ideal_labels"] = "\n".join(
+            "%d. %s" % (b["number"], b["functionality"]) for b in boxes)
+        cov = str(specs.get("coverage_expected") or "yes").strip().lower()
+        vals["coverage_expected"] = "no" if cov == "no" else "yes"
+        omitted = specs.get("omitted_element")
+        if cov == "no" and isinstance(omitted, dict) and omitted:
+            vals["omitted_element_json"] = json.dumps(omitted, ensure_ascii=False)
+        app = str(specs.get("application") or "").strip()
+        if app:
+            vals["label_application"] = app[:200]
+    if answer_key:
+        vals["rubric_json"] = json.dumps(answer_key, ensure_ascii=False)
+    if briefs:
+        vals["image_brief_json"] = json.dumps(briefs, ensure_ascii=False)
+    return vals
 
 
 def _build_image_draft_fields(env, qtype, item, usage_ctx=None, ab_dims=None):
@@ -693,14 +1356,15 @@ def _build_image_draft_fields(env, qtype, item, usage_ctx=None, ab_dims=None):
     briefs = []
 
     if qtype == "image_ab":
+        plan = specs.get("flaw_plan") or {}
+        if plan and not validate_flaw_plan(plan):
+            return _build_flaw_injected_ab_fields(plan)
         if specs.get("image_a_prompt"):
             briefs.append({"slot": "a", "label": "Response A",
                            "prompt": specs["image_a_prompt"]})
         if specs.get("image_b_prompt"):
             briefs.append({"slot": "b", "label": "Response B",
                            "prompt": specs["image_b_prompt"]})
-        # Per-axis options come from the resolved dimension set, matched to the
-        # model's label; an unrecognised label falls back to the union of verdicts.
         resolved = ab_dims or _ab_fallback_dims()
         by_label = {d["label"].strip().lower(): list(d["choices"])
                     for d in resolved}
@@ -722,19 +1386,22 @@ def _build_image_draft_fields(env, qtype, item, usage_ctx=None, ab_dims=None):
             vals["dimensions_json"] = json.dumps(dim_specs, ensure_ascii=False)
         if specs.get("official_reasoning"):
             vals["official_reasoning"] = specs["official_reasoning"]
-    else:  # image_text
-        # One-image question: keep a single stimulus even if the model emitted more.
-        for img in (specs.get("images") or []):
-            if img.get("prompt"):
-                briefs.append({
-                    "slot": "single",
-                    "label": img.get("label") or "Image",
-                    "prompt": img["prompt"],
-                })
-                break
+    elif qtype == "image_prompt":
+        briefs = _image_prompt_briefs(specs.get("images") or [])
         answer_key = specs.get("answer_key") or {}
         if answer_key:
             vals["rubric_json"] = json.dumps(answer_key, ensure_ascii=False)
+    elif qtype == "video_prompt":
+        v_briefs = _video_prompt_briefs(
+            specs.get("videos") or specs.get("images") or [])
+        answer_key = specs.get("answer_key") or {}
+        if answer_key:
+            vals["rubric_json"] = json.dumps(answer_key, ensure_ascii=False)
+        if v_briefs:
+            vals["video_brief_json"] = json.dumps(v_briefs, ensure_ascii=False)
+        return vals
+    else:
+        return _image_label_draft_fields(specs)
 
     if briefs:
         vals["image_brief_json"] = json.dumps(briefs, ensure_ascii=False)
@@ -765,6 +1432,8 @@ def render_draft_images(env, briefs, usage_ctx=None, only_slot=None):
                 "label": brief.get("label") or slot.title(),
                 "data": "data:%s;base64,%s" % (mime, b64),
             })
+        except VertexQuotaError:
+            raise
         except Exception as exc:
             _logger.warning(
                 "etp_assessment image render failed (%s): %s",
@@ -772,101 +1441,177 @@ def render_draft_images(env, briefs, usage_ctx=None, only_slot=None):
     return images
 
 
-def extract_skills(env, prompt_record):
-    source_text = prompt_record._compiled_source_text()
-    system_prompt = _get_skill_gen_prompt(env)
+_VERIFY_MAX_REGEN = 2
+
+_VERIFY_SYSTEM_PROMPT = (
+    "You are a meticulous visual-QA inspector for an assessment pipeline. You "
+    "are shown ONE rendered image plus a numbered list of specific flaws that "
+    "were DELIBERATELY planted into it. For EACH listed flaw, decide ONLY from "
+    "what is actually visible in the pixels whether that flaw is present. Do NOT "
+    "assume a flaw is there merely because it is listed, and do NOT invent flaws "
+    "that are not listed. Return ONLY the JSON array the schema describes (one "
+    "entry per listed flaw, in the SAME order), no markdown, no prose."
+)
+
+VERIFY_FLAW_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "flaw": {"type": "STRING"},
+            "present": {"type": "BOOLEAN"},
+            "note": {"type": "STRING"},
+        },
+        "required": ["flaw", "present"],
+    },
+}
+
+
+def _verify_model(env):
+    """Vision/doc-capable model for flaw verification: reuses the detection model
+    (a multimodal model that can READ an image), never the image-only render
+    model. Overridable via etp_assessment_pro.verify_model."""
+    return _param(env, "etp_assessment_pro.verify_model") \
+        or _detection_model(env)
+
+
+def verify_planted_flaws(env, image, planted_flaws, *, model=None,
+                         usage_ctx=None):
+    """One multimodal Gemini call checking whether each planted flaw is VISIBLE
+    in the rendered image.
+
+    ``image`` is raw bytes OR a base64 string (PNG); ``planted_flaws`` is the
+    flaw list for ONE side. Returns
+    ``{"verdicts": [{"flaw","present","note"}], "all_present": bool}`` with one
+    verdict per planted flaw (order preserved; a flaw the model omits is treated
+    as NOT present — the correctness-safe default so an unrendered flaw never
+    silently passes). Parses defensively. Raises VertexQuotaError on 429 so the
+    caller can self-heal; other Vertex failures propagate so the caller degrades
+    gracefully."""
+    flaws = [str(f).strip() for f in (planted_flaws or []) if str(f).strip()]
+    if not flaws:
+        return {"verdicts": [], "all_present": True}
+    import base64
+    if isinstance(image, (bytes, bytearray)):
+        b64 = base64.b64encode(bytes(image)).decode()
+    else:
+        b64 = str(image)
+    numbered = "\n".join("%d. %s" % (i + 1, f) for i, f in enumerate(flaws))
+    user_parts = [
+        {"inlineData": {"mimeType": "image/png", "data": b64}},
+        {"text": "These flaws were deliberately planted into this image. For "
+                 "each, report whether it is visibly present in the pixels:\n"
+                 + numbered},
+    ]
     raw = _call_vertex(
-        env, system_prompt, source_text, max_tokens=_GEN_MAX_OUTPUT_TOKENS,
-        temperature=0.3,
-        response_json=True,
-        usage_ctx={"operation": "extract_skills",
-                   "prompt_id": prompt_record.id,
-                   "note": prompt_record.name},
-    )
-    items = _extract_json_array(raw)
-    Skill = env["etp.assessment.pro.skill"].sudo()
-    PromptSkill = env["etp.assessment.pro.prompt.skill"].sudo()
-    created = 0
-    skipped = 0
-    bank_ids = []
-    seq = 10
-    for it in items:
-        if not isinstance(it, dict):
-            continue
-        name = (it.get("name") or "").strip()
-        if not name:
-            continue
-        qtype = it.get("question_type") if it.get("question_type") in _QUESTION_TYPES else "mcq"
-        medium = it.get("medium") if it.get("medium") in _MEDIA else "text"
-        # Keep medium and question_type COHERENT — the skill model constrains them
-        # and a violation aborts the WHOLE extraction. The model sometimes pairs
-        # them wrong both ways, so normalize both directions:
-        #  - an image question type needs the image medium; if the model gave a
-        #    non-image medium, downgrade the type to a subjective text type.
-        #  - a non-image (text) question type cannot carry the image medium; if the
-        #    model gave medium=image with a text type, set the medium to text.
-        if qtype in _IMAGE_TYPES and medium != "image":
-            qtype = "subjective_rubric"
-        elif qtype not in _IMAGE_TYPES and medium == "image":
-            medium = "text"
-        difficulty = it.get("difficulty") if it.get("difficulty") in _DIFFICULTIES else "medium"
-        try:
-            qcount = max(1, int(it.get("question_count") or 5))
-        except (TypeError, ValueError):
-            qcount = 5
-        try:
-            time_min = max(1, int(it.get("time_minutes") or 10))
-        except (TypeError, ValueError):
-            time_min = 10
-        existing = Skill.search([("name", "=", name)], limit=1)
-        if existing:
-            skipped += 1
-            bank_skill = existing
-            upsert_state = "skipped"
+        env, _VERIFY_SYSTEM_PROMPT, user_text="", user_parts=user_parts,
+        model=model or _verify_model(env), max_tokens=4000, temperature=0.0,
+        response_json=True, response_schema=VERIFY_FLAW_SCHEMA,
+        usage_ctx=usage_ctx or {"operation": "verify_planted_flaws"})
+    items = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
+    verdicts = []
+    for i, flaw in enumerate(flaws):
+        present, note = False, ""
+        if i < len(items):
+            present = bool(items[i].get("present"))
+            note = str(items[i].get("note") or "").strip()
         else:
-            bank_skill = Skill.create({
-                "name": name,
-                "description": it.get("description") or False,
-                "tags": it.get("tags") or False,
-                "question_type": qtype,
-                "medium": medium,
-                "question_count": qcount,
-                "time_minutes": time_min,
-                "difficulty": difficulty,
-                "extracted_from_prompt_id": prompt_record.id,
-                "source_resource_ids": [
-                    (6, 0, prompt_record.resource_ids.ids)
-                ] if prompt_record.resource_ids else False,
-            })
-            created += 1
-            upsert_state = "created"
-        bank_ids.append(bank_skill.id)
-        PromptSkill.create({
-            "prompt_id": prompt_record.id,
-            "name": name,
-            "description": it.get("description") or False,
-            "tags": it.get("tags") or False,
-            "sequence": seq,
-            "question_type": qtype,
-            "question_count": qcount,
-            "time_minutes": time_min,
-            "difficulty": difficulty,
-            "bank_skill_id": bank_skill.id,
-            "upsert_state": upsert_state,
-        })
-        seq += 10
-    if bank_ids:
-        prompt_record.write({"skill_bank_ids": [(6, 0, bank_ids)]})
-    total = created + skipped
-    _logger.info(
-        "etp_assessment skill extract for prompt=%s: created=%s skipped=%s total=%s",
-        prompt_record.id, created, skipped, total,
-    )
-    return {"created": created, "skipped": skipped, "total": total}
+            for it in items:
+                lbl = str(it.get("flaw") or "").strip().lower()
+                if lbl and (lbl in flaw.lower() or flaw.lower() in lbl):
+                    present = bool(it.get("present"))
+                    note = str(it.get("note") or "").strip()
+                    break
+        verdicts.append({"flaw": flaw, "present": present, "note": note})
+    return {"verdicts": verdicts,
+            "all_present": all(v["present"] for v in verdicts)}
 
 
-# Allowed A/B winners come from the resolved dimension set; the constant set is
-# only the last-resort fallback when no dimensions resolve.
+def _data_url_to_b64(data):
+    """Strip a possible ``data:<mime>;base64,`` prefix, returning bare base64."""
+    s = data or ""
+    if s.startswith("data:") and "base64," in s:
+        return s.split("base64,", 1)[1]
+    return s
+
+
+def verify_and_regenerate_ab_images(env, briefs, images, planted, *,
+                                    usage_ctx=None, max_regen=_VERIFY_MAX_REGEN):
+    """VERIFY->REGENERATE loop for a rendered image_ab pair (Phase 3).
+
+    For each side ('a','b') that carries planted flaws, verify they are visible
+    in that side's rendered image; if any is ABSENT, RE-RENDER just that slot
+    (reusing its brief + the literal render directive via ``render_draft_images``)
+    up to ``max_regen`` times, re-verifying after each. Returns
+    ``(images, record)``: ``images`` is the (possibly re-rendered) list in the
+    original slot order; ``record`` documents every side plus ``all_confirmed``
+    and ``needs_review``. VertexQuotaError propagates (caller re-queues). A
+    NON-quota verify failure (creds absent, refusal) marks that side
+    ``unavailable`` and leaves its image untouched — verification degrades,
+    generation is never broken."""
+    by_slot = {img["slot"]: img for img in (images or [])
+               if isinstance(img, dict) and img.get("slot")}
+    sides = {}
+    for slot in AB_FLAWED_SIDES:
+        flaws = [str(f).strip() for f in (planted.get(slot) or [])
+                 if str(f).strip()]
+        if not flaws:
+            sides[slot] = {"planted": [], "regenerations": 0,
+                           "confirmed": True, "unavailable": False,
+                           "verdicts": []}
+            continue
+        img = by_slot.get(slot)
+        regen, result, unavailable = 0, None, False
+        while True:
+            b64 = _data_url_to_b64(img.get("data")) if img else ""
+            if not b64:
+                result = {"verdicts": [{"flaw": f, "present": False,
+                                        "note": "no rendered image"}
+                                       for f in flaws],
+                          "all_present": False}
+                break
+            try:
+                result = verify_planted_flaws(
+                    env, b64, flaws, usage_ctx=usage_ctx)
+            except VertexQuotaError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - degrade, never break gen
+                _logger.warning(
+                    "etp_assessment flaw verify unavailable (slot %s): %s",
+                    slot, repr(exc)[:160])
+                unavailable = True
+                break
+            if result["all_present"] or regen >= max_regen:
+                break
+            new = render_draft_images(
+                env, briefs, usage_ctx=usage_ctx, only_slot=slot)
+            regen += 1
+            if new:
+                img = new[0]
+                by_slot[slot] = new[0]
+        if unavailable or result is None:
+            sides[slot] = {"planted": flaws, "regenerations": regen,
+                           "confirmed": False, "unavailable": True,
+                           "verdicts": []}
+        else:
+            sides[slot] = {"planted": flaws, "regenerations": regen,
+                           "confirmed": result["all_present"],
+                           "unavailable": False,
+                           "verdicts": result["verdicts"]}
+    new_images = [by_slot.get(img["slot"], img) if isinstance(img, dict)
+                  and img.get("slot") else img for img in (images or [])]
+    needs_review = any(
+        (not s["confirmed"]) and (not s["unavailable"]) and s["planted"]
+        for s in sides.values())
+    all_confirmed = all(s["confirmed"] for s in sides.values() if s["planted"])
+    record = {
+        "enabled": True,
+        "max_regen": max_regen,
+        "sides": sides,
+        "all_confirmed": bool(all_confirmed),
+        "needs_review": bool(needs_review),
+    }
+    return new_images, record
 
 
 def _answer_resolves(ca, options, single):
@@ -893,7 +1638,6 @@ def _answer_resolves(ca, options, single):
         if isinstance(ca, list):
             return len(ca) == 1 and one_ok(ca[0])
         return one_ok(ca)
-    # msq: a non-empty list (or a lone scalar) where every entry resolves.
     vals = ca if isinstance(ca, list) else ([ca] if ca is not None else [])
     return bool(vals) and all(one_ok(v) for v in vals)
 
@@ -923,173 +1667,334 @@ def _validate_question_item(it, qtype, ab_dims=None):
                 k in r for k in ("checklist", "constraints", "pass_condition")):
             errs.append("subjective_rubric needs rubric "
                         "{checklist,constraints,pass_condition}")
-    elif qtype == "subjective_justification":
-        pass  # graded against the prompt; no rubric required
     elif qtype == "image_ab":
         specs = it.get("image_specs") or {}
-        if not (specs.get("image_a_prompt") and specs.get("image_b_prompt")):
-            errs.append("image_ab needs image_a_prompt AND image_b_prompt")
-        dims = specs.get("dimensions") or {}
-        if not isinstance(dims, dict) or not dims:
-            errs.append("image_ab needs a non-empty dimensions map")
+        plan = specs.get("flaw_plan") or {}
+        if plan:
+            errs.extend(validate_flaw_plan(plan))
         else:
-            resolved = ab_dims or _ab_fallback_dims()
-            by_label = {d["label"].strip().lower(): set(d["choices"])
-                        for d in resolved}
-            union = set().union(*by_label.values()) if by_label \
-                else set(_AB_CHOICE_SET)
-            for label, winner in dims.items():
-                allowed = by_label.get(str(label).strip().lower(), union)
-                if winner not in allowed:
-                    errs.append("image_ab dim %r winner %r not in %s"
-                                % (label, winner, sorted(allowed)))
-        if not (specs.get("official_reasoning") or "").strip():
-            errs.append("image_ab needs official_reasoning")
-    elif qtype == "image_text":
+            if not (specs.get("image_a_prompt") and specs.get("image_b_prompt")):
+                errs.append("image_ab needs image_a_prompt AND image_b_prompt")
+            dims = specs.get("dimensions") or {}
+            if not isinstance(dims, dict) or not dims:
+                errs.append("image_ab needs a non-empty dimensions map")
+            else:
+                resolved = ab_dims or _ab_fallback_dims()
+                by_label = {d["label"].strip().lower(): set(d["choices"])
+                            for d in resolved}
+                union = set().union(*by_label.values()) if by_label \
+                    else set(_AB_CHOICE_SET)
+                for label, winner in dims.items():
+                    allowed = by_label.get(str(label).strip().lower(), union)
+                    if winner not in allowed:
+                        errs.append("image_ab dim %r winner %r not in %s"
+                                    % (label, winner, sorted(allowed)))
+            if not (specs.get("official_reasoning") or "").strip():
+                errs.append("image_ab needs official_reasoning")
+    elif qtype == "image_prompt":
         specs = it.get("image_specs") or {}
         imgs = specs.get("images") or []
         if not isinstance(imgs, list) or not any(
                 isinstance(i, dict) and i.get("prompt") for i in imgs):
-            errs.append("image_text needs images[] with a prompt")
+            errs.append("image_prompt needs images[] with a prompt")
         key = specs.get("answer_key") or {}
-        if not isinstance(key, dict) or not key.get("ideal_answer"):
-            errs.append("image_text needs answer_key with ideal_answer")
+        if not isinstance(key, dict) or not key.get("ideal_prompt"):
+            errs.append("image_prompt needs answer_key with ideal_prompt")
+    elif qtype == "video_prompt":
+        specs = it.get("image_specs") or {}
+        vids = specs.get("videos") or specs.get("images") or []
+        if not isinstance(vids, list) or not any(
+                isinstance(v, dict) and v.get("prompt") for v in vids):
+            errs.append("video_prompt needs videos[] with a prompt")
+        key = specs.get("answer_key") or {}
+        if not isinstance(key, dict) or not key.get("ideal_prompt"):
+            errs.append("video_prompt needs answer_key with ideal_prompt")
+    elif qtype == "image_label":
+        specs = it.get("image_specs") or {}
+        imgs = specs.get("images") or []
+        if not isinstance(imgs, list) or not any(
+                isinstance(i, dict) and i.get("prompt") for i in imgs):
+            errs.append("image_label needs images[] with a prompt")
+        key = specs.get("answer_key") or {}
+        ideal = key.get("ideal_labels") if isinstance(key, dict) else None
+        has_map = isinstance(ideal, dict) and any(
+            str(v).strip() for v in ideal.values())
+        has_str = isinstance(ideal, str) and ideal.strip()
+        if not (_image_label_boxes(specs) or has_map or has_str):
+            errs.append("image_label needs answer_key.ideal_labels (a per-box "
+                        "map or a string) or a boxes[] plan with coordinates")
     else:
         errs.append("unknown question_type %r" % qtype)
     return errs
 
 
-def generate_questions(env, prompt_record, skill):
+def _generation_model(env):
+    """The document-capable multimodal model used to read a SOP and author
+    questions directly; falls back to a document-capable default (NOT the image
+    model, which cannot parse a PDF's document structure)."""
+    return _param(env, "etp_assessment_pro.generation_model") \
+        or GENERATION_DEFAULT_MODEL
+
+
+_SOP_MIME_BY_EXT = {
+    "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg",
+    "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif",
+    "txt": "text/plain", "md": "text/plain", "markdown": "text/plain",
+    "csv": "text/plain", "json": "text/plain",
+}
+
+
+def _inline_doc_part(name, data, default_mime="application/pdf"):
+    """Build ONE Gemini inlineData part (base64) from a filename + Binary value,
+    using the shared mime map and the %PDF header guard. A Binary field returns
+    base64 bytes, which is exactly Gemini's inlineData. Returns None when empty.
+    Unknown extensions map to ``default_mime`` (pdf for SOP, text/plain for the
+    best-effort sample path so docx/unknown files never trip the PDF guard)."""
+    import base64
+    if not data:
+        return None
+    ext = name.rsplit(".", 1)[-1].lower() if "." in (name or "") else ""
+    mime = _SOP_MIME_BY_EXT.get(ext, default_mime)
+    raw = data.decode() if isinstance(data, bytes) else data
+    if mime == "application/pdf":
+        try:
+            head = base64.b64decode(raw[:12])
+        except Exception:
+            head = b""
+        if not head.startswith(b"%PDF"):
+            raise LLMRefusalError(
+                "File %r is not a readable PDF (missing %%PDF header) — "
+                "re-upload a valid PDF." % (name or "?"))
+    return {"inlineData": {"mimeType": mime, "data": raw}}
+
+
+def _sop_doc_parts(resources):
+    """Native inline document parts (base64) for the SOP files, so the model
+    reads the REAL document — text, images and layout — not stripped text."""
+    parts = []
+    for res in resources.sorted("sequence"):
+        part = _inline_doc_part(res.name or "", res.file)
+        if part:
+            parts.append(part)
+    return parts
+
+
+def _sample_doc_parts(prompt_record):
+    """Native inline part(s) for the optional Sample Questions upload so images
+    inside the sample are read too. docx/unknown extensions fall back to
+    text/plain (best-effort); pdf/images/txt/md keep working via the mime map."""
+    data = getattr(prompt_record, "sample_questions_file", None)
+    if not data:
+        return []
+    name = getattr(prompt_record, "sample_questions_filename", "") or ""
+    part = _inline_doc_part(name, data, default_mime="text/plain")
+    return [part] if part else []
+
+
+_FORCED_TYPE_SPEC = {
+    "mcq": "options (>=3 strings) and correct_answer (exactly one option)",
+    "msq": "options (>=4 strings) and correct_answer (a list of the correct options)",
+    "subjective_rubric": "rubric = {checklist, constraints, pass_condition}",
+}
+
+
+def _forced_type_directive(force_type, count, ab_dims=None):
+    """An EXCLUSIVE directive that pins every generated item to one question_type
+    (with that type's required shape), used when the admin forces a type. An image
+    type carries its full image_specs contract from _image_question_directive, so
+    a run forced to image_ab emits the flaw_plan the platform materializes into a
+    ground-truth answer key rather than the legacy a/b-prompt shape."""
+    n = count or 5
+    if force_type in _IMAGE_OR_VIDEO_TYPES:
+        return (f"Generate EXACTLY {n} question(s). EVERY item's question_type MUST "
+                f'be exactly "{force_type}" — do NOT produce any other type. '
+                + _image_question_directive(force_type, n, ab_dims=ab_dims)
+                + _SELF_CONTAINED_RULE)
+    spec = _FORCED_TYPE_SPEC.get(force_type, "")
+    return (f"Generate EXACTLY {n} question(s). EVERY item's question_type MUST be "
+            f'exactly "{force_type}" — do NOT produce any other type. For EACH item '
+            "provide " + spec + ". Return ONLY a JSON array, no markdown."
+            + _SELF_CONTAINED_RULE)
+
+
+def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
+                                force_type=""):
+    """SKILL-FREE generation: send the SOP document(s) NATIVELY (with their
+    images/layout) plus an optional sample-question format, and let the best
+    multimodal model author questions directly following the format IN the SOP.
+    When ``force_type`` is a valid question type, every item is pinned to it.
+    Reuses the same parse / validate / draft-creation pipeline as
+    generate_questions, minus the per-skill machinery."""
+    doc_parts = _sop_doc_parts(prompt_record.resource_ids)
+    sample_parts = _sample_doc_parts(prompt_record)
+    has_sample = bool(sample_parts or sample_text)
+    notes = (prompt_record.source_text or "").strip()
+    if not doc_parts and not notes:
+        raise LLMRefusalError(
+            "No SOP document or notes to generate from — upload a SOP file first.")
     system_prompt = _get_question_prompt(env)
-    source_text = prompt_record._compiled_source_text()
-    skill_artifacts = json.dumps({
-        "name": skill.name,
-        "description": skill.description or "",
-        "tags": skill.tags or "",
-        "question_type": skill.question_type,
-        "question_count": skill.question_count,
-        "difficulty": skill.difficulty,
-    }, ensure_ascii=False)
-    # Resolve A/B axes once and thread the SAME set through the prompt,
-    # validation, and answer-key build so they can never disagree.
-    ab_dims = _resolve_ab_dimensions(skill)
-
-    def _directive(count):
-        if skill.question_type in _IMAGE_TYPES:
-            return _image_question_directive(
-                skill.question_type, count, ab_dims=ab_dims)
-        return (
-            f"Generate exactly {count} question(s) of type "
-            f"'{skill.question_type}' for this skill as one JSON array.")
-
-    def _user(count, extra=""):
-        return (
-            f"SOURCE MATERIAL:\n{source_text}\n\n"
-            f"SKILL TO TEST:\n{skill_artifacts}\n\n"
-            + _directive(count) + _SELF_CONTAINED_RULE + extra)
-
-    # Keep the clean questions and re-request ONLY the shortfall left by dropped
-    # source-citing items (not the whole batch). The prompt rule alone is not
-    # reliable for spec-reading skills, so we top up until the target is met or
-    # the retry budget is spent — persistent offenders are simply never stored.
-    items = []
-    extra = ""
-    for attempt in range(_GEN_SELF_CONTAINED_MAX_ATTEMPTS):
-        need = skill.question_count - len(items)
-        raw = _call_vertex(
-            env, system_prompt, _user(max(need, 1), extra),
-            max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.5,
-            response_json=True,
-            usage_ctx={"operation": "generate_questions",
-                       "prompt_id": prompt_record.id, "skill_id": skill.id,
-                       "note": skill.name},
-        )
-        batch = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
-        fresh = [it for it in batch if not _item_cites_source(it)]
-        dropped = len(batch) - len(fresh)
-        items.extend(fresh)
-        if len(items) >= skill.question_count or dropped == 0:
-            break  # target met, or the model returned a fully self-contained set
-        extra = _SOURCE_LEAK_CORRECTION
-        _logger.info(
-            "etp_assessment: re-requesting %d clean question(s) for skill %s "
-            "(dropped %d that cited the source, pass %d)",
-            skill.question_count - len(items), skill.name, dropped, attempt + 1)
+    model = _generation_model(env)
+    forced = force_type if force_type in _QUESTION_TYPES else ""
+    ab_dims = _ab_fallback_dims()
+    if forced:
+        directive = _forced_type_directive(forced, count, ab_dims=ab_dims)
     else:
-        _logger.warning(
-            "etp_assessment: skill %s still short after %d attempts (kept %d "
-            "clean); source-citing items were dropped",
-            skill.name, _GEN_SELF_CONTAINED_MAX_ATTEMPTS, len(items))
+        directive = (
+        "The attached document is a SOP that contains the test content, any "
+        "images, AND the required question format. Author assessment questions "
+        "that FOLLOW THE FORMAT shown in the SOP"
+        + (" and in the attached SAMPLE QUESTIONS" if has_sample else "")
+        + ". "
+        + (f"Generate approximately {count} question(s). " if count else "")
+        + "Each item's question_type must be one of " + QUESTION_TYPE_PROMPT_LIST
+        + ". QUESTION-TYPE POLICY (mandatory): if the SOP is about visual or image "
+          "evaluation (judging, comparing, ranking, rating, or generating images), "
+          "then image_ab, image_prompt and image_label MUST be the MAJORITY of the "
+          "questions you "
+          "author (at least half) — the candidate must be tested on ACTUAL images, "
+          "not on prose that describes them. Do NOT replace an image question with "
+          "an mcq/msq/subjective item that merely describes or refers to images. "
+          "Use text types only for the genuinely text-based parts of the SOP "
+          "(definitions, rules, procedures needing no visual judgment). "
+        + "Return ONLY a JSON array, no markdown."
+        + _image_contracts_note(ab_dims)
+        + _SELF_CONTAINED_RULE)
+    user_parts = list(doc_parts)
+    if notes:
+        user_parts.append({"text": "ADDITIONAL NOTES:\n" + notes})
+    if sample_parts:
+        user_parts.append(
+            {"text": "SAMPLE QUESTIONS (match this format) — see the attached "
+                     "sample document:"})
+        user_parts.extend(sample_parts)
+    elif sample_text:
+        user_parts.append(
+            {"text": "SAMPLE QUESTIONS (match this format):\n" + sample_text})
+    user_parts.append({"text": directive})
+    raw = _call_vertex(
+        env, system_prompt, user_text="", user_parts=user_parts, model=model,
+        max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.5, response_json=True,
+        usage_ctx={"operation": "generate_questions",
+                   "prompt_id": prompt_record.id,
+                   "note": prompt_record.name or "SOP"})
+    items = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
     PromptQuestion = env["etp.assessment.pro.prompt.question"].sudo()
     draft_ids = []
-    skipped_bad = []
-    # The top-up loop accumulates per pass; a pass may over-deliver, so cap to
-    # the requested count (the model is never obliged to return exactly `need`).
-    items = items[:skill.question_count]
     for it in items:
-        if not isinstance(it, dict):
-            continue
         name = (it.get("name") or it.get("title") or "").strip()
         prompt_text = (it.get("prompt") or "").strip()
         if not name and not prompt_text:
             continue
-        qtype = it.get("question_type") if it.get("question_type") in _QUESTION_TYPES \
-            else skill.question_type
-        # Self-containment gate: never write a draft that cites the source the
-        # candidate cannot see (survives the regenerate loop above as a backstop).
+        qtype = forced or (it.get("question_type")
+            if it.get("question_type") in _QUESTION_TYPES else "mcq")
         if _item_cites_source(it):
-            skipped_bad.append("%s: cites the source material" % (
-                name or prompt_text[:40]))
             _logger.warning(
-                "etp_assessment dropped source-citing %s item for skill %s",
-                qtype, skill.name)
+                "etp_assessment (SOP) dropped source-citing %s item", qtype)
             continue
-        # Cohesion gate: skip (with a logged reason) any item missing the fields
-        # its type requires, rather than writing a draft that later crashes scoring.
         violations = _validate_question_item(it, qtype, ab_dims=ab_dims)
         if violations:
-            skipped_bad.append("%s: %s" % (
-                (name or prompt_text[:40]), "; ".join(violations)))
             _logger.warning(
-                "etp_assessment skipped malformed %s item for skill %s: %s",
-                qtype, skill.name, "; ".join(violations))
+                "etp_assessment (SOP) skipped malformed %s item: %s",
+                qtype, "; ".join(violations))
             continue
         difficulty = it.get("difficulty") if it.get("difficulty") in _DIFFICULTIES \
-            else skill.difficulty
+            else "medium"
         vals = {
             "prompt_id": prompt_record.id,
-            "skill_id": skill.id,
             "name": (name or prompt_text[:60])[:200],
             "question_prompt": prompt_text or name,
             "question_type": qtype,
             "difficulty": difficulty,
         }
-        if qtype in _IMAGE_TYPES:
-            # Store the answer key + image briefs; rendering is decoupled to fix
-            # the synchronous-render request crash.
+        if qtype in _IMAGE_OR_VIDEO_TYPES:
             vals.update(_build_image_draft_fields(
                 env, qtype, it, ab_dims=ab_dims,
                 usage_ctx={"operation": "generate_image",
-                           "prompt_id": prompt_record.id, "skill_id": skill.id,
-                           "note": skill.name}))
-            if vals.get("image_brief_json"):
+                           "prompt_id": prompt_record.id,
+                           "note": prompt_record.name or "SOP"}))
+            if vals.get("image_brief_json") or vals.get("video_brief_json"):
                 vals["image_state"] = "pending"
+            if vals.get("video_brief_json"):
+                vals["video_state"] = "pending"
         else:
             options = it.get("options") or []
             vals.update({
-                "options_json": json.dumps(options, ensure_ascii=False) if options else False,
+                "options_json": json.dumps(options, ensure_ascii=False)
+                if options else False,
                 "correct_answer_json": json.dumps(
-                    it.get("correct_answer"), ensure_ascii=False
-                ) if it.get("correct_answer") is not None else False,
-                "rubric_json": json.dumps(
-                    it.get("rubric"), ensure_ascii=False
-                ) if it.get("rubric") else False,
+                    it.get("correct_answer"), ensure_ascii=False)
+                if it.get("correct_answer") is not None else False,
+                "rubric_json": json.dumps(it.get("rubric"), ensure_ascii=False)
+                if it.get("rubric") else False,
                 "official_reasoning": it.get("official_reasoning") or False,
             })
-        rec = PromptQuestion.create(vals)
-        draft_ids.append(rec.id)
+        draft_ids.append(PromptQuestion.create(vals).id)
     _logger.info(
-        "etp_assessment generated %s drafts for skill=%s on prompt=%s",
-        len(draft_ids), skill.name, prompt_record.id,
-    )
+        "etp_assessment generated %s drafts from SOP on prompt=%s",
+        len(draft_ids), prompt_record.id)
     return draft_ids
+
+
+_TAG_SYSTEM_PROMPT = (
+    "You are a taxonomy expert. Read the attached SOP and output ONLY a JSON "
+    "array of 4-8 SHORT, DISTINCTIVE, NON-REDUNDANT semantic tags that "
+    "characterize the ASSESSMENT TASK the SOP defines. Rules: (1) every tag is "
+    "lowercase kebab-case with exactly one prefix from domain:/task:/skill:/"
+    "modality:/output-format: (e.g. \"task:pairwise-comparison\", "
+    "\"domain:image-evaluation\", \"skill:prompt-deconstruction\", "
+    "\"modality:image\", \"output-format:bounding-box\"). (2) Keep the set "
+    "SMALL and DISTINCTIVE — tags that would apply to almost ANY SOP (generic "
+    "filler like task:evaluation, skill:reading, domain:assessment) are "
+    "FORBIDDEN. (3) NO duplicates and no two tags meaning the same thing. "
+    "(4) Prefer a specific label over a vague one. Output nothing but the JSON "
+    "array.\n\n"
+    "Example — an image A/B comparison SOP -> "
+    '["domain:image-evaluation","task:pairwise-comparison",'
+    '"skill:prompt-deconstruction","skill:defect-detection","modality:image"]. '
+    "Example — a bounding-box UI labelling SOP -> "
+    '["domain:ui-annotation","task:bounding-box-labeling",'
+    '"skill:action-based-description","modality:image",'
+    '"modality:application-screenshot"].'
+)
+
+
+def extract_tags_from_sop(env, prompt_record):
+    """Extract 4-8 short, prefixed, non-redundant semantic tags characterizing
+    the SOP's task. Sends the SOP document(s) NATIVELY to the multimodal model
+    and injects the EXISTING tag vocabulary so the model reuses a tag verbatim
+    when one fits instead of drifting to a near-duplicate. Returns
+    ``(list_of_tag_strings, raw_json_text)``; never raises on an empty parse
+    (returns ``([], raw)``) so a barren SOP just yields no tags. Canonicalization
+    happens in etp.assessment.pro.tag._get_or_create."""
+    doc_parts = _sop_doc_parts(prompt_record.resource_ids)
+    notes = (prompt_record.source_text or "").strip()
+    if not doc_parts and not notes:
+        raise LLMRefusalError(
+            "No SOP document or notes to tag — upload a SOP file first.")
+    existing = env["etp.assessment.pro.tag"].search([]).mapped("name")[:100]
+    directive = (
+        "Extract the semantic tags for THIS SOP now, following every rule. "
+        "Return ONLY the JSON array.")
+    if existing:
+        directive += (
+            "\n\nEXISTING TAG VOCABULARY (reuse a tag from this list VERBATIM "
+            "when it fits the SOP; only invent a new tag when none matches):\n"
+            + ", ".join(existing))
+    user_parts = list(doc_parts)
+    if notes:
+        user_parts.append({"text": "ADDITIONAL NOTES:\n" + notes})
+    user_parts.append({"text": directive})
+    raw = _call_vertex(
+        env, _TAG_SYSTEM_PROMPT, user_text="", user_parts=user_parts,
+        model=_generation_model(env), max_tokens=4096, temperature=0.2,
+        response_json=True,
+        usage_ctx={"operation": "extract_tags",
+                   "prompt_id": prompt_record.id,
+                   "note": prompt_record.name or "SOP"})
+    try:
+        parsed = _extract_json_array(raw)
+    except ValueError:
+        return [], raw
+    names = [str(t).strip() for t in parsed
+             if isinstance(t, (str, int, float)) and str(t).strip()]
+    return names, raw

@@ -30,6 +30,12 @@ def migrate(cr, version):
            AND llm_state = 'scored'
     """)
 
+    scored = env["etp.assessment.pro.response"].search(
+        [("llm_state", "=", "scored")])
+    if scored:
+        scored.modified(["llm_raw_100"])
+        scored.flush_recordset()
+
     Draft = env["etp.assessment.pro.prompt.question"]
     for draft in Draft.search([("answer_dimension_ids", "=", False)]):
         if (draft.dimensions_json or draft.options_json
