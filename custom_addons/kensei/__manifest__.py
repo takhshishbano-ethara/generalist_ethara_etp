@@ -1,6 +1,6 @@
 {
     "name": "Kensei",
-    "version": "19.0.1.10.0",
+    "version": "19.0.1.11.0",
     "category": "Tools",
     "summary": "Kensei — LLM task management with sandbox environments and file attachments",
     "description": """
