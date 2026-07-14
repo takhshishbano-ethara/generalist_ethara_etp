@@ -40,7 +40,7 @@ export class MilobenchShowcase extends Component {
 
     async _fetchSummary() {
         try {
-            const response = await fetch("/milobench-samples/api/summary", {
+            const response = await fetch("/milo-bench-samples/api/summary", {
                 headers: { Accept: "application/json" },
                 cache: "no-store",
             });
@@ -84,7 +84,7 @@ export class MilobenchShowcase extends Component {
     }
 
     openPortal() {
-        window.open("/milobench-samples", "_blank");
+        window.open("/milo-bench-samples", "_blank");
     }
 }
 

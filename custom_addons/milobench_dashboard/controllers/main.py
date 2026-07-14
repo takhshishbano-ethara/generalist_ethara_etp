@@ -11,7 +11,7 @@ DEFAULT_PAPER_URL = "https://github.com/EtharaOrion/milo-bench-samples#readme"
 
 class MilobenchController(http.Controller):
 
-    @http.route("/milobench-samples", type="http", auth="public", website=True, sitemap=True)
+    @http.route("/milo-bench-samples", type="http", auth="public", website=True, sitemap=True)
     def portal_page(self, **_kw):
         param = request.env["ir.config_parameter"].sudo()
         module = request.env["ir.module.module"].sudo().search(
@@ -30,19 +30,19 @@ class MilobenchController(http.Controller):
             },
         )
 
-    @http.route("/milobench-samples/api/summary", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/milo-bench-samples/api/summary", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_summary(self, **_kw):
         return self._json(self._build_summary())
 
-    @http.route("/milobench-samples/api/tasks", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/milo-bench-samples/api/tasks", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_tasks(self, **_kw):
         return self._json(self._build_tasks())
 
-    @http.route("/milobench-samples/api/runs", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/milo-bench-samples/api/runs", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_runs(self, **_kw):
         return self._json(self._build_runs())
 
-    @http.route("/milobench-samples/api/dataset", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/milo-bench-samples/api/dataset", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_dataset(self, **_kw):
         return self._json({
             "summary": self._build_summary(),

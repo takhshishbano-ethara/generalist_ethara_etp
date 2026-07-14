@@ -123,7 +123,7 @@
 
     async function loadData() {
         try {
-            const res = await fetch("/milobench-samples/api/dataset", { headers: { Accept: "application/json" } });
+            const res = await fetch("/milo-bench-samples/api/dataset", { headers: { Accept: "application/json" } });
             const data = await res.json();
             state.summary = data.summary || null;
             state.tasks = data.tasks || [];
