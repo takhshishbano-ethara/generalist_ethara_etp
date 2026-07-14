@@ -1,15 +1,31 @@
 import json
 import logging
 
+from markupsafe import Markup, escape
+
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 
 from ..constants import (
     QUESTION_TYPE_SELECTION, DIFFICULTY_SELECTION, IMAGE_QUESTION_TYPES,
+    VIDEO_QUESTION_TYPES, DETECTION_MODE_SELECTION,
     option_name_reveals_reasoning, text_has_source_reference,
+    ADVISORY_LOCK_SKILL_EXTRACT, ADVISORY_LOCK_QUESTION_GEN,
+    ADVISORY_LOCK_IMAGE_RENDER, ADVISORY_LOCK_TAG_EXTRACT,
+    ADVISORY_LOCK_VIDEO_POLL,
+    TAG_PREFIX_WEIGHTS, TAG_DEFAULT_PREFIX_WEIGHT,
+    TAG_SIMILAR_MIN_SCORE_DEFAULT,
+    ab_construction_keys, ab_code_from_label, ab_key_drift,
+    parse_flaw_plan,
 )
 
 _logger = logging.getLogger(__name__)
+
+_SOP_GEN_FINALIZE_MAX_ATTEMPTS = 5
+
+_TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS = 5
+
+_VIDEO_OP_MAX_ATTEMPTS = 3
 
 
 class EtpAssessmentPrompt(models.Model):
@@ -24,29 +40,7 @@ class EtpAssessmentPrompt(models.Model):
         string="SOP / Resource Files",
     )
     resource_count = fields.Integer(compute="_compute_resource_count")
-    category_id = fields.Many2one(
-        "etp.assessment.pro.category",
-        string="Target Category",
-    )
-    skill_ids = fields.One2many(
-        "etp.assessment.pro.prompt.skill", "prompt_id", string="Extracted (this run)"
-    )
-    skill_bank_ids = fields.Many2many(
-        "etp.assessment.pro.skill",
-        relation="etp_assessment_pro_prompt_skill_bank_rel",
-        column1="prompt_id",
-        column2="skill_id",
-        string="Skill Bank Links",
-    )
-    selected_skill_ids = fields.Many2many(
-        "etp.assessment.pro.skill",
-        relation="etp_assessment_pro_prompt_selected_skill_rel",
-        column1="prompt_id",
-        column2="skill_id",
-        string="Skills to Generate Questions For",
-        help="Tick the skills you want question drafts for, then click "
-             "Generate Questions. Each ticked skill triggers one LLM call.",
-    )
+
     question_ids = fields.One2many(
         "etp.assessment.pro.prompt.question", "prompt_id", string="Draft Questions"
     )
@@ -78,6 +72,64 @@ class EtpAssessmentPrompt(models.Model):
              "reaped mid-flight.")
     extract_error = fields.Char(
         string="Extraction Error", readonly=True, copy=False)
+    sop_gen_state = fields.Selection(
+        [("idle", "Idle"), ("queued", "Queued"), ("generating", "Generating"),
+         ("done", "Done"), ("failed", "Failed")],
+        default="idle", copy=False, string="SOP Generation",
+        help="Skill-free path: the SOP document is sent natively to the "
+             "multimodal model which authors questions directly per the format "
+             "in the SOP. Runs in the background (a cron does the slow call off "
+             "the web request).")
+    sop_gen_error = fields.Char(
+        string="SOP Generation Error", readonly=True, copy=False)
+    tag_ids = fields.Many2many("etp.assessment.pro.tag", string="SOP Tags")
+    tag_extract_state = fields.Selection(
+        [("idle", "Idle"), ("queued", "Queued"), ("generating", "Generating"),
+         ("done", "Done"), ("failed", "Failed")],
+        default="idle", copy=False, string="Tag Extraction",
+        help="Semantic tags characterizing the SOP's task are extracted by the "
+             "LLM in the background (a cron does the slow call off the web "
+             "request), mirroring SOP generation.")
+    tag_extract_error = fields.Char(
+        string="Tag Extraction Error", readonly=True, copy=False)
+    tags_json = fields.Text(
+        string="Tags (raw LLM output)", readonly=True, copy=False,
+        help="Raw JSON array returned by the tag-extraction call, kept for "
+             "debugging; the canonicalized tags live in tag_ids.")
+    similar_count = fields.Integer(
+        string="Similar Generators", compute="_compute_similar_count",
+        help="How many OTHER generators share enough weighted tags with this "
+             "one to count as similar (shared-tag weight over the configured "
+             "threshold). Drives the 'Similar' smart button.")
+    # sanitize=False needed so the numeric inline style (width:NN% on the
+    # alignment bar) survives; safe for the same reason as dashboard.py: this
+    # markup is admin-only, readonly, built from numbers only, with every
+    # dynamic string (project name, tag label, category, prefix class) escaped
+    # via markupsafe below.
+    similar_html = fields.Html(
+        string="Similar Projects", sanitize=False, readonly=True,
+        compute="_compute_similar_html",
+        help="A ranked, presentation-only view of _similar_prompts(): how "
+             "closely this SOP aligns with previous generators by weighted "
+             "tag overlap, with an alignment % bar and the shared tags.")
+    # Do not remove: dropping this field drops its DB column (user data). Kept as
+    # a read-only legacy shadow of the sample_questions_file upload below.
+    sample_questions = fields.Text(
+        string="Sample Questions (legacy text)",
+        help="Deprecated: replaced by the Sample Questions file upload.")
+    sample_questions_file = fields.Binary(
+        string="Sample Questions File", attachment=True,
+        help="Upload a sample-questions file (PDF/DOCX/MD/image) to match the "
+             "format — optional. Sent natively to the model so images inside the "
+             "file are read too. Leave empty to follow the format inside the SOP.")
+    sample_questions_filename = fields.Char(string="Sample Questions Filename")
+    sop_question_count = fields.Integer(
+        string="Questions to Generate", default=0,
+        help="0 = let the model decide from the SOP; otherwise a target count.")
+    force_question_type = fields.Selection(
+        QUESTION_TYPE_SELECTION, string="Force Question Type",
+        help="Force EVERY generated question to this exact type (e.g. "
+             "Image - Labelling). Leave empty to let the model choose per the SOP.")
     quick_upload_file = fields.Binary(string="Upload SOP / Doc")
     quick_upload_filename = fields.Char()
     upload_sop_file = fields.Binary(string="Upload SOP")
@@ -178,230 +230,469 @@ class EtpAssessmentPrompt(models.Model):
             )
         return "\n\n".join(parts)
 
-    def _get_or_create_category(self):
+    def action_generate_from_sop(self):
+        """One-click SKILL-FREE generation: queue the SOP for the background cron,
+        which sends the document natively (images included) to the best
+        multimodal model and creates draft questions per the format in the SOP.
+        Off-request for the same 'cursor already closed' reason as extraction."""
         self.ensure_one()
-        if self.category_id:
-            return self.category_id
-        Category = self.env["etp.assessment.pro.category"]
-        name = "Gen: %s" % (self.name or "Prompt %s" % self.id)
-        category = Category.search([("name", "=", name)], limit=1)
-        if not category:
-            category = Category.create({"name": name})
-        self.category_id = category.id
-        return category
-
-    def action_extract_skills(self):
-        """Queue skill extraction for the background cron instead of running the
-        LLM call inside this web request. A reasoning model can take minutes, and
-        a long in-request call lets managed Postgres / pgbouncer reap the idle DB
-        connection mid-flight, which crashes with 'cursor already closed'. The
-        cron (`_cron_extract_pending_skills`) does the call off the request and
-        commits the skills in its own transaction."""
-        self.ensure_one()
-        self.write({"extract_state": "queued", "extract_error": False})
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": "Skill Extraction Queued",
-                "message": "Extraction is running in the background. The skills "
-                           "will appear here within about a minute — refresh the "
-                           "page to see them.",
-                "type": "success",
-                "sticky": False,
-            },
-        }
-
-    @api.model
-    def _cron_extract_pending_skills(self):
-        """Background drainer for queued skill extraction. The slow LLM call runs
-        HERE, off the web request, and — critically — we COMMIT before it so the
-        DB connection is NOT 'idle in a transaction' while we wait minutes for the
-        model. A connection idle-in-transaction is what managed Postgres /
-        pgbouncer reaps mid-flight, which is the 'cursor already closed' crash.
-        Claiming a prompt as 'extracting' and committing also stops a second cron
-        worker from re-picking it, so no advisory lock is needed."""
-        from ..services import vertex
-        prompts = self.search([("extract_state", "=", "queued")], limit=3)
-        if not prompts:
-            return
-        _logger.info(
-            "etp_assessment extract cron: %d queued prompt(s)", len(prompts))
-        for prompt in prompts:
-            # Claim + clear old skills, then COMMIT so the long call below holds
-            # no open transaction (this is what avoids the connection reaper).
-            prompt.write({"extract_state": "extracting", "extract_error": False})
-            prompt.skill_ids.unlink()
-            self.env.cr.commit()
-            try:
-                summary = vertex.extract_skills(self.env, prompt)
-                prompt.write({
-                    "state": "skills_ready",
-                    "extract_state": "done",
-                    "extract_error": False,
-                    "last_extract_summary": "Created %s, Skipped %s, Total %s"
-                    % (summary.get("created", 0), summary.get("skipped", 0),
-                       summary.get("total", 0)),
-                })
-                self.env.cr.commit()
-                _logger.info(
-                    "etp_assessment extract cron: prompt %s -> %s",
-                    prompt.id, prompt.last_extract_summary)
-            except Exception as exc:  # noqa: BLE001 - isolate per prompt
-                self.env.cr.rollback()
-                _logger.exception(
-                    "Skill extraction failed for prompt %s", prompt.id)
-                prompt.write({
-                    "extract_state": "failed", "extract_error": str(exc)[:300]})
-                self.env.cr.commit()
-
-    def action_generate_questions(self):
-        """Queue per-skill question generation for the background cron. Each skill
-        is a slow LLM call; running them in the web request lets managed Postgres
-        reap the idle DB connection mid-flight ('cursor already closed'). The cron
-        (`_cron_generate_pending_questions`) generates each skill OFF the request,
-        committing before the call, with per-skill gen_state for isolation/retry."""
-        self.ensure_one()
-        if not self.selected_skill_ids:
+        if not self.resource_ids and not (self.source_text or "").strip():
             raise UserError(
-                "Pick at least one skill from 'Skills to Generate For' before generating."
-            )
-        self.state = "generating"
-        self.selected_skill_ids.write({
-            "gen_state": "queued", "gen_error": False, "gen_prompt_id": self.id})
-        _logger.info(
-            "etp_assessment generate queued: prompt=%s skills=%d (%s)",
-            self.id, len(self.selected_skill_ids),
-            ", ".join(self.selected_skill_ids.mapped("name")))
+                "Upload a SOP document (or add notes) before generating.")
+        self.write({"sop_gen_state": "queued", "sop_gen_error": False,
+                    "state": "generating"})
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
                 "title": "Question Generation Queued",
-                "message": "Generation is running in the background, one skill at "
-                           "a time. Drafts will appear here within a minute or two "
-                           "— refresh the page to see them.",
-                "type": "success",
-                "sticky": False,
+                "message": "Reading your SOP in the background — draft questions "
+                           "appear here within a minute or two; refresh to see "
+                           "them.",
+                "type": "success", "sticky": False,
             },
         }
 
     @api.model
-    def _cron_generate_pending_questions(self):
-        """Background drainer for queued question generation. Per skill we claim
-        it, clear ONLY its old drafts, COMMIT (so the long LLM call holds no open
-        transaction and dodges the managed-Postgres idle-in-transaction reaper),
-        then generate. Per-skill isolation means a failing skill never blocks the
-        others, and gen_state stays retryable. A prompt flips to 'done' once none
-        of its skills are still pending."""
+    def _cron_generate_from_sop(self):
+        """Background drainer for SOP-direct generation. COMMITS before the slow
+        multimodal call (avoids the idle-in-transaction 'cursor already closed'
+        crash) under a SESSION-level advisory lock so no two workers send the
+        same SOP to Vertex; a prompt left 'generating' by a died worker is
+        reclaimed next tick."""
         from ..services import vertex
-        Skill = self.env["etp.assessment.pro.skill"]
-        skills = Skill.search([
-            ("gen_state", "=", "queued"),
-            ("gen_prompt_id", "!=", False),
-        ], limit=3)
-        if not skills:
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_QUESTION_GEN,))
+        if not self.env.cr.fetchone()[0]:
             return
-        _logger.info(
-            "etp_assessment generate cron: %d queued skill(s)", len(skills))
-        touched = self.browse()
-        for skill in skills:
-            prompt = skill.gen_prompt_id
-            touched |= prompt
-            # Claim + clear this skill's old drafts, then COMMIT before the call.
-            skill.write({"gen_state": "generating", "gen_error": False})
-            prompt.question_ids.filtered(
-                lambda q: q.state == "draft" and q.skill_id.id == skill.id
-            ).unlink()
-            self.env.cr.commit()
-            try:
-                draft_ids = vertex.generate_questions(self.env, prompt, skill)
-                count = len(draft_ids)
-                skill.write({
-                    "gen_state": "done" if count else "failed",
-                    "gen_error": False if count
-                    else "model returned no usable questions"})
-                self.env.cr.commit()
-                _logger.info(
-                    "etp_assessment generate cron: skill %s -> %d draft(s)",
-                    skill.name, count)
-            except vertex.LLMRefusalError as exc:
-                self.env.cr.rollback()
-                _logger.warning(
-                    "Generation declined for skill %s: %s", skill.name, exc)
-                skill.write({"gen_state": "failed",
-                             "gen_error": "declined: %s" % str(exc)[:200]})
-                self.env.cr.commit()
-            except Exception as exc:  # noqa: BLE001 - isolate per skill
-                self.env.cr.rollback()
-                _logger.exception(
-                    "Generation failed for skill %s", skill.name)
-                skill.write({"gen_state": "failed",
-                             "gen_error": str(exc)[:200]})
-                self.env.cr.commit()
-        # Mark a prompt done once it has no more queued/generating skills.
-        for prompt in touched:
-            pending = Skill.search_count([
-                ("gen_prompt_id", "=", prompt.id),
-                ("gen_state", "in", ("queued", "generating"))])
-            if not pending and prompt.state == "generating":
-                prompt.write({"state": "done"})
-                self.env.cr.commit()
-
-    def action_retry_failed_skills(self):
-        """Re-run generation for ONLY the skills whose last generation failed.
-        The easy-recovery path: a transient model error on a couple of skills
-        does not force regenerating (and losing) the whole bank."""
-        self.ensure_one()
-        failed = self.selected_skill_ids.filtered(
-            lambda s: s.gen_state == "failed")
-        if not failed:
-            failed = self.skill_bank_ids.filtered(
-                lambda s: s.gen_state == "failed")
-        if not failed:
-            return {
-                "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {"title": "Nothing to retry",
-                           "message": "No skills are in a failed state.",
-                           "type": "info"},
-            }
-        previous = self.selected_skill_ids
         try:
-            self.selected_skill_ids = [(6, 0, failed.ids)]
-            return self.action_generate_questions()
+            prompts = self.search(
+                [("sop_gen_state", "in", ("queued", "generating"))], limit=2)
+            if not prompts:
+                return
+            _logger.info(
+                "etp_assessment SOP gen cron: %d prompt(s) to generate",
+                len(prompts))
+            for prompt in prompts:
+                prompt.write({"sop_gen_state": "generating",
+                              "sop_gen_error": False})
+                self.env.cr.commit()
+                try:
+                    draft_ids = vertex.generate_questions_from_sop(
+                        self.env, prompt,
+                        count=prompt.sop_question_count or 0,
+                        force_type=(prompt.force_question_type or ""))
+                    # Persist the drafts in their OWN commit before the contended
+                    # final state write. The drafts touch only the child table, so
+                    # this commit never races the prompt row; a serialization race
+                    # on the state write below can then be rolled back and retried
+                    # WITHOUT losing the drafts (or re-running the Vertex call).
+                    self.env.cr.commit()
+                    self._finalize_sop_gen_state(prompt, len(draft_ids))
+                    _logger.info(
+                        "etp_assessment SOP gen cron: prompt %s -> %d draft(s)",
+                        prompt.id, len(draft_ids))
+                except vertex.VertexQuotaError:
+                    # 429 is transient: re-queue so the next tick retries when
+                    # quota recovers, rather than hard-failing the generation.
+                    self.env.cr.rollback()
+                    _logger.warning(
+                        "SOP generation for prompt %s hit Vertex quota (429); "
+                        "re-queued for next tick.", prompt.id)
+                    prompt.write({"sop_gen_state": "queued",
+                                  "sop_gen_error": False})
+                    self.env.cr.commit()
+                except Exception as exc:  # noqa: BLE001 - isolate per prompt
+                    self.env.cr.rollback()
+                    _logger.exception(
+                        "SOP generation failed for prompt %s", prompt.id)
+                    prompt.write({"sop_gen_state": "failed",
+                                  "sop_gen_error": str(exc)[:300]})
+                    self.env.cr.commit()
         finally:
-            self.selected_skill_ids = [(6, 0, previous.ids)]
+            self.env.cr.execute(
+                "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_QUESTION_GEN,))
 
-class EtpAssessmentPromptSkill(models.Model):
-    _name = "etp.assessment.pro.prompt.skill"
-    _description = "Prompt Extracted Skill (transient view)"
-    _order = "sequence, id"
+    def _finalize_sop_gen_state(self, prompt, draft_count):
+        """Write the terminal SOP-gen state resiliently against a serialization
+        race with the tag-extraction cron, which writes the SAME prompt row
+        (tag_extract_state) under a DIFFERENT advisory lock so the two crons can
+        run at once. Under Odoo's REPEATABLE READ isolation the second writer of a
+        row gets a SerializationFailure (SQLSTATE 40001); because the drafts are
+        already committed, we roll the failed state write back, re-read the row and
+        retry a bounded number of times. Re-queuing is deliberately NOT used here:
+        the drainer cannot tell 'needs generation' from 'needs finalization', so it
+        would re-run the expensive Vertex call and duplicate the drafts. Any
+        non-40001 error (or exhausted retries) propagates to the caller so genuine
+        generation failures still surface as 'failed'."""
+        import time
+        import psycopg2
+        from psycopg2 import errorcodes, errors as pg_errors
+        vals = {
+            "state": "done",
+            "sop_gen_state": "done",
+            "last_extract_summary": "Generated %s draft(s) from SOP" % draft_count,
+        }
+        for attempt in range(_SOP_GEN_FINALIZE_MAX_ATTEMPTS):
+            try:
+                prompt.write(vals)
+                self.env.cr.commit()
+                return
+            except psycopg2.OperationalError as exc:
+                is_serialization = (
+                    isinstance(exc, pg_errors.SerializationFailure)
+                    or getattr(exc, "pgcode", None)
+                    == errorcodes.SERIALIZATION_FAILURE)
+                if (not is_serialization
+                        or attempt == _SOP_GEN_FINALIZE_MAX_ATTEMPTS - 1):
+                    raise
+                self.env.cr.rollback()
+                prompt.invalidate_recordset()
+                _logger.warning(
+                    "SOP gen finalize hit a serialization race on prompt %s "
+                    "(attempt %s/%s); rolled back the state write and retrying "
+                    "with the drafts already committed.",
+                    prompt.id, attempt + 1, _SOP_GEN_FINALIZE_MAX_ATTEMPTS)
+                time.sleep(0.1 * (attempt + 1))
 
-    prompt_id = fields.Many2one(
-        "etp.assessment.pro.prompt", required=True, ondelete="cascade"
-    )
-    name = fields.Char(string="Skill", required=True)
-    description = fields.Text()
-    tags = fields.Char()
-    sequence = fields.Integer(default=10)
-    question_type = fields.Selection(
-        QUESTION_TYPE_SELECTION,
-        default="mcq",
-    )
-    question_count = fields.Integer(default=5)
-    time_minutes = fields.Integer(default=10)
-    difficulty = fields.Selection(
-        DIFFICULTY_SELECTION,
-        default="medium",
-    )
-    bank_skill_id = fields.Many2one(
-        "etp.assessment.pro.skill", string="Bank Skill", ondelete="set null"
-    )
-    upsert_state = fields.Selection(
-        [("created", "Created"), ("skipped", "Skipped (existed)")],
-        readonly=True,
-    )
+    def _finalize_tag_extract_state(self, prompt, tags, raw):
+        """Write the terminal tag-extraction state resiliently against a
+        serialization race with the SOP-generation cron, which writes the SAME
+        prompt row (sop_gen_state/state) under a DIFFERENT advisory lock so the
+        two crons can run at once. Under Odoo's REPEATABLE READ isolation the
+        second writer of a row gets a SerializationFailure (SQLSTATE 40001);
+        because the tags are already committed, we roll the failed state write
+        back, re-read the row and retry a bounded number of times. Any non-40001
+        error (or exhausted retries) propagates to the caller so genuine tag
+        failures still surface as 'failed'. Mirrors _finalize_sop_gen_state."""
+        import time
+        import psycopg2
+        from psycopg2 import errorcodes, errors as pg_errors
+        vals = {
+            "tag_ids": [(6, 0, tags.ids)],
+            "tags_json": raw or False,
+            "tag_extract_state": "done",
+        }
+        for attempt in range(_TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS):
+            try:
+                prompt.write(vals)
+                self.env.cr.commit()
+                return
+            except psycopg2.OperationalError as exc:
+                is_serialization = (
+                    isinstance(exc, pg_errors.SerializationFailure)
+                    or getattr(exc, "pgcode", None)
+                    == errorcodes.SERIALIZATION_FAILURE)
+                if (not is_serialization
+                        or attempt == _TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS - 1):
+                    raise
+                self.env.cr.rollback()
+                prompt.invalidate_recordset()
+                _logger.warning(
+                    "Tag extract finalize hit a serialization race on prompt %s "
+                    "(attempt %s/%s); rolled back the state write and retrying "
+                    "with the tags already committed.",
+                    prompt.id, attempt + 1, _TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS)
+                time.sleep(0.1 * (attempt + 1))
+
+    def action_extract_tags(self):
+        """Queue this SOP for background semantic-tag extraction. Off-request for
+        the same 'cursor already closed' reason as SOP generation; guarded on a
+        SOP resource existing, mirroring action_generate_from_sop."""
+        self.ensure_one()
+        if not self.resource_ids and not (self.source_text or "").strip():
+            raise UserError(
+                "Upload a SOP document (or add notes) before extracting tags.")
+        self.write({"tag_extract_state": "queued", "tag_extract_error": False})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Tag Extraction Queued",
+                "message": "Reading your SOP in the background — semantic tags "
+                           "appear here within a minute; refresh to see them.",
+                "type": "success", "sticky": False,
+            },
+        }
+
+    @api.model
+    def _cron_extract_tags(self):
+        """Background drainer for semantic-tag extraction. COMMITS before the
+        slow multimodal call under a SESSION-level advisory lock so no two
+        workers send the same SOP to Vertex; a prompt left 'generating' by a
+        died worker is reclaimed next tick. Mirrors _cron_generate_from_sop."""
+        from ..services import vertex
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_TAG_EXTRACT,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        try:
+            prompts = self.search(
+                [("tag_extract_state", "in", ("queued", "generating"))], limit=2)
+            if not prompts:
+                return
+            _logger.info(
+                "etp_assessment tag extract cron: %d prompt(s) to tag",
+                len(prompts))
+            for prompt in prompts:
+                prompt.write({"tag_extract_state": "generating",
+                              "tag_extract_error": False})
+                self.env.cr.commit()
+                try:
+                    names, raw = vertex.extract_tags_from_sop(self.env, prompt)
+                    tags = self.env["etp.assessment.pro.tag"]._get_or_create(
+                        names)
+                    # Persist the tag records in their OWN commit before the
+                    # contended final state write. The tags touch only the tag
+                    # table, so this commit never races the prompt row; a
+                    # serialization race on the state write below can then be
+                    # rolled back and retried WITHOUT losing the tags (or
+                    # re-running the Vertex call).
+                    self.env.cr.commit()
+                    self._finalize_tag_extract_state(prompt, tags, raw)
+                    _logger.info(
+                        "etp_assessment tag extract cron: prompt %s -> %d tag(s)",
+                        prompt.id, len(tags))
+                except vertex.VertexQuotaError:
+                    # 429 is transient: re-queue for the next tick instead of
+                    # marking the tag extraction permanently failed.
+                    self.env.cr.rollback()
+                    _logger.warning(
+                        "Tag extraction for prompt %s hit Vertex quota (429); "
+                        "re-queued for next tick.", prompt.id)
+                    prompt.write({"tag_extract_state": "queued",
+                                  "tag_extract_error": False})
+                    self.env.cr.commit()
+                except Exception as exc:  # noqa: BLE001 - isolate per prompt
+                    self.env.cr.rollback()
+                    _logger.exception(
+                        "Tag extraction failed for prompt %s", prompt.id)
+                    prompt.write({"tag_extract_state": "failed",
+                                  "tag_extract_error": str(exc)[:300]})
+                    self.env.cr.commit()
+        finally:
+            self.env.cr.execute(
+                "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_TAG_EXTRACT,))
+
+    def _tag_prefix_weight(self, prefix):
+        param = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment_pro.tag_weight_%s" % (prefix or ""))
+        if param:
+            try:
+                return float(param)
+            except (TypeError, ValueError):
+                pass
+        return TAG_PREFIX_WEIGHTS.get(
+            prefix or "", TAG_DEFAULT_PREFIX_WEIGHT)
+
+    def _tag_similar_min_score(self):
+        param = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment_pro.tag_similar_min_score")
+        if param:
+            try:
+                return float(param)
+            except (TypeError, ValueError):
+                pass
+        return TAG_SIMILAR_MIN_SCORE_DEFAULT
+
+    def _similar_prompts(self, limit=5, min_score=None):
+        """Rank OTHER generators by weighted-Jaccard tag overlap with this one.
+
+        score = (weight of SHARED tags) / (weight of the UNION of both tag sets),
+        each tag weighted by its prefix (_tag_prefix_weight). Returns a list of
+        ``{"prompt", "score", "shared", "shared_weight"}`` dicts, best score
+        first. The candidate set is found with ONE self-join on the tag M2M rel
+        table (only generators sharing >=1 tag), then union weights are summed in
+        Python. Column/table names come from the field descriptor, never
+        hardcoded, so the SQL cannot drift from Odoo's auto-named relation.
+        """
+        self.ensure_one()
+        my_tags = self.tag_ids
+        if not my_tags:
+            return []
+        field = self._fields["tag_ids"]
+        rel, col_prompt, col_tag = (
+            field.relation, field.column1, field.column2)
+        self.env.cr.execute(
+            """
+            SELECT other.{col_prompt} AS other_id,
+                   array_agg(other.{col_tag}) AS shared_ids
+              FROM {rel} mine
+              JOIN {rel} other
+                ON other.{col_tag} = mine.{col_tag}
+               AND other.{col_prompt} != mine.{col_prompt}
+             WHERE mine.{col_prompt} = %s
+             GROUP BY other.{col_prompt}
+            """.format(rel=rel, col_prompt=col_prompt, col_tag=col_tag),
+            (self.id,),
+        )
+        rows = self.env.cr.fetchall()
+        if not rows:
+            return []
+        weight_by_prefix = {}
+
+        def weight(tag):
+            prefix = tag.prefix or ""
+            if prefix not in weight_by_prefix:
+                weight_by_prefix[prefix] = self._tag_prefix_weight(prefix)
+            return weight_by_prefix[prefix]
+
+        my_weight = sum(weight(t) for t in my_tags)
+        other_prompts = self.browse([r[0] for r in rows])
+        other_prompts.tag_ids  # prefetch tag sets in one read
+        Tag = self.env["etp.assessment.pro.tag"]
+        results = []
+        for other, (_other_id, shared_ids) in zip(other_prompts, rows):
+            shared = Tag.browse([tid for tid in shared_ids if tid])
+            shared_weight = sum(weight(t) for t in shared)
+            union_weight = (
+                my_weight + sum(weight(t) for t in other.tag_ids)
+                - shared_weight)
+            score = shared_weight / union_weight if union_weight else 0.0
+            if min_score is not None and score < min_score:
+                continue
+            results.append({
+                "prompt": other,
+                "score": score,
+                "shared": shared,
+                "shared_weight": shared_weight,
+            })
+        results.sort(key=lambda d: (d["score"], d["shared_weight"]),
+                     reverse=True)
+        return results[:limit] if limit else results
+
+    @api.depends("tag_ids")
+    def _compute_similar_count(self):
+        threshold = self._tag_similar_min_score()
+        for rec in self:
+            if not rec.tag_ids:
+                rec.similar_count = 0
+                continue
+            rec.similar_count = sum(
+                1 for sim in rec._similar_prompts(limit=None)
+                if sim["shared_weight"] >= threshold)
+
+    @staticmethod
+    def _simrank_prefix_class(prefix):
+        known = {"task", "domain", "skill", "modality", "output-format"}
+        p = (prefix or "").strip().lower()
+        return "etp-simrank-tag--%s" % p if p in known else ""
+
+    def _simrank_empty(self, message):
+        return Markup(
+            '<div class="etp-simrank etp-simrank-empty">'
+            '<i class="fa fa-project-diagram"></i>'
+            '<span>{msg}</span></div>'
+        ).format(msg=escape(message))
+
+    @api.depends("tag_ids")
+    def _compute_similar_html(self):
+        """Present _similar_prompts() as a ranked alignment panel. Reuses that
+        method for the ranking (best-first, self + no-tag prompts already
+        excluded) and only renders it; never raises. sanitize=False is safe as
+        justified on the field: numbers-only inline styles, every dynamic
+        string escaped. Unsaved / untagged / no-match records get a muted
+        empty state."""
+        for rec in self:
+            if not rec.id or not rec.tag_ids:
+                rec.similar_html = rec._simrank_empty(
+                    "Add or extract SOP tags to see how this project aligns "
+                    "with previous ones.")
+                continue
+            matches = rec._similar_prompts(limit=8)
+            if not matches:
+                rec.similar_html = rec._simrank_empty(
+                    "No aligned projects yet — no other generator shares "
+                    "these SOP tags.")
+                continue
+            rows = Markup("")
+            for i, match in enumerate(matches):
+                other = match["prompt"]
+                pct = max(0, min(100, round((match["score"] or 0.0) * 100)))
+                rank = i + 1
+                rank_cls = " etp-simrank-rank--top" if rank <= 3 else ""
+                pills = Markup("")
+                for tag in match["shared"]:
+                    pills += Markup(
+                        '<span class="etp-simrank-tag {cls}">{label}</span>'
+                    ).format(
+                        cls=rec._simrank_prefix_class(tag.prefix),
+                        label=escape(tag.label or tag.name or ""))
+                rows += Markup(
+                    '<div class="etp-simrank-row">'
+                    '<span class="etp-simrank-rank{rank_cls}">{rank}</span>'
+                    '<div class="etp-simrank-main">'
+                    '<div class="etp-simrank-top">'
+                    '<a class="etp-simrank-name" href="{href}">{name}</a>'
+                    '<span class="etp-simrank-pct">{pct}%</span>'
+                    '</div>'
+                    '<div class="etp-simrank-bar">'
+                    '<span class="etp-simrank-fill" style="width:{pct}%"></span>'
+                    '</div>'
+                    '<div class="etp-simrank-tags">{pills}</div>'
+                    '</div></div>'
+                ).format(
+                    rank_cls=rank_cls, rank=rank,
+                    href=escape(
+                        "/web#id=%d&model=etp.assessment.pro.prompt"
+                        "&view_type=form" % other.id),
+                    name=escape(other.name or "Untitled"),
+                    pct=pct, pills=pills)
+            rec.similar_html = Markup(
+                '<div class="etp-simrank">{}</div>').format(rows)
+
+    def action_view_similar(self):
+        """Open the generators that share enough weighted tags with this one.
+        Similarity is computed, not a stored relation, so the ranked ids are
+        resolved here and passed as an id domain to a minimal list view."""
+        self.ensure_one()
+        threshold = self._tag_similar_min_score()
+        ids = [sim["prompt"].id
+               for sim in self._similar_prompts(limit=None)
+               if sim["shared_weight"] >= threshold]
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Generators Similar to %s" % (self.name or ""),
+            "res_model": "etp.assessment.pro.prompt",
+            "domain": [("id", "in", ids)],
+            "view_mode": "list,form",
+            "views": [
+                (self.env.ref(
+                    "etp_assessment_pro."
+                    "etp_assessment_pro_prompt_similar_tree").id, "list"),
+                (False, "form"),
+            ],
+            "target": "current",
+            "help": (
+                "<p class='o_view_nocontent_smiling_face'>No similar generators"
+                "</p><p>Similarity ranks other generators by the weight of the "
+                "SOP tags they share with this one.</p>"),
+        }
+
+    @api.model
+    def action_backfill_all_tags(self):
+        """Queue every un-tagged generator that has a SOP resource for the
+        existing background tag-extraction cron. Callable from the config menu
+        (an ir.actions.server). Only touches idle/failed generators with no tags
+        yet, so it never re-queues work already done or in flight."""
+        prompts = self.search([
+            ("tag_extract_state", "in", ("idle", "failed")),
+            ("tag_ids", "=", False),
+            ("resource_ids.category", "=", "sop"),
+        ])
+        prompts.write({"tag_extract_state": "queued",
+                       "tag_extract_error": False})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Tag Backfill Queued",
+                "message": "%d generator(s) queued for tag extraction — tags "
+                           "appear as the background cron drains them."
+                           % len(prompts),
+                "type": "success", "sticky": False,
+            },
+        }
 
 
 class EtpAssessmentPromptQuestion(models.Model):
@@ -412,23 +703,12 @@ class EtpAssessmentPromptQuestion(models.Model):
     prompt_id = fields.Many2one(
         "etp.assessment.pro.prompt", required=True, ondelete="cascade"
     )
-    skill_id = fields.Many2one(
-        "etp.assessment.pro.skill", string="Skill", ondelete="set null"
-    )
     name = fields.Char(string="Title", required=True)
     question_prompt = fields.Text(string="Question Prompt")
     description = fields.Text(
         string="Description",
         help="Optional candidate-facing description. NEVER put options or the "
              "correct answer here — those live in dimensions / the answer key.")
-    category_id = fields.Many2one(
-        "etp.assessment.pro.category", string="Target Category",
-        help="Per-draft category override. Falls back to the generator's "
-             "category when blank.")
-    skill_names = fields.Char(
-        string="Skill Names",
-        help="Pipe-separated skill names from a CSV/JSON import; resolved to "
-             "(or created as) bank skills on approve when skill_id is blank.")
     time_minutes = fields.Integer(string="Time (minutes)", default=0)
     question_type = fields.Selection(
         QUESTION_TYPE_SELECTION,
@@ -452,6 +732,13 @@ class EtpAssessmentPromptQuestion(models.Model):
     difficulty = fields.Selection(
         DIFFICULTY_SELECTION,
     )
+    detection_mode = fields.Selection(
+        DETECTION_MODE_SELECTION,
+        string="Detection Mode",
+        default="object",
+        help="image_label: photo (detect objects) vs UI screenshot (detect "
+             "clickable UI elements). Copied onto the bank question on approve "
+             "so detection uses the right prompt.")
     options_json = fields.Text(string="Options (JSON)")
     correct_answer_json = fields.Text(string="Correct Answer (JSON)")
     dimensions_json = fields.Text(
@@ -462,10 +749,57 @@ class EtpAssessmentPromptQuestion(models.Model):
              "supersedes options_json/correct_answer_json. ``correct`` entries "
              "may be option strings OR 0-based indices into ``options``.")
     rubric_json = fields.Text(string="Rubric (JSON)")
+    behavioural_key_json = fields.Text(
+        string="Behavioural Key (JSON)", copy=False,
+        help="image_label DENSE answer key: a JSON list of {number, element, "
+             "functionality} grading the ACTION each numbered box performs. "
+             "Copied onto the 'single' bank image on approve so the candidate UI "
+             "and scoring treat model-authored boxes like DOM-captured ones.")
+    label_boxes_json = fields.Text(
+        string="Label Boxes (JSON)", copy=False,
+        help="image_label DENSE box geometry: a JSON list of {number, box_2d, "
+             "label, description} in the 0-1000 grid. Used at approve to draw the "
+             "numbered overlay on the rendered screenshot via annotate_image.")
+    coverage_expected = fields.Selection(
+        [("yes", "Yes"), ("no", "No")],
+        string="Coverage Expected", copy=False,
+        help="image_label DENSE coverage gate ground truth: 'no' when the brief "
+             "deliberately leaves one interactive element un-boxed, else 'yes'. "
+             "Copied onto the bank image on approve.")
+    omitted_element_json = fields.Text(
+        string="Omitted Element (JSON)", copy=False,
+        help="image_label DENSE: the deliberately un-boxed element backing a "
+             "coverage:No gate, copied onto the bank image on approve.")
+    label_application = fields.Char(
+        string="Label Application", copy=False,
+        help="image_label DENSE: the app/site the screenshot depicts, copied "
+             "onto the bank image on approve and graded as one identification "
+             "checklist point.")
     official_reasoning = fields.Text(
         string="Official Reasoning",
         help="image_ab: the official rationale the LLM grades the candidate's "
              "justification against.")
+    flaw_plan_json = fields.Text(
+        string="Flaw Plan (JSON)",
+        help="image_ab flaw-injection plan: {faithful_side, worker_prompt, "
+             "render_prompts:{a,b}, planted:{a,b}, construction_keys} (the older "
+             "flawed_side/clean_prompt/flawed_prompt/injected_flaws shape is also "
+             "accepted). The answer key is DERIVED from construction_keys "
+             "(ground-truth by construction). "
+             "Surfaced read-only so a reviewer can eyeball the FLAWED image "
+             "against injected_flaws before approving; copied to the bank "
+             "question on approve, where a key-drift guard hard-fails on any "
+             "mismatch. Empty for non-flaw / pre-Phase-3 drafts (guards no-op).")
+    verification_json = fields.Text(
+        string="Flaw Verification (JSON)", copy=False,
+        help="Phase-3 render QA for image_ab: per-side record of whether each "
+             "planted flaw was VISIBLY confirmed in the rendered image and how "
+             "many times that side was re-rendered. needs_review=true means a "
+             "planted flaw never rendered after the bounded retries, so the "
+             "construction key it backs is not justified by the pixels and "
+             "approval is blocked until it is fixed. Empty when verification is "
+             "disabled, unavailable (Vertex down / no creds), or the draft has "
+             "no image_ab flaw plan.")
     images_json = fields.Text(
         string="Images (JSON)",
         help='JSON list of {"slot","label","url" | "data"} image specs. URLs '
@@ -478,6 +812,43 @@ class EtpAssessmentPromptQuestion(models.Model):
              "the text model. The image model renders these on demand "
              "(Generate / Regenerate). Editable so Growth can tweak a brief "
              "before regenerating.")
+    video_brief_json = fields.Text(
+        string="Video Briefs (JSON)",
+        help='video_prompt twin of image_brief_json: a JSON list of '
+             '{"slot","label","prompt"} clip briefs (reference + output, or a '
+             "single clip) authored by the text model. The clips are uploaded by "
+             "an admin (Phase 1) or generated by Veo (Phase 3); nothing renders "
+             "from these at generation time.")
+    video_state = fields.Selection(
+        [
+            ("none", "No Video Needed"),
+            ("pending", "Video Pending"),
+            ("generating", "Generating"),
+            ("rendered", "Video Rendered"),
+            ("failed", "Generation Failed"),
+        ],
+        default="none", string="Video State", copy=False,
+        help="video_prompt async Veo lifecycle: pending = briefs exist, waiting "
+             "to submit (or Veo not configured, so the admin uploads clips); "
+             "generating = Veo ops submitted, polling; rendered = every clip is "
+             "back and staged; failed = an op failed past the attempt cap. The "
+             "config gate keeps it 'pending' when Veo/creds are absent so the "
+             "Phase-1 upload path fully works.")
+    video_op_json = fields.Text(
+        string="Video Op State (JSON)", copy=False,
+        help="Per-slot Veo long-running op state: {slot: {op_name, state, "
+             "attempts, label}}. Persisted before video_state flips to "
+             "'generating' so a killed worker resumes without double-submitting "
+             "an op (idempotency handle).")
+    video_files_json = fields.Text(
+        string="Video Files (JSON)", copy=False,
+        help='video twin of images_json: a JSON list of {"slot","label","url"|'
+             '"data"} clips staged by the poll cron, materialized to '
+             "question.video rows on approve.")
+    video_error = fields.Char(
+        string="Video Error", copy=False,
+        help="The error that failed the last Veo generation attempt, surfaced "
+             "so a reviewer can fix the brief or fall back to upload.")
     image_state = fields.Selection(
         [
             ("none", "No Images Needed"),
@@ -490,6 +861,11 @@ class EtpAssessmentPromptQuestion(models.Model):
         help="Lifecycle of this draft's images: pending = briefs exist but no "
              "picture yet; rendered = the image model produced them; uploaded "
              "= Growth supplied their own; failed = a render attempt failed.")
+    image_render_attempts = fields.Integer(
+        default=0, copy=False,
+        help="How many times the render cron has tried this draft. A 429 quota "
+             "hit does NOT count; only genuine partial/failed renders do, so a "
+             "draft flips to 'failed' after the cap instead of retrying forever.")
     upload_image = fields.Binary(
         string="Upload Replacement Image", attachment=True,
         help="Upload your own image when a generated one is wrong. Pick the "
@@ -509,22 +885,14 @@ class EtpAssessmentPromptQuestion(models.Model):
     approved_question_id = fields.Many2one(
         "etp.assessment.pro.question", string="Bank Question", readonly=True
     )
-    # Editable, presentable answer key (one axis per dimension; a single
-    # "Answer" axis for MCQ/MSQ). Authoritative over the raw JSON once present:
-    # _dimension_specs() reads these first, so the preview and approve follow
-    # what the reviewer edits here. Seeded from the LLM JSON on create.
     answer_dimension_ids = fields.One2many(
         "etp.assessment.pro.prompt.question.dimension", "draft_id",
         string="Answer Key")
-    # Editable rubric answer key (subjective_* + image_text). These mirror the
-    # EXACT keys the grader reads out of subjective_rubric_json (services/
-    # scoring.py), surfaced as friendly fields so a reviewer never edits raw
-    # JSON. Computed from rubric_json and written straight back to it (other
-    # keys preserved), so approve -> bank -> scoring is unchanged.
     ak_ideal_answer = fields.Text(
         string="Ideal Answer", compute="_compute_answer_key_fields",
         inverse="_inverse_answer_key_fields",
-        help="image_text: the model answer the candidate is graded against.")
+        help="image_prompt/image_label: the ideal prompt or labels the candidate "
+             "is graded against.")
     ak_mandatory_elements = fields.Text(
         string="Mandatory Elements", compute="_compute_answer_key_fields",
         inverse="_inverse_answer_key_fields",
@@ -545,10 +913,6 @@ class EtpAssessmentPromptQuestion(models.Model):
     ak_pass_condition = fields.Text(
         string="Pass Condition", compute="_compute_answer_key_fields",
         inverse="_inverse_answer_key_fields")
-    # Reviewer-facing previews so an imported draft READS like the real bank
-    # question (images render, dimensions show as a clean list) instead of raw
-    # JSON. The preview is derived from the same dimensions_json/images_json
-    # that approve consumes, so what you see is what gets published.
     dimensions_preview = fields.Html(
         string="Answer Key Preview", compute="_compute_previews",
         sanitize=False)
@@ -556,6 +920,9 @@ class EtpAssessmentPromptQuestion(models.Model):
         string="Images", compute="_compute_previews", sanitize=False)
     has_images = fields.Boolean(compute="_compute_previews")
     has_dimensions = fields.Boolean(compute="_compute_previews")
+    video_preview = fields.Html(
+        string="Video Clips", compute="_compute_video_preview", sanitize=False)
+    has_video_clips = fields.Boolean(compute="_compute_video_preview")
     image_summary = fields.Char(
         string="Image Files", compute="_compute_image_summary",
         help="Human-readable summary of the stored images (slot, label, size). "
@@ -630,7 +997,6 @@ class EtpAssessmentPromptQuestion(models.Model):
     def _compute_previews(self):
         import html as _html
         for rec in self:
-            # ---- dimensions / answer-key preview ----
             specs = rec._dimension_specs()
             if specs:
                 blocks = []
@@ -657,7 +1023,6 @@ class EtpAssessmentPromptQuestion(models.Model):
             else:
                 rec.dimensions_preview = False
                 rec.has_dimensions = False
-            # ---- image preview (URLs render; data: URLs render inline) ----
             imgs = []
             raw = (rec.images_json or "").strip()
             if raw and raw not in ("[]", "{}"):
@@ -686,17 +1051,49 @@ class EtpAssessmentPromptQuestion(models.Model):
             rec.image_preview = "".join(imgs) if imgs else False
             rec.has_images = bool(imgs)
 
-    # Map of friendly rubric field -> the JSON key the grader reads. Scalar
-    # (prose) keys and list (one-per-line) keys are handled separately.
-    _RUBRIC_STR_KEYS = (("ak_ideal_answer", "ideal_answer"),
-                        ("ak_scoring_guide", "scoring_guide"),
+    @api.depends("video_files_json", "question_type")
+    def _compute_video_preview(self):
+        import html as _html
+        for rec in self:
+            blocks = []
+            if rec.question_type == "video_prompt" and isinstance(rec.id, int):
+                for f in rec._video_files():
+                    slot = f.get("slot") or "single"
+                    if not (f.get("url") or f.get("data")):
+                        continue
+                    label = _html.escape(str(f.get("label") or slot))
+                    src = "/etp_assessment/admin_draft_qvideo/%d/%s" % (
+                        rec.id, _html.escape(str(slot)))
+                    blocks.append(
+                        '<figure style="display:inline-block;margin:6px;'
+                        'text-align:center;vertical-align:top">'
+                        '<video controls preload="metadata" '
+                        'style="max-height:220px;max-width:320px;'
+                        'border:1px solid #dee2e6;border-radius:4px" '
+                        f'src="{src}"></video>'
+                        f'<figcaption class="text-muted small">{label}'
+                        '</figcaption></figure>')
+            rec.video_preview = "".join(blocks) if blocks else False
+            rec.has_video_clips = bool(blocks)
+
+    _RUBRIC_STR_KEYS = (("ak_scoring_guide", "scoring_guide"),
                         ("ak_pass_condition", "pass_condition"))
     _RUBRIC_LIST_KEYS = (("ak_mandatory_elements", "mandatory_elements"),
                          ("ak_penalty_rules", "penalty_rules"),
                          ("ak_checklist", "checklist"),
                          ("ak_constraints", "constraints"))
 
-    @api.depends("rubric_json")
+    def _ideal_answer_key(self):
+        """The rubric_json key the 'Ideal Answer' field maps to: image_prompt
+        stores it as ideal_prompt, image_label as ideal_labels."""
+        self.ensure_one()
+        if self.question_type == "image_prompt":
+            return "ideal_prompt"
+        if self.question_type == "image_label":
+            return "ideal_labels"
+        return "ideal_answer"
+
+    @api.depends("rubric_json", "question_type")
     def _compute_answer_key_fields(self):
         import json as _json
         for rec in self:
@@ -706,6 +1103,7 @@ class EtpAssessmentPromptQuestion(models.Model):
                     data = {}
             except (ValueError, TypeError):
                 data = {}
+            rec.ak_ideal_answer = data.get(rec._ideal_answer_key()) or False
             for fname, key in rec._RUBRIC_STR_KEYS:
                 rec[fname] = data.get(key) or False
             for fname, key in rec._RUBRIC_LIST_KEYS:
@@ -726,6 +1124,14 @@ class EtpAssessmentPromptQuestion(models.Model):
                     data = {}
             except (ValueError, TypeError):
                 data = {}
+            ideal_key = rec._ideal_answer_key()
+            for k in ("ideal_answer", "ideal_prompt", "ideal_labels"):
+                if k != ideal_key:
+                    data.pop(k, None)
+            if (rec.ak_ideal_answer or "").strip():
+                data[ideal_key] = rec.ak_ideal_answer
+            else:
+                data.pop(ideal_key, None)
             for fname, key in rec._RUBRIC_STR_KEYS:
                 if (rec[fname] or "").strip():
                     data[key] = rec[fname]
@@ -740,52 +1146,104 @@ class EtpAssessmentPromptQuestion(models.Model):
                     data.pop(key, None)
             rec.rubric_json = _json.dumps(data, ensure_ascii=False) if data else False
 
-    def _resolve_skill_ids(self):
-        """Resolve skill_id + any pipe-separated skill_names into bank skill
-        ids, creating skills by name when missing (mirrors bank_import)."""
-        self.ensure_one()
-        ids = []
-        if self.skill_id:
-            ids.append(self.skill_id.id)
-        names = [n.strip() for n in (self.skill_names or "").split("|") if n.strip()]
-        if names:
-            Skill = self.env["etp.assessment.pro.skill"]
-            for name in names:
-                sk = Skill.search([("name", "=", name)], limit=1) or Skill.create(
-                    {"name": name})
-                if sk.id not in ids:
-                    ids.append(sk.id)
-        return ids
-
     def action_approve(self):
         Question = self.env["etp.assessment.pro.question"]
-        for rec in self.filtered(lambda r: r.state == "draft"):
-            category = rec.category_id or rec.prompt_id._get_or_create_category()
-            # description is candidate-facing prose; it must never carry the
-            # options or correct answer (those live in dimensions + the
-            # option_line is_correct flags / the rubric answer key).
+        drafts = self.filtered(lambda r: r.state == "draft")
+        if not self.env.context.get("skip_image_ready_guard"):
+            not_ready = drafts.filtered(
+                lambda r: r.question_type in IMAGE_QUESTION_TYPES
+                and not r._current_images())
+            if not_ready:
+                raise UserError(
+                    "These image questions have no image yet, so approving them "
+                    "would publish a question with a missing picture. Wait for "
+                    "rendering to finish (or upload an image), then approve:\n%s"
+                    % "\n".join("- %s" % (r.name or r.question_prompt or "draft")
+                                for r in not_ready))
+        for rec in drafts:
+            if rec.question_type == "image_ab" and rec.verification_json:
+                rec._assert_flaw_render_verified()
+        for rec in drafts:
             vals = {
                 "name": rec.name,
                 "prompt": rec.question_prompt or rec.name,
                 "question_type": rec.question_type or "mcq",
-                "category_id": category.id,
+                "generator_id": rec.prompt_id.id,
                 "difficulty": rec.difficulty or False,
+                "detection_mode": rec.detection_mode or "object",
                 "time_minutes": rec.time_minutes or 0,
                 "description": rec.description or False,
                 "subjective_rubric_json": rec.rubric_json or False,
                 "official_reasoning": rec.official_reasoning or False,
+                "flaw_plan_json": rec.flaw_plan_json or False,
                 "source_ref": "gen:%s" % rec.prompt_id.name,
             }
-            skill_ids = rec._resolve_skill_ids()
-            if skill_ids:
-                vals["skill_ids"] = [(6, 0, skill_ids)]
             q = Question.create(vals)
-            if rec.question_type in ("mcq", "msq", "image_ab", "image_text"):
+            if rec.question_type in ("mcq", "msq", "image_ab",
+                                     "image_prompt", "image_label"):
                 rec._materialize_dimensions(q)
-            if rec.question_type in ("image_ab", "image_text"):
+            if rec.question_type == "image_ab" and rec.flaw_plan_json:
+                rec._assert_no_key_drift(q)
+            if rec.question_type in ("image_ab", "image_prompt", "image_label"):
                 rec._materialize_images(q)
+            if rec.question_type in VIDEO_QUESTION_TYPES:
+                rec._materialize_videos(q)
+            if rec.question_type == "image_label":
+                rec._apply_authored_label_key(q)
             rec.write({"state": "approved", "approved_question_id": q.id})
         return True
+
+    def _assert_no_key_drift(self, bank_question):
+        """Phase-3 approve guard: the answer key just materialized onto the bank
+        question MUST equal the flaw-injection construction_keys, else the key is
+        no longer ground-truth and approval is refused."""
+        self.ensure_one()
+        keys = ab_construction_keys(self.flaw_plan_json)
+        if not keys:
+            return
+        materialized = {}
+        for qd in bank_question.question_dimension_ids:
+            code = ab_code_from_label(qd.name)
+            if code:
+                materialized[code] = [
+                    ol.name for ol in qd.option_line_ids if ol.is_correct]
+        drift = ab_key_drift(materialized, keys)
+        if drift:
+            raise UserError(
+                "Key drift: the materialized answer key for %r does not match "
+                "its flaw-injection construction keys, so it is no longer "
+                "ground-truth — refusing to approve.\n%s"
+                % (self.name or "draft", "\n".join(drift)))
+
+    def _assert_flaw_render_verified(self):
+        """Phase-3 approve guard: refuse to approve an image_ab whose render QA
+        flagged a planted flaw that never appeared in the pixels
+        (verification_json.needs_review). Such a flaw backs a construction key
+        the image cannot justify, so the answer key would no longer be
+        ground-truth. Degrade cases (verification disabled / unavailable) set
+        needs_review False and pass through untouched."""
+        self.ensure_one()
+        import json as _json
+        try:
+            rec = _json.loads(self.verification_json or "{}")
+        except (ValueError, TypeError):
+            return
+        if not isinstance(rec, dict) or not rec.get("needs_review"):
+            return
+        unconfirmed = []
+        for slot, side in (rec.get("sides") or {}).items():
+            if not isinstance(side, dict) or side.get("confirmed") \
+                    or side.get("unavailable"):
+                continue
+            for v in side.get("verdicts") or []:
+                if isinstance(v, dict) and not v.get("present"):
+                    unconfirmed.append("%s: %s" % (slot, v.get("flaw") or "?"))
+        raise UserError(
+            "Flaw verification failed: a planted flaw never rendered into the "
+            "image after re-generation, so the construction key it backs is not "
+            "justified by the pixels — refusing to approve %r. Regenerate the "
+            "image or fix the flaw plan.\n%s"
+            % (self.name or "draft", "\n".join(unconfirmed) or "(unconfirmed)"))
 
     def _dimension_specs(self):
         """Normalize this draft's answer key to a list of dimension specs:
@@ -847,7 +1305,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                     })
             if specs:
                 return specs
-        # Single-dimension shorthand.
         try:
             options = _json.loads(self.options_json or "[]")
         except (ValueError, TypeError):
@@ -888,7 +1345,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                 out.append(options[c])
                 continue
             cs = str(c)
-            # Exact match first, then case-insensitive.
             if cs in options:
                 out.append(cs)
                 continue
@@ -900,8 +1356,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                     break
             if matched:
                 continue
-            # Fall back: a numeric string that matched no option is a 0-based
-            # index (e.g. correct_answer="1" -> the 2nd option).
             cs_stripped = cs.strip()
             if cs_stripped.lstrip("-").isdigit():
                 idx = int(cs_stripped)
@@ -912,8 +1366,8 @@ class EtpAssessmentPromptQuestion(models.Model):
     def _sync_answer_relational_from_json(self):
         """(Re)build the editable answer_dimension_ids from the raw LLM JSON.
         Seeds the relational answer key on create and rebuilds it on demand
-        after a raw-JSON edit. Types with no option set (subjective / image_text
-        rubric) yield no axes, so they are simply left empty here."""
+        after a raw-JSON edit. Types with no option set (subjective / image_prompt
+        / image_label rubric) yield no axes, so they are simply left empty here."""
         for rec in self:
             specs = rec._specs_from_json()
             commands = [(5, 0, 0)]
@@ -939,8 +1393,6 @@ class EtpAssessmentPromptQuestion(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
-        # Seed the editable answer key from whatever JSON the generator / import
-        # wrote, unless the caller already supplied relational answer lines.
         for rec, vals in zip(records, vals_list):
             if rec.answer_dimension_ids:
                 continue
@@ -955,7 +1407,8 @@ class EtpAssessmentPromptQuestion(models.Model):
 
         FOOLPROOF IMPORT RULE: every imported/approved question gets its OWN
         fresh dimension carrying ONLY its own options — for ALL question types
-        (mcq, msq, image_ab, image_text). We never look up a master dimension
+        (mcq, msq, image_ab, image_prompt, image_label). We never look up a master
+        dimension
         by name and never top up an existing one. Name-based reuse caused two
         real footguns:
           1. Accumulation — questions sharing a label (e.g. an Odoo export
@@ -971,33 +1424,26 @@ class EtpAssessmentPromptQuestion(models.Model):
         it just no longer shares the row identity across questions.
         """
         self.ensure_one()
-        Dimension = self.env["etp.assessment.pro.dimension"]
         QDim = self.env["etp.assessment.pro.question.dimension"]
         for spec in self._dimension_specs():
             options = spec["options"]
             if not options:
                 continue
             label = spec["label"]
-            # Always a brand-new dimension owning exactly this question's
-            # options — no name lookup, no shared master, no top-up.
-            dim = Dimension.with_context(
-                allow_shared_dimension_edit=True).create({
-                    "name": label,
-                    "option_ids": [
-                        (0, 0, {"name": o, "sequence": (i + 1) * 10})
-                        for i, o in enumerate(options)
-                    ],
-                })
-            qd = QDim.create({
-                "question_id": bank_question.id,
-                "dimension_id": dim.id,
-            })
             correct = {c.strip().casefold() for c in spec["correct"]}
-            if correct:
-                for line in qd.option_line_ids:
-                    if (line.name or "").strip().casefold() in correct:
-                        line.write({"is_correct": True})
-            elif options:
+            QDim.create({
+                "question_id": bank_question.id,
+                "name": label,
+                "option_line_ids": [
+                    (0, 0, {
+                        "name": o,
+                        "sequence": (i + 1) * 10,
+                        "is_correct": (o or "").strip().casefold() in correct,
+                    })
+                    for i, o in enumerate(options)
+                ],
+            })
+            if not correct:
                 _logger.warning(
                     "Draft %s dim %r: no correct option resolved; approved "
                     "with no answer key for this dimension.", self.id, label)
@@ -1024,9 +1470,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         Image = self.env["etp.assessment.pro.question.image"]
         default_slot = "a" if bank_question.question_type == "image_ab" \
             else "single"
-        # Normalize author-friendly slot spellings to the model's Selection
-        # keys so "A"/"B"/"Single"/"Ref"/"Output" all import cleanly instead
-        # of raising a Selection ValueError mid-import.
         valid_slots = {"a", "b", "single", "reference", "output"}
         slot_aliases = {
             "a": "a", "response a": "a", "resp a": "a", "image a": "a",
@@ -1063,6 +1506,55 @@ class EtpAssessmentPromptQuestion(models.Model):
                 vals["image"] = b64
             Image.create(vals)
 
+    def _apply_authored_label_key(self, bank_question):
+        """Attach a DENSE (model-authored) image_label answer key to the 'single'
+        bank image: draw the numbered boxes on the rendered screenshot from the
+        model's coordinates (deterministic, Pillow only — no Vertex/detection
+        call) and carry the behavioural key + coverage gate + application, the
+        SAME shape a DOM capture produces. Because detections_json is set, the
+        detect cron skips this image, so the authored key is never overwritten.
+        No-op for legacy single-box labels (no behavioural key)."""
+        import json as _json
+        import base64
+        self.ensure_one()
+        if not (self.behavioural_key_json or "").strip():
+            return
+        img = bank_question.image_ids.filtered(
+            lambda i: i.slot == "single")[:1]
+        if not img:
+            return
+        try:
+            geometry = _json.loads(self.label_boxes_json or "[]")
+        except (ValueError, TypeError):
+            geometry = []
+        vals = {
+            "behavioural_key_json": self.behavioural_key_json or False,
+            "coverage_expected": self.coverage_expected or "yes",
+            "omitted_element_json": self.omitted_element_json or False,
+            "label_application": self.label_application or False,
+        }
+        dets = [
+            {"box_2d": g["box_2d"], "label": g.get("label") or "",
+             "description": g.get("description") or ""}
+            for g in geometry
+            if isinstance(g, dict)
+            and isinstance(g.get("box_2d"), (list, tuple))
+            and len(g["box_2d"]) == 4]
+        raw = img._source_image_bytes()
+        if raw and dets:
+            from ..services import imaging, image_ingest
+            annotated_png, label_key = imaging.annotate_image(raw, dets)
+            annotated_b64 = base64.b64encode(annotated_png).decode()
+            url, stored_b64 = image_ingest.ingest(
+                self.env, None, "data:image/png;base64,%s" % annotated_b64,
+                key_hint="labelauth-%s" % img.id)
+            vals["detections_json"] = _json.dumps(
+                label_key, ensure_ascii=False)
+            vals["annotated_image"] = stored_b64 or annotated_b64
+            if url:
+                vals["annotated_image_url"] = url
+        img.write(vals)
+
     def action_deny(self):
         self.filtered(lambda r: r.state == "draft").write({"state": "denied"})
         return True
@@ -1071,10 +1563,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         self.filtered(lambda r: r.state == "draft").action_approve()
         return True
 
-    # ------------------------------------------------------------------
-    # Image lifecycle (Model 2 render + Growth controls). Decoupled from
-    # generation so slow image calls never run in the generate request.
-    # ------------------------------------------------------------------
     def _briefs(self):
         """Parse image_brief_json into a list of {slot,label,prompt}."""
         import json as _json
@@ -1115,70 +1603,395 @@ class EtpAssessmentPromptQuestion(models.Model):
                        "type": kind, "sticky": sticky},
         }
 
+    def _verify_flaw_render_on(self):
+        val = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment_pro.verify_flaw_render", "1")
+        return str(val).strip().lower() not in ("0", "false", "no", "off", "")
+
+    def _planted_flaws(self):
+        self.ensure_one()
+        plan = parse_flaw_plan(self.flaw_plan_json)
+        planted = plan.get("planted") if isinstance(plan, dict) else None
+        if not isinstance(planted, dict):
+            return {}
+        return {
+            "a": [str(f) for f in (planted.get("a") or []) if str(f).strip()],
+            "b": [str(f) for f in (planted.get("b") or []) if str(f).strip()],
+        }
+
     def _render_all_images(self):
-        """Render ALL of this draft's image briefs and store them. Returns True
-        when at least one image was produced. Shared by the auto-render-on-
-        generate path and the cron drainer."""
+        """Render ALL of this draft's briefs, ALL-OR-NOTHING: a draft is only
+        marked 'rendered' when every brief produced a picture, so a partial
+        result (e.g. one A/B image lost to a 429) is never stored and a
+        candidate can't get a half-rendered question. A quota (429) hit
+        re-queues without spending an attempt; other partial/failed renders
+        spend one and flip to 'failed' past the cap."""
         import json as _json
         from ..services import vertex
         self.ensure_one()
         briefs = self._briefs()
-        if not briefs:
+        renderable = [b for b in briefs
+                      if isinstance(b, dict) and b.get("prompt")]
+        if not renderable:
             return False
-        images = vertex.render_draft_images(
-            self.env, briefs,
-            usage_ctx={"operation": "generate_image",
-                       "prompt_id": self.prompt_id.id,
-                       "skill_id": self.skill_id.id, "note": self.name})
-        if images:
-            self.write({
+        try:
+            images = vertex.render_draft_images(
+                self.env, briefs,
+                usage_ctx={"operation": "generate_image",
+                           "prompt_id": self.prompt_id.id,
+                           "note": self.name})
+        except vertex.VertexQuotaError:
+            self.write({"image_state": "pending"})
+            return False
+        if images and len(images) >= len(renderable):
+            verification = None
+            if (self.question_type == "image_ab" and self.flaw_plan_json
+                    and self._verify_flaw_render_on()):
+                planted = self._planted_flaws()
+                if planted.get("a") or planted.get("b"):
+                    try:
+                        images, verification = \
+                            vertex.verify_and_regenerate_ab_images(
+                                self.env, briefs, images, planted,
+                                usage_ctx={"operation": "verify_planted_flaws",
+                                           "prompt_id": self.prompt_id.id,
+                                           "note": self.name})
+                    except vertex.VertexQuotaError:
+                        self.write({"image_state": "pending"})
+                        return False
+                    except Exception:  # noqa: BLE001 - never break generation
+                        _logger.exception(
+                            "etp_assessment flaw verification failed for draft "
+                            "%s; storing rendered images unverified", self.id)
+                        verification = None
+            vals = {
                 "images_json": _json.dumps(images, ensure_ascii=False),
                 "image_state": "rendered",
-            })
+                "image_render_attempts": 0,
+            }
+            if verification is not None:
+                vals["verification_json"] = _json.dumps(
+                    verification, ensure_ascii=False)
+            self.write(vals)
             return True
-        self.write({"image_state": "failed"})
+        attempts = (self.image_render_attempts or 0) + 1
+        self.write({
+            "image_render_attempts": attempts,
+            "image_state": "failed" if attempts >= 3 else "pending",
+        })
         return False
 
     @api.model
     def _cron_render_pending_images(self):
-        """Background drainer: render image drafts that were created
-        with briefs but no pixels yet (image_state='pending'). This is what makes
-        the FIRST image generation automatic WITHOUT reintroducing the
-        synchronous-render request-timeout crash — rendering happens here, off
-        the web request, a few drafts per tick. Idempotent + advisory-locked so
-        two cron workers never render the same draft twice.
-        """
-        # Advisory lock (distinct key from the scoring cron) so concurrent cron
-        # workers don't double-render; auto-releases at commit/rollback.
+        """Background drainer for pending image drafts. Renders only a FEW per
+        tick and COMMITS after each draft, so a slow tick that trips Odoo's cron
+        time limit (which kills + reloads the worker) can never roll back — and
+        re-pay for — pictures already rendered. A SESSION-level advisory lock
+        (survives the mid-loop commits, unlike an xact lock that releases at the
+        first commit) serializes drains so two workers never double-render a
+        draft; a draft left mid-flight by a killed worker is simply retried next
+        tick because its state stays 'pending'."""
         self.env.cr.execute(
-            "SELECT pg_try_advisory_xact_lock(%s)", (827194,))
+            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_IMAGE_RENDER,))
         if not self.env.cr.fetchone()[0]:
             return
-        # Small batch per tick to stay well under any worker timeout even when a
-        # large generation just produced many image drafts.
-        drafts = self.search([
-            ("question_type", "in", list(IMAGE_QUESTION_TYPES)),
-            ("image_state", "=", "pending"),
-            ("image_brief_json", "!=", False),
-        ], limit=10)
-        if not drafts:
+        try:
+            drafts = self.search([
+                ("question_type", "in", list(IMAGE_QUESTION_TYPES)),
+                ("image_state", "=", "pending"),
+                ("image_brief_json", "!=", False),
+            ], limit=2)
+            if not drafts:
+                return
+            _logger.info(
+                "etp_assessment image cron: %d pending draft(s) to render",
+                len(drafts))
+            rendered = 0
+            for draft in drafts:
+                try:
+                    with self.env.cr.savepoint():
+                        if draft._render_all_images():
+                            rendered += 1
+                    self.env.cr.commit()
+                except Exception:  # noqa: BLE001 - isolate per draft
+                    self.env.cr.rollback()
+                    _logger.exception(
+                        "Auto-render failed for draft %s", draft.id)
+                    draft.write({"image_state": "failed"})
+                    self.env.cr.commit()
+                    continue
+            _logger.info(
+                "etp_assessment image cron: rendered %d/%d draft(s)",
+                rendered, len(drafts))
+        finally:
+            self.env.cr.execute(
+                "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_IMAGE_RENDER,))
+
+    def _video_briefs(self):
+        """Parse video_brief_json into [{slot,label,prompt}] (clips only)."""
+        import json as _json
+        self.ensure_one()
+        raw = (self.video_brief_json or "").strip()
+        if not raw or raw in ("[]", "{}"):
+            return []
+        try:
+            parsed = _json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            return []
+        return [b for b in parsed
+                if isinstance(b, dict) and (b.get("prompt") or "").strip()]
+
+    def _video_ops(self):
+        """Parse video_op_json into the {slot: {...}} op-state map."""
+        import json as _json
+        self.ensure_one()
+        try:
+            ops = _json.loads(self.video_op_json or "{}")
+        except (ValueError, TypeError):
+            return {}
+        return ops if isinstance(ops, dict) else {}
+
+    def _video_files(self):
+        """Parse video_files_json into a list of staged clip specs."""
+        import json as _json
+        self.ensure_one()
+        raw = (self.video_files_json or "").strip()
+        if not raw or raw in ("[]", "{}"):
+            return []
+        try:
+            parsed = _json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        return [f for f in parsed if isinstance(f, dict)] \
+            if isinstance(parsed, list) else []
+
+    def _submit_video_ops(self):
+        """Submit one Veo op per clip brief, store the op names, and flip to
+        'generating' once EVERY slot has an op. IDEMPOTENT: a slot that already
+        carries an op_name is never re-submitted, and a 429 mid-batch is caught
+        so the ops submitted so far persist and the draft stays 'pending' — the
+        next tick resumes with the remaining slots only, never double-sending an
+        op or spending an attempt on the quota hit."""
+        import json as _json
+        from ..services import vertex
+        self.ensure_one()
+        briefs = self._video_briefs()
+        if not briefs:
+            return False
+        ops = self._video_ops()
+        for brief in briefs:
+            slot = brief.get("slot") or "single"
+            existing = ops.get(slot)
+            if isinstance(existing, dict) and existing.get("op_name"):
+                continue
+            try:
+                op_name = vertex.submit_video_op(
+                    self.env, brief, prompt_id=self.prompt_id.id or False)
+            except vertex.VertexQuotaError:
+                break
+            ops[slot] = {"op_name": op_name, "state": "submitted",
+                         "attempts": 0,
+                         "label": brief.get("label") or slot.title()}
+        slots = {b.get("slot") or "single" for b in briefs}
+        all_submitted = all(
+            isinstance(ops.get(s), dict) and ops[s].get("op_name")
+            for s in slots)
+        vals = {"video_op_json": _json.dumps(ops, ensure_ascii=False)}
+        if all_submitted:
+            vals["video_state"] = "generating"
+            vals["video_error"] = False
+        else:
+            vals["video_state"] = "pending"
+        self.write(vals)
+        return all_submitted
+
+    def _poll_video_ops(self):
+        """Poll every not-done Veo op on this 'generating' draft. Done clips are
+        ingested (S3 when configured) and staged in video_files_json. ALL-OR-
+        NOTHING: video_state flips to 'rendered' only once EVERY op is done. A
+        429 leaves the op untouched (no attempt spent, stays 'generating'); a
+        still-running op simply waits; a genuine failure/empty payload spends an
+        attempt and fails the draft past the cap. Returns True on 'rendered'."""
+        import json as _json
+        from ..services import vertex, image_ingest
+        self.ensure_one()
+        ops = self._video_ops()
+        if not ops:
+            return False
+        model = vertex._video_model(self.env)
+        location = vertex._video_location(self.env)
+        files = {f.get("slot"): f for f in self._video_files()
+                 if isinstance(f, dict) and f.get("slot")}
+        changed = False
+        failed_error = None
+        for slot, op in list(ops.items()):
+            if not isinstance(op, dict) or op.get("state") == "done":
+                continue
+            op_name = op.get("op_name")
+            if not op_name:
+                continue
+            try:
+                result = vertex.fetch_video_op(
+                    self.env, op_name, model=model, location=location)
+            except vertex.VertexQuotaError:
+                continue
+            except Exception as exc:  # noqa: BLE001 - bounded, per-op
+                op["attempts"] = (op.get("attempts") or 0) + 1
+                changed = True
+                if op["attempts"] >= _VIDEO_OP_MAX_ATTEMPTS:
+                    op["state"] = "failed"
+                    failed_error = str(exc)[:200]
+                continue
+            if not result.get("done"):
+                continue
+            b64 = result.get("video_b64")
+            gcs = result.get("gcs_uri")
+            if result.get("error") or (not b64 and not gcs):
+                op["attempts"] = (op.get("attempts") or 0) + 1
+                changed = True
+                if op["attempts"] >= _VIDEO_OP_MAX_ATTEMPTS:
+                    op["state"] = "failed"
+                    failed_error = result.get("error") \
+                        or "op done but returned no video bytes/GCS uri"
+                continue
+            url, stored_b64 = (False, False)
+            if b64:
+                url, stored_b64 = image_ingest.ingest(
+                    self.env, None, b64, content_type="video/mp4",
+                    key_hint="qvideo-gen-%s-%s" % (self.id, slot))
+            elif gcs:
+                url = gcs
+            files[slot] = {
+                "slot": slot,
+                "label": op.get("label") or slot.title(),
+                "url": url or False,
+                "data": ("data:video/mp4;base64,%s" % stored_b64)
+                        if stored_b64 else False,
+            }
+            op["state"] = "done"
+            changed = True
+        vals = {}
+        if changed:
+            vals["video_op_json"] = _json.dumps(ops, ensure_ascii=False)
+            vals["video_files_json"] = _json.dumps(
+                list(files.values()), ensure_ascii=False)
+        any_failed = any(isinstance(o, dict) and o.get("state") == "failed"
+                         for o in ops.values())
+        all_done = bool(ops) and all(
+            isinstance(o, dict) and o.get("state") == "done"
+            for o in ops.values())
+        if any_failed:
+            vals["video_state"] = "failed"
+            vals["video_error"] = failed_error or "video generation failed"
+        elif all_done:
+            vals["video_state"] = "rendered"
+            vals["video_error"] = False
+        if vals:
+            self.write(vals)
+        return vals.get("video_state") == "rendered"
+
+    def _materialize_videos(self, bank_question):
+        """Create question.video rows from video_files_json, the video twin of
+        _materialize_images. A staged clip's url lands straight on the row; a
+        base64 fallback is ingested (S3 when configured, else kept on-record).
+        No-op when no clips are staged — the config gate leaves video_files_json
+        empty and the admin uploads on the bank question (Phase 1)."""
+        self.ensure_one()
+        files = self._video_files()
+        if not files:
             return
-        _logger.info(
-            "etp_assessment image cron: %d pending draft(s) to render", len(drafts))
-        rendered = 0
+        from ..services import image_ingest
+        Video = self.env["etp.assessment.pro.question.video"]
+        seq = {"reference": 10, "output": 20, "single": 30}
+        for f in files:
+            slot = (f.get("slot") or "single").strip().lower()
+            if slot not in ("reference", "output", "single"):
+                slot = "single"
+            url = f.get("url") or False
+            b64 = False
+            data = f.get("data")
+            if not url and data:
+                url, b64 = image_ingest.ingest(
+                    self.env, None, data, content_type="video/mp4",
+                    key_hint="qvideo-%s-%s" % (bank_question.id, slot))
+            Video.create({
+                "question_id": bank_question.id,
+                "slot": slot,
+                "label": f.get("label") or slot.title(),
+                "video_url": url or False,
+                "video": b64 or False,
+                "sequence": seq.get(slot, 30),
+            })
+
+    def _submit_pending_video_ops(self):
+        """Submit phase of the video cron: send Veo ops for pending video_prompt
+        drafts, committing per draft. THE CONFIG GATE — when video generation is
+        not configured (no Veo model / no resolvable bearer) this returns
+        immediately, leaving drafts 'pending' for the upload path."""
+        from ..services import vertex
+        if not vertex.video_generation_available(self.env):
+            return
+        drafts = self.search([
+            ("question_type", "in", list(VIDEO_QUESTION_TYPES)),
+            ("video_state", "=", "pending"),
+            ("video_brief_json", "!=", False),
+        ], limit=2)
         for draft in drafts:
             try:
                 with self.env.cr.savepoint():
-                    if draft._render_all_images():
-                        rendered += 1
+                    draft._submit_video_ops()
+                self.env.cr.commit()
             except Exception:  # noqa: BLE001 - isolate per draft
+                self.env.cr.rollback()
                 _logger.exception(
-                    "Auto-render failed for draft %s", draft.id)
-                draft.write({"image_state": "failed"})
-                continue
-        _logger.info(
-            "etp_assessment image cron: rendered %d/%d draft(s)",
-            rendered, len(drafts))
+                    "Video op submit failed for draft %s", draft.id)
+                draft.write({"video_state": "failed",
+                             "video_error": "submit failed"})
+                self.env.cr.commit()
+
+    def _poll_generating_video_ops(self):
+        """Poll phase of the video cron: advance generating drafts, committing
+        per draft so a killed worker never re-pays for clips already staged."""
+        drafts = self.search([
+            ("question_type", "in", list(VIDEO_QUESTION_TYPES)),
+            ("video_state", "=", "generating"),
+        ], limit=4)
+        for draft in drafts:
+            try:
+                with self.env.cr.savepoint():
+                    draft._poll_video_ops()
+                self.env.cr.commit()
+            except Exception:  # noqa: BLE001 - isolate per draft
+                self.env.cr.rollback()
+                _logger.exception(
+                    "Video op poll failed for draft %s", draft.id)
+                draft.write({"video_state": "failed",
+                             "video_error": "poll failed"})
+                self.env.cr.commit()
+
+    @api.model
+    def _cron_poll_video_ops(self):
+        """Background driver for async Veo video generation (video_prompt Phase
+        3). SUBMIT then POLL, both idempotent, under ONE session-level advisory
+        lock (survives the per-draft commits) so no two workers touch the same
+        draft. Absent Veo config makes the submit phase a no-op, so the upload
+        path stays fully functional (the config gate)."""
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_VIDEO_POLL,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        try:
+            self._submit_pending_video_ops()
+            self._poll_generating_video_ops()
+        finally:
+            self.env.cr.execute(
+                "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_VIDEO_POLL,))
 
     def action_apply_uploaded_image(self):
         """Apply a Growth-uploaded binary as the image for upload_slot,
@@ -1276,9 +2089,11 @@ class EtpAssessmentPromptResource(models.Model):
                     text = _re.sub(r"<[^>]+>", " ", text)
                     text = _re.sub(r"\s+", " ", text)
                 return text, False
-            if ext == "pdf":
-                return "", ("PDF text extraction not supported - convert to "
-                            ".docx/.txt or paste the text into Additional Notes.")
+            if ext in ("pdf", "png", "jpg", "jpeg", "webp", "gif"):
+                # Sent to the model natively (document/image vision) by
+                # _sop_doc_parts; no local text extraction is needed, so an
+                # empty extracted_text here is expected, not an error.
+                return "", False
             return "", f"Unsupported file type '.{ext}'."
         except Exception as exc:
             _logger.exception("Resource extraction failed: %s", self.name)

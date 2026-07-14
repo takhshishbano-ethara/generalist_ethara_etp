@@ -5,9 +5,8 @@
         <field name="name">etp.assessment.pro.tree</field>
         <field name="model">etp.assessment.pro</field>
         <field name="arch" type="xml">
-            <list>
+            <list class="o_etp_backend">
                 <field name="name"/>
-                <field name="num_days" string="Days" optional="show"/>
                 <field name="start_date"/>
                 <field name="end_date"/>
                 <field name="state" widget="badge"
@@ -24,22 +23,19 @@
         <field name="name">etp.assessment.pro.form</field>
         <field name="model">etp.assessment.pro</field>
         <field name="arch" type="xml">
-            <form>
+            <form class="o_etp_wide_form o_etp_backend">
                 <header>
-                    <!-- Single-mode Start Assessment retired from UI; button hidden
-                         (action_start kept dormant in the model). -->
-                    <button name="action_start" string="Start Assessment" type="object"
+                    <button name="action_start" string="Launch &amp; Invite" type="object"
                             class="oe_highlight"
-                            invisible="1"/>
-                    <button name="action_scaffold_days" string="Build Day Plan" type="object"
-                            invisible="state != 'draft' or assessment_mode != 'multi_day'"/>
-                    <button name="action_generate_plan" string="Launch &amp; Invite" type="object"
-                            class="oe_highlight"
-                            invisible="assessment_mode != 'multi_day' or state == 'done'"/>
+                            invisible="state != 'draft'"/>
                     <button name="action_done" string="Mark Done" type="object"
                             invisible="state != 'in_progress'"/>
                     <button name="action_llm_score_all" string="Run Subjective Evaluation"
                             type="object" icon="fa-magic"
+                            invisible="state == 'draft'"/>
+                    <button name="action_requeue_all_invitations"
+                            string="Resend Invitations" type="object"
+                            icon="fa-envelope"
                             invisible="state == 'draft'"/>
                     <button name="action_export_results" string="Export Results"
                             type="object" icon="fa-trophy"
@@ -54,6 +50,8 @@
                             invisible="state in ('done', 'cancelled')"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object"
                             invisible="state not in ('cancelled',)"/>
+                    <field name="invite_summary" class="oe_inline text-muted"
+                           invisible="not invite_summary"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,in_progress,done"/>
                 </header>
@@ -63,11 +61,6 @@
                             <field name="name" placeholder="Assessment Name"/>
                         </h1>
                     </div>
-                    <!-- assessment_mode is forced to multi_day for all new records
-                         and kept invisible so the multi-day groups/pages below
-                         (invisible="assessment_mode != 'multi_day'") still evaluate
-                         true. Admins no longer pick a mode. -->
-                    <field name="assessment_mode" invisible="1"/>
                     <group>
                         <group string="Schedule">
                             <field name="start_date" readonly="state != 'draft'"/>
@@ -76,17 +69,17 @@
                         </group>
                     </group>
 
-                    <group string="Assessment Configuration"
-                           invisible="assessment_mode != 'multi_day'">
+                    <group string="Assessment Configuration">
                         <group>
-                            <field name="num_days" readonly="state != 'draft'"
-                                   help="1 for a single-day test, more for a multi-day plan."/>
-                            <field name="sequential_days" readonly="state != 'draft'"/>
-                            <field name="results_release"/>
+                            <field name="generator_id" string="Question Generator" readonly="state != 'draft'"/>
+                            <field name="question_limit" readonly="state != 'draft'"
+                                   help="Number of questions to pick from the generator. 0 = all questions."/>
+                            <field name="duration_minutes" readonly="state != 'draft'"/>
                         </group>
                         <group>
-                            <field name="day_count"/>
-                            <field name="day_session_count"/>
+                            <field name="total_questions_available"/>
+                            <field name="results_release"/>
+                            <field name="subjective_threshold"/>
                         </group>
                     </group>
 
@@ -143,63 +136,6 @@
                                 </group>
                             </group>
                         </page>
-                        <page string="Day Plan"
-                              invisible="assessment_mode != 'multi_day'">
-                            <field name="day_ids">
-                                <list editable="bottom">
-                                    <field name="sequence" widget="handle"/>
-                                    <field name="pool_by"/>
-                                    <field name="skill_id" invisible="pool_by == 'category'"/>
-                                    <field name="category_id" invisible="pool_by == 'skill'"/>
-                                    <field name="question_count"/>
-                                    <field name="available_question_count"/>
-                                    <field name="duration_minutes" required="1"
-                                           string="Duration (min)"/>
-                                    <field name="scheduled_start"/>
-                                </list>
-                                <form>
-                                    <sheet>
-                                        <group>
-                                            <group>
-                                                <field name="sequence"/>
-                                                <field name="pool_by"/>
-                                                <field name="skill_id" invisible="pool_by == 'category'"/>
-                                                <field name="category_id" invisible="pool_by == 'skill'"/>
-                                                <field name="question_count"/>
-                                                <field name="available_question_count"
-                                                       readonly="1"/>
-                                            </group>
-                                            <group>
-                                                <field name="duration_minutes"/>
-                                                <field name="scheduled_start"/>
-                                            </group>
-                                        </group>
-                                    </sheet>
-                                </form>
-                            </field>
-                        </page>
-                        <page string="Day Sessions"
-                              invisible="assessment_mode != 'multi_day' or day_session_count == 0">
-                            <field name="day_session_ids" readonly="1">
-                                <list>
-                                    <field name="applicant_id"/>
-                                    <field name="day_sequence" string="Day #"/>
-                                    <field name="skill_id"/>
-                                    <field name="state" widget="badge"
-                                           decoration-muted="state == 'locked'"
-                                           decoration-info="state == 'available'"
-                                           decoration-warning="state == 'in_progress'"
-                                           decoration-success="state in ('submitted','scored')"
-                                           decoration-danger="state == 'missed'"/>
-                                    <field name="answered_count"/>
-                                    <field name="total_questions"/>
-                                    <field name="score"/>
-                                    <field name="max_score"/>
-                                    <field name="started_at"/>
-                                    <field name="deadline_datetime"/>
-                                </list>
-                            </field>
-                        </page>
                         <page string="Candidates" invisible="state == 'draft'">
                             <field name="assessment_evaluator_ids" readonly="1">
                                 <list>
@@ -208,7 +144,11 @@
                                            decoration-info="state == 'pending'"
                                            decoration-warning="state == 'in_progress'"
                                            decoration-success="state == 'submitted'"/>
-                                    <field name="day_progress_label" optional="show"/>
+                                    <field name="invite_state" widget="badge"
+                                           decoration-muted="invite_state == 'none'"
+                                           decoration-warning="invite_state == 'queued'"
+                                           decoration-success="invite_state == 'sent'"
+                                           decoration-danger="invite_state == 'failed'"/>
                                     <field name="started_at"/>
                                     <field name="answered_count"/>
                                     <field name="total_questions"/>
@@ -218,13 +158,17 @@
                                     <field name="llm_state" widget="badge"
                                            optional="show"
                                            decoration-success="llm_state == 'scored'"
-                                           decoration-danger="llm_state == 'failed'"/>
+                                           decoration-danger="llm_state in ('failed', 'error')"/>
                                     <field name="score_percent"
                                            string="Final Score /100" optional="show"/>
                                     <field name="result" widget="badge"
                                            decoration-success="result == 'pass'"
                                            decoration-danger="result == 'fail'"
                                            decoration-muted="result == 'pending'"/>
+                                    <field name="scoring_error_flag" widget="badge"
+                                           decoration-danger="scoring_error_flag"/>
+                                    <field name="integrity_alert" widget="boolean"
+                                           string="Integrity Alert" optional="show"/>
                                     <field name="is_locked"/>
                                     <field name="violation_count" optional="show"/>
                                 </list>
@@ -232,106 +176,155 @@
                         </page>
                         <page string="Leaderboard" invisible="state == 'draft'">
                             <field name="assessment_evaluator_ids" readonly="1">
-                                <list default_order="score_percent desc"
-                                      decoration-success="result == 'pass'"
-                                      decoration-danger="result == 'fail'"
-                                      decoration-muted="result == 'pending'">
+                                <kanban default_order="score_percent desc"
+                                        class="o_etp_backend o_etp_leaderboard"
+                                        records_draggable="0">
                                     <field name="applicant_id"/>
-                                    <field name="day_progress_label"
-                                           string="Days Progress"/>
-                                    <field name="total_score" string="Objective"/>
-                                    <field name="llm_total_score" string="Subjective"/>
-                                    <field name="score_percent" string="Final %"
-                                           widget="progressbar"/>
-                                    <field name="pass_threshold" string="Threshold"
-                                           optional="hide"/>
-                                    <field name="result" widget="badge"
-                                           decoration-success="result == 'pass'"
-                                           decoration-danger="result == 'fail'"
-                                           decoration-muted="result == 'pending'"/>
-                                    <field name="llm_state" widget="badge"
-                                           string="Subjective Scoring"
-                                           decoration-success="llm_state == 'scored'"
-                                           decoration-danger="llm_state == 'failed'"/>
-                                </list>
+                                    <field name="total_score"/>
+                                    <field name="llm_total_score"/>
+                                    <field name="score_percent"/>
+                                    <field name="pass_threshold"/>
+                                    <field name="result"/>
+                                    <field name="llm_state"/>
+                                    <field name="scoring_error_flag"/>
+                                    <field name="integrity_alert"/>
+                                    <templates>
+                                        <t t-name="card">
+                                            <div t-attf-class="etp-lb-card etp-lb-#{record.result.raw_value}">
+                                                <div class="etp-lb-rank">
+                                                    <i class="fa fa-trophy" role="img"
+                                                       aria-label="Rank"/>
+                                                </div>
+                                                <div class="etp-lb-main">
+                                                    <div class="etp-lb-top">
+                                                        <field class="etp-lb-name"
+                                                               name="applicant_id"/>
+                                                        <div class="etp-lb-pills">
+                                                            <field name="scoring_error_flag"
+                                                                   widget="badge"
+                                                                   decoration-danger="1"
+                                                                   invisible="not scoring_error_flag"/>
+                                                            <field name="integrity_alert"
+                                                                   widget="badge"
+                                                                   decoration-warning="1"
+                                                                   string="Integrity"
+                                                                   invisible="not integrity_alert"/>
+                                                            <field name="result" widget="badge"
+                                                                   decoration-success="result == 'pass'"
+                                                                   decoration-danger="result == 'fail'"
+                                                                   decoration-muted="result == 'pending'"/>
+                                                        </div>
+                                                    </div>
+                                                    <div class="etp-lb-barwrap">
+                                                        <div class="etp-lb-track">
+                                                            <div class="etp-lb-fill"
+                                                                 t-attf-style="width:#{record.score_percent.raw_value}%"/>
+                                                            <span class="etp-lb-thr"
+                                                                  t-attf-style="left:#{record.pass_threshold.raw_value}%"
+                                                                  title="Pass threshold"/>
+                                                        </div>
+                                                        <span class="etp-lb-pct">
+                                                            <field name="score_percent"
+                                                                   widget="float"
+                                                                   digits="[16,0]"/><span class="etp-lb-pct-sym">%</span>
+                                                        </span>
+                                                    </div>
+                                                    <div class="etp-lb-chips">
+                                                        <span class="etp-lb-chip">
+                                                            <i class="fa fa-check-square-o"
+                                                               role="img" aria-label="Objective"/>
+                                                            <span class="etp-lb-chip-k">Objective</span>
+                                                            <field class="etp-lb-chip-v"
+                                                                   name="total_score"/>
+                                                        </span>
+                                                        <span class="etp-lb-chip">
+                                                            <i class="fa fa-pencil-square-o"
+                                                               role="img" aria-label="Subjective"/>
+                                                            <span class="etp-lb-chip-k">Subjective</span>
+                                                            <field class="etp-lb-chip-v"
+                                                                   name="llm_total_score"/>
+                                                        </span>
+                                                        <field name="llm_state" widget="badge"
+                                                               decoration-success="llm_state == 'scored'"
+                                                               decoration-info="llm_state == 'scoring'"
+                                                               decoration-danger="llm_state in ('failed', 'error')"
+                                                               decoration-muted="llm_state == 'pending'"/>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </t>
+                                    </templates>
+                                </kanban>
                             </field>
                         </page>
                         <page string="Selected Questions"
-                              invisible="state == 'draft' or assessment_mode != 'single'">
+                              invisible="state == 'draft'">
                             <field name="question_ids" readonly="1">
                                 <list>
                                     <field name="sequence" widget="handle"/>
                                     <field name="name"/>
                                     <field name="prompt"/>
-                                    <field name="category_id"/>
-                                </list>
-                            </field>
-                        </page>
-                        <page string="Responses">
-                            <field name="response_ids" readonly="1">
-                                <list>
-                                    <field name="evaluator_id" string="Candidate"/>
-                                    <field name="question_id"/>
-                                    <field name="objective_score" string="Objective"/>
-                                    <field name="objective_max" string="Objective Max"
-                                           optional="hide"/>
-                                    <field name="needs_llm" string="Subjective?"
-                                           widget="boolean"/>
-                                    <field name="subjective_result" widget="badge"
-                                           string="Subjective"
-                                           decoration-success="subjective_result == 'pass'"
-                                           decoration-danger="subjective_result == 'fail'"/>
-                                    <field name="llm_raw_100"
-                                           string="Subjective Score (0-100)"
-                                           widget="float" digits="[5,1]"
-                                           optional="show"/>
-                                    <field name="llm_state" widget="badge"
-                                           string="Subjective State" optional="hide"
-                                           decoration-info="llm_state in ('pending','queued')"
-                                           decoration-success="llm_state == 'scored'"
-                                           decoration-muted="llm_state == 'not_needed'"
-                                           decoration-warning="llm_state == 'failed'"
-                                           decoration-danger="llm_state == 'error'"/>
-                                    <field name="state" widget="badge"
-                                           decoration-info="state == 'draft'"
-                                           decoration-success="state == 'submitted'"/>
-                                </list>
-                            </field>
-                        </page>
-                        <page string="Image Evaluation" invisible="state == 'draft'">
-                            <field name="response_ids" readonly="1"
-                                   domain="[('question_type','in',('image_ab','image_text'))]">
-                                <list>
-                                    <field name="evaluator_id" string="Candidate"/>
-                                    <field name="question_id"/>
-                                    <field name="question_type"/>
-                                    <field name="objective_score" string="Objective"/>
-                                    <field name="objective_max" string="Objective Max"
-                                           optional="show"/>
-                                    <field name="subjective_result" widget="badge"
-                                           string="Subjective"
-                                           decoration-success="subjective_result == 'pass'"
-                                           decoration-danger="subjective_result == 'fail'"/>
-                                    <field name="llm_raw_100"
-                                           string="Subjective Score (0-100)"
-                                           widget="float" digits="[5,1]"
-                                           optional="show"/>
-                                    <field name="llm_state" widget="badge"
-                                           string="Subjective State"
-                                           decoration-info="llm_state in ('pending','queued')"
-                                           decoration-success="llm_state == 'scored'"
-                                           decoration-muted="llm_state == 'not_needed'"
-                                           decoration-warning="llm_state == 'failed'"
-                                           decoration-danger="llm_state == 'error'"/>
-                                    <field name="state" widget="badge"
-                                           decoration-info="state == 'draft'"
-                                           decoration-success="state == 'submitted'"/>
+                                    <field name="generator_id"/>
                                 </list>
                             </field>
                         </page>
                     </notebook>
                 </sheet>
             </form>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_kanban" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.kanban</field>
+        <field name="model">etp.assessment.pro</field>
+        <field name="arch" type="xml">
+            <kanban class="o_etp_backend" sample="1">
+                <field name="state"/>
+                <field name="start_date"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="etp-kanban-card etp-kanban-card--assessment">
+                            <span class="etp-kc-accent"/>
+                            <div class="etp-kc-head">
+                                <field class="etp-kc-title" name="name"/>
+                                <field name="state" widget="badge"
+                                       decoration-info="state == 'draft'"
+                                       decoration-warning="state == 'in_progress'"
+                                       decoration-success="state == 'done'"
+                                       decoration-danger="state == 'cancelled'"/>
+                            </div>
+                            <div class="etp-kc-sub">
+                                <i class="fa fa-folder-o me-1" role="img"
+                                   aria-label="Question Generator"/>
+                                <field name="generator_id"/>
+                            </div>
+                            <div class="etp-kc-sub etp-kc-date"
+                                 t-if="record.start_date.raw_value">
+                                <i class="fa fa-calendar-o me-1" role="img"
+                                   aria-label="Exam date"/>
+                                <field name="start_date"/>
+                            </div>
+                            <div class="etp-kc-stats">
+                                <span class="etp-kc-stat" title="Questions available">
+                                    <i class="fa fa-list-ol" role="img"
+                                       aria-label="Questions"/>
+                                    <field name="total_questions_available"/>
+                                </span>
+                                <span class="etp-kc-stat" title="Duration (minutes)">
+                                    <i class="fa fa-clock-o" role="img"
+                                       aria-label="Duration"/>
+                                    <span><field name="duration_minutes"/>m</span>
+                                </span>
+                                <span class="etp-kc-stat" title="Responses / candidates">
+                                    <i class="fa fa-users" role="img"
+                                       aria-label="Responses"/>
+                                    <field name="response_count"/>
+                                </span>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
         </field>
     </record>
 
@@ -360,7 +353,7 @@
     <record id="action_etp_assessment" model="ir.actions.act_window">
         <field name="name">Assessments</field>
         <field name="res_model">etp.assessment.pro</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">kanban,list,form</field>
         <field name="search_view_id" ref="etp_assessment_pro_search"/>
     </record>
 
@@ -368,7 +361,7 @@
         <field name="name">etp.assessment.pro.evaluator.tree</field>
          <field name="model">etp.assessment.pro.evaluator</field>
         <field name="arch" type="xml">
-            <list>
+            <list class="o_etp_backend">
                 <header>
                     <button name="action_release_results" type="object"
                             string="Release Results"/>
@@ -379,7 +372,6 @@
                        decoration-info="state == 'pending'"
                        decoration-warning="state == 'in_progress'"
                        decoration-success="state == 'submitted'"/>
-                <field name="day_progress_label" optional="show"/>
                 <field name="answered_count"/>
                 <field name="total_questions"/>
                 <field name="total_score"/>
@@ -404,11 +396,15 @@
         <field name="name">etp.assessment.pro.evaluator.form</field>
         <field name="model">etp.assessment.pro.evaluator</field>
         <field name="arch" type="xml">
-            <form>
+            <form class="o_etp_evaluator_form o_etp_backend">
                 <header>
-                    <button name="action_llm_score" string="Score Subjective"
+                    <button name="action_queue_llm_score" string="Score Subjective"
                             type="object" icon="fa-magic"
                             invisible="state != 'submitted'"/>
+                    <button name="action_reset_errored_scoring"
+                            string="Reset &amp; Re-score Errored"
+                            type="object" icon="fa-refresh"
+                            invisible="llm_state != 'error'"/>
                     <button name="action_export_responses" string="Export Responses"
                             type="object" icon="fa-table"/>
                     <button name="action_release_results" string="Release Results"
@@ -429,37 +425,134 @@
                     </div>
                     <field name="result_summary" widget="html" readonly="1"
                            nolabel="1"/>
-                    <group>
-                        <group>
-                            <field name="assessment_id"/>
-                            <field name="applicant_id"/>
-                            <field name="access_token"/>
-                            <field name="started_at"/>
-                            <field name="deadline_datetime"/>
-                        </group>
-                        <group>
-                            <field name="total_questions"/>
-                            <field name="answered_count"/>
-                            <field name="total_score"/>
-                            <field name="max_possible_score"/>
-                            <field name="llm_total_score" string="Subjective Total"/>
-                            <field name="llm_max_score" string="Subjective Max"/>
-                            <field name="subjective_pending"/>
-                            <field name="llm_state"/>
-                            <field name="score_percent" string="Score %"/>
-                            <field name="result" widget="badge"
-                                   decoration-success="result == 'pass'"
-                                   decoration-danger="result == 'fail'"
-                                   decoration-muted="result == 'pending'"/>
-                            <field name="day_progress_label"/>
-                            <field name="results_released"/>
-                            <field name="is_locked"/>
-                        </group>
-                    </group>
+
+                    <!-- ================= PROGRESS DASHBOARD ================= -->
+                    <div class="etp-dash">
+                        <div class="etp-dash-hero">
+                            <!-- score ring centrepiece (native percentpie) -->
+                            <div class="etp-dash-ring">
+                                <field name="score_percent" widget="percentpie"
+                                       string="Final Score" nolabel="1"/>
+                                <div class="etp-dash-ring-foot">
+                                    <field name="result" widget="badge" nolabel="1"
+                                           decoration-success="result == 'pass'"
+                                           decoration-danger="result == 'fail'"
+                                           decoration-muted="result == 'pending'"/>
+                                    <span class="etp-dash-thr">Pass threshold
+                                        <field name="pass_threshold" nolabel="1"/>%</span>
+                                </div>
+                            </div>
+
+                            <!-- headline stat cards -->
+                            <div class="etp-stat-grid">
+                                <div class="etp-stat-card">
+                                    <span class="etp-stat-ico etp-ico-score">
+                                        <i class="fa fa-trophy" role="img"
+                                           aria-label="Objective score"/>
+                                    </span>
+                                    <div class="etp-stat-body">
+                                        <div class="etp-stat-num">
+                                            <field name="total_score" nolabel="1"/>
+                                            <span class="etp-stat-den">/
+                                                <field name="max_possible_score"
+                                                       nolabel="1"/></span>
+                                        </div>
+                                        <div class="etp-stat-cap">Objective Score</div>
+                                    </div>
+                                </div>
+
+                                <div class="etp-stat-card">
+                                    <span class="etp-stat-ico etp-ico-subj">
+                                        <i class="fa fa-magic" role="img"
+                                           aria-label="Subjective score"/>
+                                    </span>
+                                    <div class="etp-stat-body">
+                                        <div class="etp-stat-num">
+                                            <field name="llm_total_score" nolabel="1"/>
+                                            <span class="etp-stat-den">/
+                                                <field name="llm_max_score"
+                                                       nolabel="1"/></span>
+                                        </div>
+                                        <div class="etp-stat-cap">Subjective Score</div>
+                                    </div>
+                                </div>
+
+                                <div class="etp-stat-card">
+                                    <span class="etp-stat-ico etp-ico-answered">
+                                        <i class="fa fa-check-circle" role="img"
+                                           aria-label="Answered"/>
+                                    </span>
+                                    <div class="etp-stat-body">
+                                        <div class="etp-stat-num">
+                                            <field name="answered_count" nolabel="1"/>
+                                            <span class="etp-stat-den">/
+                                                <field name="total_questions"
+                                                       nolabel="1"/></span>
+                                        </div>
+                                        <div class="etp-stat-cap">Answered</div>
+                                    </div>
+                                </div>
+
+                                <div class="etp-stat-card etp-stat-warn">
+                                    <span class="etp-stat-ico etp-ico-warn">
+                                        <i class="fa fa-hourglass-half" role="img"
+                                           aria-label="Subjective pending"/>
+                                    </span>
+                                    <div class="etp-stat-body">
+                                        <div class="etp-stat-num">
+                                            <field name="subjective_pending"
+                                                   nolabel="1"/>
+                                        </div>
+                                        <div class="etp-stat-cap">Subjective Pending</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- progress bars (native progressbar widget) -->
+                        <div class="etp-dash-bars">
+                            <div class="etp-bar-row">
+                                <span class="etp-bar-label">
+                                    <i class="fa fa-check-circle"/> Answered</span>
+                                <field name="answered_count" widget="progressbar"
+                                       nolabel="1"
+                                       options="{'current_value': 'answered_count', 'max_value': 'total_questions'}"/>
+                            </div>
+                            <div class="etp-bar-row">
+                                <span class="etp-bar-label">
+                                    <i class="fa fa-list-ol"/> Objective</span>
+                                <field name="total_score" widget="progressbar"
+                                       nolabel="1"
+                                       options="{'current_value': 'total_score', 'max_value': 'max_possible_score'}"/>
+                            </div>
+                            <div class="etp-bar-row">
+                                <span class="etp-bar-label">
+                                    <i class="fa fa-magic"/> Subjective</span>
+                                <field name="llm_total_score" widget="progressbar"
+                                       nolabel="1"
+                                       options="{'current_value': 'llm_total_score', 'max_value': 'llm_max_score'}"/>
+                            </div>
+                        </div>
+
+                        <!-- secondary details card -->
+                        <div class="etp-dash-meta">
+                            <group>
+                                <group string="Assignment">
+                                    <field name="assessment_id"/>
+                                    <field name="applicant_id"/>
+                                    <field name="llm_state"/>
+                                    <field name="results_released"/>
+                                    <field name="is_locked"/>
+                                </group>
+                                <group string="Session">
+                                    <field name="started_at"/>
+                                    <field name="deadline_datetime"/>
+                                    <field name="access_token"/>
+                                </group>
+                            </group>
+                        </div>
+                    </div>
                     <notebook>
-                        <page string="Day Sessions" invisible="not day_session_ids">
-                            <field name="day_session_ids" readonly="1"/>
-                        </page>
                         <page string="Score Details">
                             <field name="response_ids" readonly="1">
                                 <list>
@@ -484,17 +577,19 @@
                                            string="Subjective Result"
                                            decoration-success="subjective_result == 'pass'"
                                            decoration-danger="subjective_result == 'fail'"/>
-                                    <field name="llm_feedback"
-                                           string="Subjective Feedback" optional="hide"/>
-                                    <field name="llm_state" widget="badge"
-                                           string="Subjective State"
-                                           decoration-info="llm_state in ('pending','queued')"
-                                           decoration-success="llm_state == 'scored'"
-                                           decoration-muted="llm_state == 'not_needed'"
-                                           decoration-warning="llm_state == 'failed'"
-                                           decoration-danger="llm_state == 'error'"/>
-                                    <field name="state" widget="badge"/>
-                                </list>
+                                     <field name="llm_feedback"
+                                            string="Subjective Feedback" optional="hide"/>
+                                     <field name="integrity_alert" widget="boolean"
+                                            string="Integrity Alert" optional="show"/>
+                                     <field name="llm_state" widget="badge"
+                                            string="Subjective State"
+                                            decoration-info="llm_state in ('pending','queued')"
+                                            decoration-success="llm_state == 'scored'"
+                                            decoration-muted="llm_state == 'not_needed'"
+                                            decoration-warning="llm_state == 'failed'"
+                                            decoration-danger="llm_state == 'error'"/>
+                                     <field name="state" widget="badge"/>
+                                 </list>
                                 <form>
                                     <group>
                                         <group string="Question">
@@ -517,10 +612,31 @@
                                                    decoration-danger="llm_state == 'error'"/>
                                             <field name="llm_rubric_source"/>
                                             <field name="llm_gate"/>
+                                            <field name="integrity_alert"/>
+                                            <field name="ab_verdict_pct"
+                                                   string="AB Verdict %"
+                                                   invisible="question_type != 'image_ab'"/>
+                                            <field name="ab_justification_pct"
+                                                   string="AB Justification %"
+                                                   invisible="question_type != 'image_ab'"/>
+                                            <field name="label_coverage_pct"
+                                                   string="Label Coverage %"
+                                                   invisible="question_type != 'image_label'"/>
+                                            <field name="label_correctness_pct"
+                                                   string="Label Correctness %"
+                                                   invisible="question_type != 'image_label'"/>
+                                        </group>
+                                        <group string="Result" invisible="needs_llm">
+                                            <field name="score"
+                                                   string="Objective Score"/>
+                                            <field name="max_score"
+                                                   string="Objective Max"/>
+                                            <field name="correct_summary"
+                                                   string="Correct Answer"/>
                                         </group>
                                     </group>
                                     <field name="answer_summary"
-                                           string="Candidate Answer (objective)"
+                                           string="Candidate Answer"
                                            invisible="not answer_summary"/>
                                     <separator string="Candidate Justification"
                                                invisible="not justification"/>
@@ -554,7 +670,7 @@
         <field name="name">etp.assessment.pro.response.tree</field>
         <field name="model">etp.assessment.pro.response</field>
         <field name="arch" type="xml">
-            <list>
+            <list class="o_etp_backend">
                 <field name="assessment_id"/>
                 <field name="evaluator_id" string="Candidate"/>
                 <field name="question_id"/>
@@ -567,6 +683,8 @@
                        decoration-danger="subjective_result == 'fail'"/>
                 <field name="subjective_score" string="Mark (0/1)" optional="hide"
                        sum="Total Subjective Marks"/>
+                <field name="integrity_alert" widget="boolean"
+                       string="Integrity Alert" optional="show"/>
                 <field name="llm_state" widget="badge" string="Subjective State" optional="show"
                        decoration-info="llm_state in ('pending','queued')"
                        decoration-success="llm_state == 'scored'"
@@ -584,7 +702,7 @@
         <field name="name">etp.assessment.pro.response.form</field>
         <field name="model">etp.assessment.pro.response</field>
         <field name="arch" type="xml">
-            <form>
+            <form class="o_etp_backend">
                 <header>
                     <button name="action_submit" string="Submit" type="object"
                             class="oe_highlight" invisible="state != 'draft'"/>
@@ -596,7 +714,7 @@
                             <field name="assessment_id" readonly="1"/>
                             <field name="evaluator_id" readonly="1"/>
                             <field name="question_id" readonly="1"/>
-                            <field name="day_session_id" readonly="1"/>
+                            <field name="question_type" invisible="1"/>
                         </group>
                         <group>
                             <field name="objective_score" string="Objective Score"/>
@@ -616,15 +734,27 @@
                                    invisible="not llm_rubric_source"/>
                             <field name="llm_gate" string="Gate"
                                    invisible="not llm_gate"/>
+                            <field name="integrity_alert" string="Integrity Alert"/>
+                            <field name="ab_verdict_pct" string="AB Verdict %"
+                                   invisible="question_type != 'image_ab'"/>
+                            <field name="ab_justification_pct"
+                                   string="AB Justification %"
+                                   invisible="question_type != 'image_ab'"/>
+                            <field name="label_coverage_pct"
+                                   string="Label Coverage %"
+                                   invisible="question_type != 'image_label'"/>
+                            <field name="label_correctness_pct"
+                                   string="Label Correctness %"
+                                   invisible="question_type != 'image_label'"/>
                         </group>
                     </group>
                     <notebook>
                         <page string="Dimension Answers">
                             <field name="line_ids" readonly="state == 'submitted'">
                                 <list editable="bottom">
-                                    <field name="dimension_id"/>
+                                    <field name="question_dimension_id"/>
                                     <field name="selected_option_id"
-                                           domain="[('dimension_id', '=', dimension_id)]"/>
+                                           domain="[('question_dimension_id', '=', question_dimension_id)]"/>
                                 </list>
                             </field>
                         </page>
@@ -663,6 +793,9 @@
                         domain="[('state', '=', 'submitted')]"/>
                 <filter name="draft" string="Draft"
                         domain="[('state', '=', 'draft')]"/>
+                <separator/>
+                <filter name="integrity_alert" string="Integrity Alert"
+                        domain="[('integrity_alert', '=', True)]"/>
                 <separator/>
                 <filter name="group_by_assessment" string="Assessment"
                         context="{'group_by': 'assessment_id'}"/>

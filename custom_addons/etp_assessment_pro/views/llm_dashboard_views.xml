@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="etp_assessment_pro_llm_dashboard_form" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.llm.dashboard.form</field>
+        <field name="model">etp.assessment.pro.llm.dashboard</field>
+        <field name="arch" type="xml">
+            <form class="o_etp_wide_form o_etp_backend" edit="0" create="0"
+                  duplicate="0">
+                <sheet>
+                    <div class="etp-dash etp-dash-analytics">
+                        <div class="etp-dash-head">
+                            <div class="etp-dash-head-glow" aria-hidden="true"/>
+                            <div class="etp-dash-head-aurora" aria-hidden="true"/>
+                            <div class="etp-dash-head-inner">
+                                <span class="etp-dash-head-eyebrow">
+                                    <i class="fa fa-bolt"/> ETP Assessment Pro
+                                </span>
+                                <h2 class="etp-dash-head-title">LLM Budget</h2>
+                                <span class="etp-dash-head-sub">Token spend and estimated cost across every Vertex AI call</span>
+                                <span class="etp-dash-head-cap">
+                                    <i class="fa fa-circle"/> Live snapshot · refreshed on open
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">Key Metrics</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-stat-grid">
+                            <div class="etp-stat-card etp-stat-warn">
+                                <span class="etp-stat-ico etp-ico-warn">
+                                    <i class="fa fa-dollar-sign" role="img"
+                                       aria-label="Total Cost"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <span class="etp-stat-den">$</span>
+                                        <field name="total_cost" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Total Cost (USD)</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-subj">
+                                    <i class="fa fa-coins" role="img"
+                                       aria-label="Total Tokens"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="total_tokens" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Total Tokens</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-answered">
+                                    <i class="fa fa-paper-plane" role="img"
+                                       aria-label="Requests"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="total_requests" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Requests</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-score">
+                                    <i class="fa fa-image" role="img"
+                                       aria-label="Images"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="total_images" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Images</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-answered">
+                                    <i class="fa fa-film" role="img"
+                                       aria-label="Videos"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="total_videos" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Videos</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-warn">
+                                    <i class="fa fa-receipt" role="img"
+                                       aria-label="Avg Cost per Request"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <span class="etp-stat-den">$</span>
+                                        <field name="avg_cost_per_request"
+                                               nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Avg $ / Request</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">Breakdown</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-chart-grid">
+                            <div class="etp-chart-card etp-chart-wide">
+                                <div class="etp-chart-title">
+                                    <i class="fa fa-bar-chart"/> Cost by Operation
+                                </div>
+                                <field name="chart_cost_by_operation_html"
+                                       widget="html" nolabel="1" readonly="1"/>
+                            </div>
+
+                            <div class="etp-chart-card">
+                                <div class="etp-chart-title">
+                                    <i class="fa fa-cubes"/> Tokens by Model
+                                </div>
+                                <field name="chart_tokens_by_model_html"
+                                       widget="html" nolabel="1" readonly="1"/>
+                            </div>
+
+                            <div class="etp-chart-card">
+                                <div class="etp-chart-title">
+                                    <i class="fa fa-signal"/> Requests by Operation
+                                </div>
+                                <field name="chart_cost_dist_html"
+                                       widget="html" nolabel="1" readonly="1"/>
+                            </div>
+                        </div>
+
+                        <div class="etp-sec" aria-hidden="true">
+                            <span class="etp-sec-eyebrow">By Project</span>
+                            <span class="etp-sec-rule"/>
+                        </div>
+
+                        <div class="etp-chart-grid">
+                            <div class="etp-chart-card etp-chart-wide">
+                                <div class="etp-chart-title">
+                                    <i class="fa fa-folder-open"/> Cost by Project
+                                    <span class="etp-proj-hint">Authoring + evaluation spend per generator</span>
+                                </div>
+                                <field name="chart_cost_by_project_html"
+                                       widget="html" nolabel="1" readonly="1"/>
+                            </div>
+                        </div>
+
+                        <div class="etp-dash-meta">
+                            <group>
+                                <group string="Token Totals">
+                                    <field name="tokens_in_total"/>
+                                    <field name="tokens_out_total"/>
+                                    <field name="total_tokens"/>
+                                </group>
+                                <group string="Spend">
+                                    <field name="total_cost" widget="float"
+                                           digits="[12,4]"/>
+                                    <field name="avg_cost_per_request"
+                                           widget="float" digits="[12,5]"/>
+                                    <field name="total_requests"/>
+                                </group>
+                            </group>
+                        </div>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_pro_llm_dashboard"
+            model="ir.actions.act_window">
+        <field name="name">LLM Budget</field>
+        <field name="res_model">etp.assessment.pro.llm.dashboard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="etp_assessment_pro_llm_dashboard_form"/>
+        <field name="target">current</field>
+        <field name="context">{}</field>
+    </record>
+
+</odoo>

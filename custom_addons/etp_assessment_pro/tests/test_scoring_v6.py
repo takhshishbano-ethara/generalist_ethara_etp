@@ -12,9 +12,9 @@ redesign provides:
 3. A scoring call/parse failure is SURFACED as llm_state='error' (not a silent
    scored-0), and the subjective max never drifts (always 1 per answer).
 
-All six question types are exercised: mcq + msq (deterministic, no LLM) and the
-four LLM types (subjective_justification, subjective_rubric, image_ab,
-image_text).
+The question types are exercised: mcq + msq (deterministic, no LLM) and the LLM
+types (subjective_rubric, subjective_rubric, image_ab, image_prompt;
+image_label shares the image_prompt scoring path).
 """
 import json
 from unittest.mock import patch
@@ -34,32 +34,36 @@ class _ScoringBase(TransactionCase):
         self.Evaluator = self.env["etp.assessment.pro.evaluator"]
         self.Applicant = self.env["hr.applicant"]
         self.ICP = self.env["ir.config_parameter"].sudo()
-        self.dim_if = self.env.ref("etp_assessment_pro.dim_image_if")
-        self.dim_oc = self.env.ref("etp_assessment_pro.dim_image_oc")
-        # Deterministic default threshold for the per-answer subjective bar.
-        self.ICP.set_param("etp_assessment_pro.subjective_pass_threshold", "70")
+        self.AB_OPTS = ["Response A", "Response B", "Both Good", "Both Bad", "Tie"]
+        # Per-answer threshold is now the per-assessment field (defaults to 70).
 
     def _evaluator(self):
         applicant = self.Applicant.create({
             "partner_name": "Cand", "email_from": "cand@example.com"})
-        assessment = self.Assessment.create({"name": "Scoring Assessment"})
+        category = self.env["etp.assessment.pro.prompt"].create(
+            {"name": "Scoring Cat"})
+        assessment = self.Assessment.create({
+            "name": "Scoring Assessment", "generator_id": category.id})
         ev = self.Evaluator.create({
             "assessment_id": assessment.id,
             "applicant_id": applicant.id,
         })
         return ev, applicant, assessment
 
-    def _master_opt(self, master_dim, label):
-        return master_dim.option_ids.filtered(lambda o: o.name == label)[:1]
+    def _opt(self, qd, label):
+        return qd.option_line_ids.filtered(lambda o: o.name == label)[:1]
 
-    def _attach_dim(self, question, master_dim, correct_label):
-        qd = self.QDim.create({
+    def _attach_dim(self, question, axis_name, correct_label, options=None):
+        options = options or self.AB_OPTS
+        return self.QDim.create({
             "question_id": question.id,
-            "dimension_id": master_dim.id,
+            "name": axis_name,
+            "option_line_ids": [
+                (0, 0, {"name": o, "sequence": (i + 1) * 10,
+                        "is_correct": o == correct_label})
+                for i, o in enumerate(options)
+            ],
         })
-        for line in qd.option_line_ids:
-            line.is_correct = line.master_option_id.name == correct_label
-        return qd
 
     def _resp(self, ev, applicant, assessment, question,
               justification="", lines=None):
@@ -75,29 +79,38 @@ class _ScoringBase(TransactionCase):
         return self.Response.create(vals)
 
     def _mock_score(self, resp, fixed_results):
-        """Run the unified scorer with the Vertex call mocked to return
-        fixed_results (a python list of per-item dicts)."""
-        payload = json.dumps(fixed_results)
+        """Run the unified scorer with the Vertex call mocked to return the
+        subjective-judge-v6 wrapper object around fixed_results (a python list of
+        per-item result dicts, scores as 0.00-1.00 floats)."""
+        payload = json.dumps({
+            "schema_version": "subjective-judge-v6",
+            "pass_threshold": 0.70,
+            "submission_flags": [],
+            "results": fixed_results,
+        })
         with patch.object(vertex, "_call_vertex", return_value=payload):
             return scoring._score_submission(self.env, resp)
 
 
 class TestSubjectiveTypesScored(_ScoringBase):
-    def test_subjective_justification_scored_and_stored(self):
+    def test_subjective_rubric_scored_and_stored(self):
         q = self.Question.create({
             "name": "Justify",
             "prompt": "Justify your verdict.",
-            "question_type": "subjective_justification",
+            "question_type": "subjective_rubric",
         })
         ev, app, ass = self._evaluator()
         resp = self._resp(ev, app, ass, q,
                           justification="A is sharper, evidence: crisp edges.")
         self.assertTrue(resp.needs_llm)
         n = self._mock_score(resp, [{
-            "id": resp.id, "score": 82, "rubric_source": "generated",
-            "gate": "none", "reference_answer": "A is sharper because...",
-            "reasoning": "Point c1 met by 'crisp edges'.", "feedback": "Solid.",
-            "flags": [],
+            "item_id": str(resp.id), "id": resp.id,
+            "field_key": "justification", "skills": [],
+            "score": 0.82, "passed": True, "rubric_source": "generated",
+            "rubric": {}, "gate": "none",
+            "reference_answer": "A is sharper because...",
+            "reasoning": "Point c1 met by 'crisp edges'.",
+            "verdict_consistency": "match", "feedback": "Solid.", "flags": [],
         }])
         resp.invalidate_recordset()
         self.assertEqual(n, 1)
@@ -114,6 +127,12 @@ class TestSubjectiveTypesScored(_ScoringBase):
         self.assertEqual(resp.llm_gate, "none")
         self.assertTrue(resp.llm_reference_answer)
         self.assertTrue(resp.llm_result_json)
+        # v6 audit fields ride along in llm_result_json (never read for decisions).
+        stored = json.loads(resp.llm_result_json)
+        self.assertEqual(stored["field_key"], "justification")
+        self.assertEqual(stored["verdict_consistency"], "match")
+        self.assertIn("passed", stored)
+        self.assertIn("skills", stored)
 
     def test_subjective_rubric_scored(self):
         q = self.Question.create({
@@ -128,27 +147,36 @@ class TestSubjectiveTypesScored(_ScoringBase):
         })
         ev, app, ass = self._evaluator()
         resp = self._resp(ev, app, ass, q, justification="A wins, sharper.")
+        # v6 says passed=true (advisory), but 0.65 -> 65 < live threshold 70.
         n = self._mock_score(resp, [{
-            "id": resp.id, "score": 65, "rubric_source": "supplied",
+            "item_id": str(resp.id), "id": resp.id,
+            "field_key": "justification", "skills": [],
+            "score": 0.65, "passed": True, "rubric_source": "supplied",
+            "rubric": {"checklist": ["names a specific feature"],
+                       "constraints": ["stays on topic"],
+                       "pass_condition": "endorses A"},
             "gate": "none", "reference_answer": "...", "reasoning": "...",
-            "feedback": "Close.", "flags": [],
+            "verdict_consistency": "match", "feedback": "Close.", "flags": [],
         }])
         resp.invalidate_recordset()
         self.assertEqual(n, 1)
         # 65 < 70 -> fail under default threshold, but state is scored (genuine).
         self.assertEqual(resp.llm_state, "scored")
         self.assertAlmostEqual(resp.llm_raw_100, 65.0)
-        self.assertFalse(resp.llm_passed)
+        # The v6 advisory `passed` is IGNORED; the live threshold decides FAIL.
+        stored = json.loads(resp.llm_result_json)
+        self.assertTrue(stored["passed"])        # advisory says pass...
+        self.assertFalse(resp.llm_passed)        # ...live threshold says fail
         self.assertEqual(resp.llm_score, 0)
         self.assertEqual(resp.subjective_result, "fail")
 
-    def test_image_text_scored(self):
+    def test_image_prompt_scored(self):
         q = self.Question.create({
             "name": "Describe",
             "prompt": "Describe the image.",
-            "question_type": "image_text",
+            "question_type": "image_prompt",
             "subjective_rubric_json": json.dumps({
-                "ideal_answer": "A fluffy cat on a sofa.",
+                "ideal_prompt": "A fluffy cat on a sofa.",
                 "mandatory_elements": ["cat"],
                 "penalty_rules": ["no hallucinated objects"],
                 "scoring_guide": "Award for accuracy.",
@@ -158,10 +186,14 @@ class TestSubjectiveTypesScored(_ScoringBase):
         resp = self._resp(ev, app, ass, q,
                           justification="A fluffy cat on a sofa.")
         self._mock_score(resp, [{
-            "id": resp.id, "score": 90, "rubric_source": "supplied",
+            "item_id": str(resp.id), "id": resp.id,
+            "field_key": "justification", "skills": [],
+            "score": 0.90, "passed": True, "rubric_source": "supplied",
+            "rubric": {"checklist": ["names the cat"], "constraints": [],
+                       "pass_condition": "captures the scene"},
             "gate": "none", "reference_answer": "A fluffy cat...",
-            "reasoning": "mandatory 'cat' present.", "feedback": "Accurate.",
-            "flags": [],
+            "reasoning": "mandatory 'cat' present.",
+            "verdict_consistency": "match", "feedback": "Accurate.", "flags": [],
         }])
         resp.invalidate_recordset()
         self.assertAlmostEqual(resp.llm_raw_100, 90.0)
@@ -175,25 +207,29 @@ class TestSubjectiveTypesScored(_ScoringBase):
             "question_type": "image_ab",
             "official_reasoning": "A follows the instruction.",
         })
-        self._attach_dim(q, self.dim_if, "Response A")
-        self._attach_dim(q, self.dim_oc, "Response A")
+        self._attach_dim(q, "Instruction Following (IF)", "Response A")
+        self._attach_dim(q, "Overall Choice (OC)", "Response A")
         ev, app, ass = self._evaluator()
+        ass.require_justification_image_comparison = True
         lines = [
-            (0, 0, {"dimension_id": qd.dimension_id.id,
-                    "selected_option_id": self._master_opt(
-                        qd.dimension_id, "Response A").id})
+            (0, 0, {"question_dimension_id": qd.id,
+                    "selected_option_id": self._opt(qd, "Response A").id})
             for qd in q.question_dimension_ids
         ]
         resp = self._resp(ev, app, ass, q,
                           justification="A is sharper and on-instruction.",
                           lines=lines)
         self._mock_score(resp, [{
-            "id": resp.id, "score": 88, "rubric_source": "supplied",
-            "gate": "none", "reference_answer": "A...", "reasoning": "axes match",
+            "item_id": str(resp.id), "id": resp.id,
+            "field_key": "justification", "skills": [],
+            "score": 0.88, "passed": True, "rubric_source": "generated",
+            "rubric": {}, "gate": "none", "reference_answer": "A...",
+            "reasoning": "axes match", "verdict_consistency": "match",
             "feedback": "Strong.", "flags": [], "alignment": "high",
         }])
         resp.invalidate_recordset()
-        self.assertAlmostEqual(resp.llm_raw_100, 88.0)
+        # blend: 0.75*verdict(1.0) + 0.25*justification(0.88) = 0.97 -> raw 97
+        self.assertAlmostEqual(resp.llm_raw_100, 97.0)
         self.assertTrue(resp.llm_passed)
         self.assertEqual(resp.subjective_result, "pass")
 
@@ -206,12 +242,11 @@ class TestObjectiveTypesNoLLM(_ScoringBase):
                 "prompt": "Pick.",
                 "question_type": qtype,
             })
-            self._attach_dim(q, self.dim_if, "Response A")
+            qd = self._attach_dim(q, "Instruction Following (IF)", "Response A")
             ev, app, ass = self._evaluator()
             lines = [(0, 0, {
-                "dimension_id": self.dim_if.id,
-                "selected_option_id": self._master_opt(
-                    self.dim_if, "Response A").id})]
+                "question_dimension_id": qd.id,
+                "selected_option_id": self._opt(qd, "Response A").id})]
             resp = self._resp(ev, app, ass, q, lines=lines)
             resp.invalidate_recordset()
             self.assertTrue(resp.has_objective)
@@ -225,24 +260,25 @@ class TestLiveThresholdFlip(_ScoringBase):
         q = self.Question.create({
             "name": "Justify",
             "prompt": "Justify.",
-            "question_type": "subjective_justification",
+            "question_type": "subjective_rubric",
         })
         ev, app, ass = self._evaluator()
         resp = self._resp(ev, app, ass, q, justification="A wins because X.")
         # Score once at raw 75.
         self._mock_score(resp, [{
-            "id": resp.id, "score": 75, "rubric_source": "generated",
-            "gate": "none", "reference_answer": "x", "reasoning": "x",
+            "item_id": str(resp.id), "id": resp.id,
+            "field_key": "justification", "skills": [],
+            "score": 0.75, "passed": True, "rubric_source": "generated",
+            "rubric": {}, "gate": "none", "reference_answer": "x",
+            "reasoning": "x", "verdict_consistency": "match",
             "feedback": "x", "flags": [],
         }])
         resp.invalidate_recordset()
         self.assertTrue(resp.llm_passed)          # 75 >= 70
         self.assertEqual(resp.subjective_result, "pass")
 
-        # Raise the per-answer threshold to 80 via Settings; NO re-scoring.
-        settings = self.env["res.config.settings"].create({
-            "etp_assessment_pro_subjective_pass_threshold": 80.0})
-        settings.set_values()
+        # Raise this assessment's threshold to 80; NO re-scoring.
+        ass.subjective_threshold = 80.0
         resp.invalidate_recordset()
         self.assertAlmostEqual(resp.llm_raw_100, 75.0)   # raw is untouched
         self.assertFalse(resp.llm_passed)                # 75 < 80 now -> fail
@@ -250,9 +286,7 @@ class TestLiveThresholdFlip(_ScoringBase):
         self.assertEqual(resp.llm_score, 0)
 
         # Lower it to 70 again; the same stored raw now passes again.
-        settings2 = self.env["res.config.settings"].create({
-            "etp_assessment_pro_subjective_pass_threshold": 70.0})
-        settings2.set_values()
+        ass.subjective_threshold = 70.0
         resp.invalidate_recordset()
         self.assertTrue(resp.llm_passed)
         self.assertEqual(resp.subjective_result, "pass")
@@ -262,7 +296,7 @@ class TestErrorSurfacingAndMaxStability(_ScoringBase):
     def test_call_failure_surfaces_error_not_silent_zero(self):
         q = self.Question.create({
             "name": "Justify", "prompt": "Justify.",
-            "question_type": "subjective_justification"})
+            "question_type": "subjective_rubric"})
         ev, app, ass = self._evaluator()
         resp = self._resp(ev, app, ass, q, justification="some answer")
         self.ICP.set_param("etp_assessment_pro.llm_max_attempts", "1")
@@ -284,12 +318,14 @@ class TestErrorSurfacingAndMaxStability(_ScoringBase):
     def test_missing_id_in_response_surfaces_error(self):
         q = self.Question.create({
             "name": "Justify", "prompt": "Justify.",
-            "question_type": "subjective_justification"})
+            "question_type": "subjective_rubric"})
         ev, app, ass = self._evaluator()
         resp = self._resp(ev, app, ass, q, justification="some answer")
         self.ICP.set_param("etp_assessment_pro.llm_max_attempts", "1")
         # Grader returns a different id -> miss -> error (after 1 attempt).
-        self._mock_score(resp, [{"id": resp.id + 9999, "score": 90}])
+        self._mock_score(resp, [{
+            "item_id": str(resp.id + 9999), "id": resp.id + 9999,
+            "score": 0.90, "passed": True}])
         resp.invalidate_recordset()
         self.assertEqual(resp.llm_state, "error")
         self.assertEqual(resp.llm_max_score, 1)
@@ -297,16 +333,19 @@ class TestErrorSurfacingAndMaxStability(_ScoringBase):
     def test_max_score_stable_at_one_through_lifecycle(self):
         q = self.Question.create({
             "name": "Justify", "prompt": "Justify.",
-            "question_type": "subjective_justification"})
+            "question_type": "subjective_rubric"})
         ev, app, ass = self._evaluator()
         resp = self._resp(ev, app, ass, q, justification="answer")
         # Before scoring: needs_llm, max already 1 (computed), not 10.
         resp.invalidate_recordset()
         self.assertEqual(resp.llm_max_score, 1)
         self._mock_score(resp, [{
-            "id": resp.id, "score": 95, "gate": "none",
-            "rubric_source": "generated", "reference_answer": "x",
-            "reasoning": "x", "feedback": "x", "flags": []}])
+            "item_id": str(resp.id), "id": resp.id,
+            "field_key": "justification", "skills": [],
+            "score": 0.95, "passed": True, "gate": "none",
+            "rubric_source": "generated", "rubric": {}, "reference_answer": "x",
+            "reasoning": "x", "verdict_consistency": "match",
+            "feedback": "x", "flags": []}])
         resp.invalidate_recordset()
         # After scoring: still 1. No 10 -> 1 drift.
         self.assertEqual(resp.llm_max_score, 1)
@@ -316,13 +355,16 @@ class TestGatedAnswer(_ScoringBase):
     def test_gated_answer_scores_zero_and_fails(self):
         q = self.Question.create({
             "name": "Justify", "prompt": "Justify.",
-            "question_type": "subjective_justification"})
+            "question_type": "subjective_rubric"})
         ev, app, ass = self._evaluator()
         resp = self._resp(ev, app, ass, q, justification="na")
         self._mock_score(resp, [{
-            "id": resp.id, "score": 0, "gate": "placeholder_answer",
-            "rubric_source": "generated", "reference_answer": "",
+            "item_id": str(resp.id), "id": resp.id,
+            "field_key": "justification", "skills": [],
+            "score": 0.0, "passed": False, "gate": "placeholder_answer",
+            "rubric_source": "generated", "rubric": {}, "reference_answer": "",
             "reasoning": "Not evaluated: placeholder 'na'.",
+            "verdict_consistency": "not_applicable",
             "feedback": "Gated.", "flags": []}])
         resp.invalidate_recordset()
         self.assertEqual(resp.llm_state, "scored")

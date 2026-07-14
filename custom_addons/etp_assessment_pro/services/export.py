@@ -5,10 +5,9 @@ import csv
 import io
 
 
-# Column specs (single source of truth; mirrored by the sample generator).
 RESULTS_COLUMNS = [
     "rank", "candidate", "email", "assessment", "assessment_state",
-    "candidate_state", "days_done", "days_total", "day_progress",
+    "candidate_state",
     "objective_score", "objective_max",
     "subjective_marks", "subjective_max",
     "total_score", "total_max", "score_percent", "pass_threshold",
@@ -18,12 +17,16 @@ RESULTS_COLUMNS = [
 
 RESPONSES_COLUMNS = [
     "candidate", "email", "assessment", "day", "skill",
-    "question", "question_type", "category", "difficulty", "prompt",
+    "question", "question_type", "generator", "difficulty", "prompt",
     "candidate_answer", "correct_answer", "model_answer", "dimension_detail",
     "objective_score", "objective_max",
     "needs_subjective", "subjective_result", "subjective_score_0_100",
     "subjective_mark", "subjective_max", "subjective_raw_0_1", "subjective_state",
     "subjective_reasoning", "justification", "rubric",
+    "integrity_alert",
+    "ab_verdict_pct", "ab_justification_pct",
+    "label_coverage_pct", "label_correctness_pct",
+    "flaw_plan_json", "source_url", "dom_manifest_json", "behavioural_key_json",
     "total_score", "total_max", "response_state",
 ]
 
@@ -33,7 +36,7 @@ def _attachment_download(env, model, res_id, filename, content_bytes,
     att = env["ir.attachment"].create({
         "name": filename,
         "type": "binary",
-        "datas": base64.b64encode(content_bytes).decode(),
+        "raw": content_bytes,
         "mimetype": mimetype,
         "res_model": model,
         "res_id": res_id,
@@ -52,53 +55,66 @@ def _dimension_detail(resp):
     chosen_by_dim = {}
     for line in rec.line_ids:
         if line.selected_option_id:
-            chosen_by_dim.setdefault(line.dimension_id.id, []).append(
+            chosen_by_dim.setdefault(line.question_dimension_id.id, []).append(
                 line.selected_option_id.name)
 
     cand_parts, correct_parts, detail_parts = [], [], []
     for qd in q.question_dimension_ids:
-        dim = qd.dimension_id
-        chosen = chosen_by_dim.get(dim.id, [])
+        chosen = chosen_by_dim.get(qd.id, [])
         correct = [ol.name for ol in qd.option_line_ids.filtered("is_correct")
                    if ol.name]
         if chosen:
-            cand_parts.append(f"{dim.name}: {', '.join(chosen)}")
+            cand_parts.append(f"{qd.name}: {', '.join(chosen)}")
         if correct:
-            correct_parts.append(f"{dim.name}: {', '.join(correct)}")
+            correct_parts.append(f"{qd.name}: {', '.join(correct)}")
         if correct or chosen:
             ok = (set(s.strip().casefold() for s in chosen)
                   == set(s.strip().casefold() for s in correct))
             mark = "\u2713" if ok else "\u2717"
             detail_parts.append(
-                f"{dim.name} [chose: {', '.join(chosen) or '-'} | "
+                f"{qd.name} [chose: {', '.join(chosen) or '-'} | "
                 f"correct: {', '.join(correct) or '-'}] {mark}")
-    # subjective-only questions have no dimensions; surface the justification.
     cand = " | ".join(cand_parts)
     if not cand and (rec.justification or "").strip():
         cand = (rec.justification or "").strip()
     return cand, " | ".join(correct_parts), " || ".join(detail_parts)
 
 
+def _authoring_json(q):
+    """The Phase-3 flaw plan (on the question) and the Phase-4 DOM capture fields
+    (on the image_label source image), for the full/native export audit trail.
+    First image carrying each DOM field wins; empty strings when absent."""
+    dom_source = q.image_ids.filtered(lambda i: i.source_url)[:1]
+    dom_manifest = q.image_ids.filtered(lambda i: i.dom_manifest_json)[:1]
+    dom_key = q.image_ids.filtered(lambda i: i.behavioural_key_json)[:1]
+    return {
+        "flaw_plan_json": q.flaw_plan_json or "",
+        "source_url": dom_source.source_url or "" if dom_source else "",
+        "dom_manifest_json": (
+            dom_manifest.dom_manifest_json or "" if dom_manifest else ""),
+        "behavioural_key_json": (
+            dom_key.behavioural_key_json or "" if dom_key else ""),
+    }
+
+
 def _response_row(resp):
     rec = resp.sudo()
     q = rec.question_id
     emp = rec.evaluator_id
-    day = rec.day_session_id
     cand, correct, detail = _dimension_detail(rec)
     obj = rec.score or 0
     obj_max = rec.max_score or 0
     subj = rec.llm_score or 0
     subj_max = rec.llm_max_score or 0
-    return {
+    row = {
         "candidate": emp.partner_name or "",
         "email": emp.email_from or "",
         "assessment": rec.assessment_id.name or "",
-        "day": day.day_sequence if day else "",
-        "skill": (day.skill_id.name if day and day.skill_id else
-                  " | ".join(q.skill_ids.mapped("name"))),
+        "day": "",
+        "skill": q.generator_id.name or "",
         "question": q.name or "",
         "question_type": q.question_type or "",
-        "category": q.category_id.name or "",
+        "generator": q.generator_id.name or "",
         "difficulty": q.difficulty or "",
         "prompt": q.prompt or "",
         "candidate_answer": cand,
@@ -117,10 +133,20 @@ def _response_row(resp):
         "subjective_reasoning": rec.llm_feedback or "",
         "justification": rec.justification or "",
         "rubric": q.subjective_rubric_json or "",
+        "integrity_alert": "yes" if rec.integrity_alert else "no",
+        "ab_verdict_pct": round(rec.ab_verdict_pct, 2) if rec.needs_llm else "",
+        "ab_justification_pct": (
+            round(rec.ab_justification_pct, 2) if rec.needs_llm else ""),
+        "label_coverage_pct": (
+            round(rec.label_coverage_pct, 2) if rec.needs_llm else ""),
+        "label_correctness_pct": (
+            round(rec.label_correctness_pct, 2) if rec.needs_llm else ""),
         "total_score": obj + subj,
         "total_max": obj_max + subj_max,
         "response_state": rec.state or "",
     }
+    row.update(_authoring_json(q))
+    return row
 
 
 def _write_csv(columns, rows):
@@ -150,9 +176,6 @@ def results_rows(assessment):
             "assessment": assessment.name or "",
             "assessment_state": assessment.state or "",
             "candidate_state": ev.state or "",
-            "days_done": ev.days_done or 0,
-            "days_total": ev.days_total or 0,
-            "day_progress": ev.day_progress_label or "",
             "objective_score": obj,
             "objective_max": obj_max,
             "subjective_marks": subj,
@@ -215,7 +238,7 @@ def _summary_row(ev):
         "skill": "",
         "question": "=== RESULT SUMMARY ===",
         "question_type": "summary",
-        "category": "",
+        "generator": "",
         "difficulty": "",
         "prompt": "",
         "candidate_answer": detail,
@@ -258,17 +281,14 @@ def export_responses(assessment, evaluator=None):
     ordered = responses.sorted(
         key=lambda r: (
             r.evaluator_id.partner_name or "",
-            r.day_session_id.day_sequence if r.day_session_id else 0,
             r.question_id.sequence or 0,
             r.id))
-    # Prefix each candidate's block with a summary row, in detail-row order.
     rows = []
     if evaluator is not None:
         rows.append(_summary_row(evaluator))
         rows.extend(_response_row(r) for r in ordered)
     else:
         seen = set()
-        # Map applicant -> its evaluator on this assessment for the summary.
         ev_by_applicant = {
             ev.applicant_id.id: ev
             for ev in assessment.assessment_evaluator_ids}

@@ -1,25 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- =====================================================================
-         Import Question Bank wizard. Opens from a button on the Question Bank
-         Generators form header. Parses a CSV (Download Template) and publishes
-         each row straight into the bank. Multi-dimension questions (image_ab,
-         dense-bbox) are authored with indexed dimN_* columns so no manual
-         dimension entry is needed.
-         ===================================================================== -->
     <record id="etp_assessment_pro_bank_import_wizard_form" model="ir.ui.view">
         <field name="name">etp.assessment.pro.bank.import.wizard.form</field>
         <field name="model">etp.assessment.pro.bank.import.wizard</field>
         <field name="arch" type="xml">
-            <form string="Import Question Bank">
+            <form string="Import Question Bank" class="o_etp_backend">
                 <sheet>
                     <div class="oe_title">
                         <h2>Import Question Bank</h2>
                     </div>
                     <group>
                         <group>
-                            <field name="target_category_id"
-                                   options="{'no_create_edit': False}"/>
                             <field name="data_file" filename="data_filename"
                                    widget="binary"/>
                             <field name="data_filename" invisible="1"/>

@@ -1,8 +1,7 @@
-from . import skill
-from . import category
-from . import dimension
+from . import tag
 from . import question
 from . import question_image
+from . import question_video
 from . import question_dimension
 from . import prompt
 from . import prompt_question_dimension
@@ -12,4 +11,5 @@ from . import res_config_settings
 from . import llm_usage
 from . import hr_applicant
 from . import assessment
-from . import assessment_day
+from . import dashboard
+from . import llm_dashboard

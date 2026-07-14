@@ -12,22 +12,22 @@
             <field name="active" eval="True"/>
         </record>
 
-        <record id="ir_cron_open_scheduled_days" model="ir.cron">
-            <field name="name">ETP Assessment: Open scheduled day sessions</field>
-            <field name="model_id" ref="model_etp_assessment_pro_day_session"/>
+        <record id="ir_cron_recompute_subjective_results" model="ir.cron">
+            <field name="name">ETP Assessment: Recompute pass/fail after threshold change</field>
+            <field name="model_id" ref="model_etp_assessment_pro"/>
             <field name="state">code</field>
-            <field name="code">model._cron_open_scheduled_days()</field>
-            <field name="interval_number">5</field>
+            <field name="code">model._cron_recompute_subjective_results()</field>
+            <field name="interval_number">1</field>
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
 
-        <record id="ir_cron_mark_missed_days" model="ir.cron">
-            <field name="name">ETP Assessment: Mark missed day sessions</field>
-            <field name="model_id" ref="model_etp_assessment_pro_day_session"/>
+        <record id="ir_cron_send_pending_invitations" model="ir.cron">
+            <field name="name">ETP Assessment: Send queued candidate invitations</field>
+            <field name="model_id" ref="model_etp_assessment_pro_evaluator"/>
             <field name="state">code</field>
-            <field name="code">model._cron_mark_missed()</field>
-            <field name="interval_number">5</field>
+            <field name="code">model._cron_send_pending_invitations()</field>
+            <field name="interval_number">1</field>
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
@@ -42,21 +42,41 @@
             <field name="active" eval="True"/>
         </record>
 
-        <record id="ir_cron_extract_pending_skills" model="ir.cron">
-            <field name="name">ETP Assessment: Drain queued skill extraction</field>
-            <field name="model_id" ref="model_etp_assessment_pro_prompt"/>
+        <record id="ir_cron_detect_image_labels" model="ir.cron">
+            <field name="name">ETP Assessment: Detect &amp; annotate image_label images</field>
+            <field name="model_id" ref="model_etp_assessment_pro_question_image"/>
             <field name="state">code</field>
-            <field name="code">model._cron_extract_pending_skills()</field>
+            <field name="code">model._cron_detect_image_labels()</field>
             <field name="interval_number">1</field>
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
 
-        <record id="ir_cron_generate_pending_questions" model="ir.cron">
-            <field name="name">ETP Assessment: Drain queued question generation</field>
+        <record id="ir_cron_poll_video_ops" model="ir.cron">
+            <field name="name">ETP Assessment: Submit &amp; poll async Veo video generation</field>
+            <field name="model_id" ref="model_etp_assessment_pro_prompt_question"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_poll_video_ops()</field>
+            <field name="interval_number">2</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_generate_from_sop" model="ir.cron">
+            <field name="name">ETP Assessment: Generate questions from SOP</field>
             <field name="model_id" ref="model_etp_assessment_pro_prompt"/>
             <field name="state">code</field>
-            <field name="code">model._cron_generate_pending_questions()</field>
+            <field name="code">model._cron_generate_from_sop()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_extract_tags" model="ir.cron">
+            <field name="name">ETP Assessment: Extract semantic tags from SOP</field>
+            <field name="model_id" ref="model_etp_assessment_pro_prompt"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_extract_tags()</field>
             <field name="interval_number">1</field>
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>

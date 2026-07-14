@@ -1,15 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- ===================================================================
-         LAYOUTS
-         portal_exam_layout  : chrome-free, full-screen runner (no website
-                               header/footer/nav). Used for instructions,
-                               questions, review, and result pages so a
-                               candidate cannot wander off mid-exam.
-         portal_my_layout    : the authenticated candidate home keeps a light
-                               branded header but drops the marketing footer.
-         =================================================================== -->
     <template id="portal_exam_layout" name="ETP Exam Layout">
         <t t-call="web.frontend_layout">
             <t t-set="no_header" t-value="True"/>
@@ -27,24 +18,6 @@
         </t>
     </template>
 
-    <!-- ===================================================================
-         IMAGE ZOOM LIGHTBOX (candidate-facing)
-         A single reusable overlay + self-contained vanilla-JS zoom/pan
-         controller. t-call'd into any page that renders evaluation images
-         (question runner + day result). Deliberately built as a CSS overlay
-         (NOT the Fullscreen API) so it never collides with the rule_fullscreen
-         proctoring requirement. The controller:
-           - binds to every .etp-image-zoomable thumbnail on the page,
-           - opens a fixed overlay above the exam UI (z-index) showing the
-             SAME authenticated /pro_assessment/qimage src (no new tab, no
-             external link, no raw-image escape hatch),
-           - zooms via wheel + visible +/-/reset buttons, pans by drag,
-           - closes via x button, backdrop click, or Esc; resets on close.
-         It is namespaced (etp-zoom-*) and guards against double-init so it
-         coexists with the inline proctoring script (right-click / clipboard /
-         tab-switch / devtools / countdown / MSQ serialization) without
-         touching any of those handlers.
-         =================================================================== -->
     <template id="portal_image_zoom" name="ETP — Image Zoom Lightbox">
         <div id="etp-zoom-overlay" class="etp-zoom-overlay" aria-hidden="true"
              role="dialog" aria-modal="true" aria-label="Image viewer">
@@ -253,9 +226,6 @@
         </script>
     </template>
 
-    <!-- ===================================================================
-         RUNNER PAGES (chrome-free)
-         =================================================================== -->
     <template id="portal_invalid_token" name="ETP Assessment — Invalid Token">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
@@ -295,67 +265,59 @@
     <template id="portal_assessment_complete" name="ETP Assessment — Complete">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="etp-exam-card etp-result-hero">
-                    <div class="etp-result-icon is-success">
+                <div class="etp-exam-card etp-result-hero etp-result-status">
+                    <span class="etp-result-eyebrow">Assessment complete</span>
+                    <div class="etp-result-icon is-info">
                         <i class="fa fa-check"/>
                     </div>
-                    <h3>Submitted</h3>
-                    <p t-if="day_session">
-                        Day <span t-out="day_session.day_id.sequence"/> of
-                        <strong t-out="assessment.name"/> is complete.
-                    </p>
-                    <p t-else="">
+                    <span class="etp-status-pill is-pending">
+                        <i class="fa fa-paper-plane"/> Submitted
+                    </span>
+                    <h3>Submission received</h3>
+                    <p>
                         Your assessment <strong t-out="assessment.name"/> has
                         been submitted. Thank you.
                     </p>
-                    <a href="/my/pro_assessments" class="btn btn-primary mt-3">
-                        Back to My Assessments
+                    <p class="etp-result-note">
+                        <i class="fa fa-clock-o"/> Your responses are locked and
+                        awaiting evaluation — you'll be notified once results are
+                        released.
+                    </p>
+                    <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
+                        <i class="fa fa-arrow-left"/> Back to My Assessments
                     </a>
                 </div>
             </t>
         </t>
     </template>
 
-    <template id="portal_day_locked" name="ETP Assessment — Day Locked">
-        <t t-call="etp_assessment_pro.portal_exam_layout">
-            <t t-set="exam_body">
-                <div class="etp-exam-card etp-state is-info">
-                    <div class="etp-state-icon"><i class="fa fa-hourglass-half"/></div>
-                    <h3>This day is not yet available</h3>
-                    <p>
-                        Day <span t-out="day_session.day_id.sequence"/> of
-                        <strong t-out="assessment.name"/> is currently locked.
-                    </p>
-                    <p t-if="day_session.day_id.scheduled_start">
-                        Scheduled to open at:
-                        <strong t-field="day_session.day_id.scheduled_start"/>
-                    </p>
-                    <p t-else="">
-                        Complete the previous day to unlock this one.
-                    </p>
-                    <div class="etp-state-actions">
-                        <a href="/my/pro_assessments" class="btn btn-primary">
-                            Back to My Assessments
-                        </a>
-                    </div>
-                </div>
-            </t>
-        </t>
-    </template>
-
-    <!-- INSTRUCTIONS -->
     <template id="portal_instructions" name="ETP Assessment — Instructions">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="o_etp_card_narrow etp-instructions">
                     <div class="etp-exam-card">
-                        <div class="etp-card-head">
-                            <span class="etp-eyebrow">Assessment</span>
-                            <h2 class="etp-title" t-out="assessment.name"/>
-                            <p t-if="day_session" class="etp-subtitle">
-                                Day <span t-out="day_session.day_id.sequence"/>:
-                                <span t-out="day_session.skill_id.name"/>
-                            </p>
+                        <div class="etp-hero">
+                            <div class="etp-hero-inner">
+                                <span class="etp-eyebrow">Assessment</span>
+                                <h1 class="etp-hero-title" t-out="assessment.name"/>
+                                <p class="etp-hero-sub">Review the guidelines below, then begin
+                                    when you're ready. Your answers are saved automatically as
+                                    you move between questions.</p>
+                                <form t-if="not preview" method="post" class="etp-hero-cta"
+                                      onsubmit="return confirm(this.dataset.warn)"
+                                      t-att-data-warn="('This starts your %s-minute timer and cannot be paused once begun. Begin now?' % duration_minutes) if duration_minutes else 'This starts your assessment and cannot be paused once begun. Begin now?'"
+                                      t-att-action="submit_url if submit_url else '/pro_assessment/%s/begin' % token">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <button type="submit" class="btn btn-primary btn-lg">
+                                        <i class="fa fa-play me-2"/>Start
+                                    </button>
+                                    <a href="/my/pro_assessments" class="btn btn-link">Cancel</a>
+                                </form>
+                                <span t-if="preview" class="etp-hero-badge">
+                                    <i class="fa fa-eye me-2"/>Preview mode
+                                </span>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="etp-meta-grid">
@@ -374,51 +336,41 @@
                                     <span>
                                         <span class="etp-meta-label d-block">Questions</span>
                                         <span class="etp-meta-value">
-                                            <t t-if="day_session"><span t-out="day_session.total_questions"/></t>
-                                            <t t-else=""><span t-out="evaluator.total_questions"/></t>
+                                            <span t-out="evaluator.total_questions"/>
                                         </span>
                                     </span>
                                 </div>
                             </div>
 
-                            <h4 class="etp-section-title">Before you begin</h4>
-                            <ul class="etp-rules o_etp_rules">
-                                <li t-if="assessment.rule_block_tab_switch">Do not switch tabs or windows.</li>
-                                <li t-if="assessment.rule_block_copy_paste">Copy and paste is disabled.</li>
-                                <li t-if="assessment.rule_block_screenshot">Screenshots are not allowed.</li>
-                                <li t-if="assessment.rule_block_right_click">Right-click is disabled.</li>
-                                <li t-if="assessment.rule_block_devtools">Developer tools are detected.</li>
-                                <li t-if="assessment.rule_fullscreen">Fullscreen is required.</li>
-                                <li t-if="assessment.rule_webcam">Webcam access may be required.</li>
-                                <li>Answers are saved as you move between questions.</li>
-                            </ul>
-                            <p t-if="assessment.max_violations" class="etp-warn">
-                                <i class="fa fa-exclamation-triangle mt-1"/>
-                                <span>
-                                    Maximum violations allowed:
-                                    <strong t-out="assessment.max_violations"/>.
-                                    Exceeding this auto-submits your assessment.
-                                </span>
-                            </p>
-                            <p t-if="preview" class="etp-warn">
-                                <i class="fa fa-eye mt-1"/>
-                                <span>
-                                    Preview mode — you are not the assigned
-                                    candidate. The timer will not start and no
-                                    answers are saved.
-                                </span>
-                            </p>
-                            <form t-if="not preview" method="post" class="etp-actions"
-                                  onsubmit="return confirm(this.dataset.warn)"
-                                  t-att-data-warn="('This starts your %s-minute timer and cannot be paused once begun. Begin now?' % duration_minutes) if duration_minutes else 'This starts your assessment and cannot be paused once begun. Begin now?'"
-                                  t-att-action="submit_url if submit_url else '/pro_assessment/%s/begin' % token">
-                                <input type="hidden" name="csrf_token"
-                                       t-att-value="request.csrf_token()"/>
-                                <button type="submit" class="btn btn-primary btn-lg">
-                                    <i class="fa fa-play me-2"/>Start
-                                </button>
-                                <a href="/my/pro_assessments" class="btn btn-link">Cancel</a>
-                            </form>
+                            <div class="etp-instructions-block">
+                                <h4 class="etp-section-title">Before you begin</h4>
+                                <ul class="etp-rules o_etp_rules">
+                                    <li t-if="assessment.rule_block_tab_switch">Do not switch tabs or windows.</li>
+                                    <li t-if="assessment.rule_block_copy_paste">Copy and paste is disabled.</li>
+                                    <li t-if="assessment.rule_block_screenshot">Screenshots are not allowed.</li>
+                                    <li t-if="assessment.rule_block_right_click">Right-click is disabled.</li>
+                                    <li t-if="assessment.rule_block_devtools">Developer tools are detected.</li>
+                                    <li t-if="assessment.rule_fullscreen">Fullscreen is required.</li>
+                                    <li t-if="assessment.rule_webcam">Webcam access may be required.</li>
+                                    <li>Answers are saved as you move between questions.</li>
+                                </ul>
+                                <p t-if="assessment.max_violations" class="etp-warn">
+                                    <i class="fa fa-exclamation-triangle mt-1"/>
+                                    <span>
+                                        Maximum violations allowed:
+                                        <strong t-out="assessment.max_violations"/>.
+                                        Exceeding this auto-submits your assessment.
+                                    </span>
+                                </p>
+                                <p t-if="preview" class="etp-warn">
+                                    <i class="fa fa-eye mt-1"/>
+                                    <span>
+                                        Preview mode — you are not the assigned
+                                        candidate. The timer will not start and no
+                                        answers are saved.
+                                    </span>
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -426,35 +378,43 @@
         </t>
     </template>
 
-    <!-- QUESTION PAGE -->
     <template id="portal_question_page" name="ETP Assessment — Question Page">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="etp-exam-header">
-                    <div>
-                        <h4 class="etp-exam-name" t-out="assessment.name"/>
-                        <small t-if="day_session" class="etp-exam-sub">
-                            Day <span t-out="day_session.day_id.sequence"/>:
-                            <span t-out="day_session.skill_id.name"/>
-                        </small>
+                <div class="etp-exam-sticky">
+                    <div class="etp-exam-header">
+                        <div>
+                            <h4 class="etp-exam-name" t-out="assessment.name"/>
+                        </div>
+                        <div class="etp-header-aside">
+                            <span class="etp-qcount">
+                                <b t-out="current_index"/> / <span t-out="total_questions"/>
+                            </span>
+                            <span t-if="deadline_iso" class="badge bg-warning text-dark etp-timer"
+                                  id="etp-timer" t-att-data-deadline="deadline_iso">
+                                --:--
+                            </span>
+                        </div>
                     </div>
-                    <div class="etp-header-aside">
-                        <span class="etp-qcount">
-                            <b t-out="current_index"/> / <span t-out="total_questions"/>
-                        </span>
-                        <span t-if="deadline_iso" class="badge bg-warning text-dark etp-timer"
-                              id="etp-timer" t-att-data-deadline="deadline_iso">
-                            --:--
+                    <div class="progress etp-progress etp-progress--live"
+                         t-att-data-total="total_questions"
+                         t-att-data-current-index="current_index"
+                         t-att-data-base-percent="progress_percent">
+                        <div class="progress-bar" role="progressbar"
+                             t-attf-style="width: #{progress_percent}%"/>
+                    </div>
+                    <div class="etp-progress-meta">
+                        <span class="etp-progress-pct" id="etp-progress-pct"><t t-out="progress_percent"/>% complete</span>
+                        <span class="etp-page-answered" id="etp-page-answered">
+                            <i class="fa fa-circle-o" aria-hidden="true"/>
+                            <span class="etp-page-answered-text">0 / 0 answered on this page</span>
                         </span>
                     </div>
-                </div>
-                <div class="progress etp-progress">
-                    <div class="progress-bar" role="progressbar"
-                         t-attf-style="width: #{progress_percent}%"/>
                 </div>
 
                 <div class="etp-exam-card">
                     <div class="card-body">
+                        <span class="etp-qeyebrow">Question <t t-out="current_index"/></span>
                         <h5 class="etp-question-title" t-out="question.name"/>
                         <p t-if="question.prompt and question.prompt != question.name"
                            class="etp-question-prompt" t-out="question.prompt"/>
@@ -467,9 +427,6 @@
                                    t-att-value="request.csrf_token()"/>
                             <input type="hidden" name="question_id"
                                    t-att-value="question.id"/>
-                            <!-- nav intent: 'next' (default) or 'prev'.
-                                 The runner uses it to decide which question to
-                                 serve after saving this one. -->
                             <input type="hidden" name="nav" id="etp-nav" value="next"/>
 
                             <t t-if="question.question_type == 'mcq'">
@@ -479,12 +436,12 @@
                                             <div class="form-check etp-option">
                                                 <input class="form-check-input"
                                                        type="radio"
-                                                       t-att-name="'dimension_%d' % qd.dimension_id.id"
-                                                       t-att-value="opt.master_option_id.id"
-                                                       t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
-                                                       t-att-checked="'checked' if opt.master_option_id.id in (selected_option_ids or []) else None"/>
+                                                       t-att-name="'dimension_%d' % qd.id"
+                                                       t-att-value="opt.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.id in (selected_option_ids or []) else None"/>
                                                 <label class="form-check-label"
-                                                       t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-att-for="'opt_%d_%d' % (qd.id, opt.id)"
                                                        t-out="opt.name"/>
                                             </div>
                                         </t>
@@ -496,20 +453,17 @@
                                 <span class="etp-msq-hint">Select all that apply</span>
                                 <t t-foreach="dimensions" t-as="qd">
                                     <fieldset class="etp-options"
-                                              t-att-data-dim-id="qd.dimension_id.id">
-                                        <input type="hidden"
-                                               t-att-name="'dimension_%d' % qd.dimension_id.id"
-                                               value=""
-                                               class="etp-msq-csv"/>
+                                              t-att-data-dim-id="qd.id">
                                         <t t-foreach="qd.option_line_ids" t-as="opt">
                                             <div class="form-check etp-option">
                                                 <input class="form-check-input etp-msq-cb"
                                                        type="checkbox"
-                                                       t-att-value="opt.master_option_id.id"
-                                                       t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
-                                                       t-att-checked="'checked' if opt.master_option_id.id in (selected_option_ids or []) else None"/>
+                                                       t-att-name="'dimension_%d' % qd.id"
+                                                       t-att-value="opt.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.id in (selected_option_ids or []) else None"/>
                                                 <label class="form-check-label"
-                                                       t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-att-for="'opt_%d_%d' % (qd.id, opt.id)"
                                                        t-out="opt.name"/>
                                             </div>
                                         </t>
@@ -517,7 +471,7 @@
                                 </t>
                             </t>
 
-                            <t t-if="question.question_type in ('subjective_justification', 'subjective_rubric')">
+                            <t t-if="question.question_type == 'subjective_rubric'">
                                 <div class="etp-field">
                                     <label class="form-label">Your Answer</label>
                                     <textarea name="justification" rows="6"
@@ -527,6 +481,8 @@
                             </t>
 
                             <t t-if="question.question_type == 'image_ab'">
+                                <div class="etp-image-layout">
+                                <div class="etp-image-col">
                                 <div class="etp-image-panel row g-3 mb-3">
                                     <t t-foreach="images" t-as="img">
                                         <div class="col-md-6 etp-image-slot">
@@ -547,20 +503,22 @@
                                         </div>
                                     </t>
                                 </div>
+                                </div>
+                                <div class="etp-answer-col">
                                 <t t-foreach="dimensions" t-as="qd">
                                     <fieldset class="etp-options">
                                         <legend class="etp-dim-legend"
-                                                t-out="qd.dimension_id.name"/>
+                                                t-out="qd.name"/>
                                         <t t-foreach="qd.option_line_ids" t-as="opt">
                                             <div class="form-check etp-option">
                                                 <input class="form-check-input"
                                                        type="radio"
-                                                       t-att-name="'dimension_%d' % qd.dimension_id.id"
-                                                       t-att-value="opt.master_option_id.id"
-                                                       t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
-                                                       t-att-checked="'checked' if opt.master_option_id.id in (selected_option_ids or []) else None"/>
+                                                       t-att-name="'dimension_%d' % qd.id"
+                                                       t-att-value="opt.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.id in (selected_option_ids or []) else None"/>
                                                 <label class="form-check-label"
-                                                       t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-att-for="'opt_%d_%d' % (qd.id, opt.id)"
                                                        t-out="opt.name"/>
                                             </div>
                                         </t>
@@ -573,9 +531,13 @@
                                               class="form-control etp-textarea"
                                               t-out="existing_justification or ''"/>
                                 </div>
+                                </div>
+                                </div>
                             </t>
 
-                            <t t-if="question.question_type == 'image_text'">
+                            <t t-if="question.question_type == 'image_prompt'">
+                                <div class="etp-image-layout">
+                                <div class="etp-image-col">
                                 <div class="etp-image-panel row g-3 mb-3">
                                     <t t-foreach="images" t-as="img">
                                         <div class="col-md-6 etp-image-slot">
@@ -596,38 +558,161 @@
                                         </div>
                                     </t>
                                 </div>
-                                <!-- Optional objective "gate" checks: rendered
-                                     only when the question carries dimensions. -->
+                                </div>
+                                <div class="etp-answer-col">
                                 <t t-foreach="dimensions" t-as="qd">
                                     <fieldset class="etp-options">
                                         <legend class="etp-dim-legend"
-                                                t-out="qd.dimension_id.name"/>
+                                                t-out="qd.name"/>
                                         <t t-foreach="qd.option_line_ids" t-as="opt">
                                             <div class="form-check etp-option">
                                                 <input class="form-check-input"
                                                        type="radio"
-                                                       t-att-name="'dimension_%d' % qd.dimension_id.id"
-                                                       t-att-value="opt.master_option_id.id"
-                                                       t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
-                                                       t-att-checked="'checked' if opt.master_option_id.id in (selected_option_ids or []) else None"/>
+                                                       t-att-name="'dimension_%d' % qd.id"
+                                                       t-att-value="opt.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.id in (selected_option_ids or []) else None"/>
                                                 <label class="form-check-label"
-                                                       t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-att-for="'opt_%d_%d' % (qd.id, opt.id)"
                                                        t-out="opt.name"/>
                                             </div>
                                         </t>
                                     </fieldset>
                                 </t>
                                 <div class="etp-field">
-                                    <label class="form-label">Your Response</label>
+                                    <label class="form-label">Your Prompt</label>
                                     <textarea name="justification" rows="6"
                                               class="form-control etp-textarea"
                                               t-out="existing_justification or ''"/>
                                 </div>
+                                </div>
+                                </div>
                             </t>
 
-                            <!-- Justification box on objective questions ONLY when the
-                                 admin explicitly requires it. No more confusing
-                                 'optional' box on every MCQ. -->
+                            <t t-if="question.question_type == 'video_prompt'">
+                                <div class="etp-image-layout">
+                                <div class="etp-image-col">
+                                <div class="etp-image-panel row g-3 mb-3">
+                                    <t t-foreach="videos" t-as="vid">
+                                        <div class="col-md-6 etp-image-slot">
+                                            <div class="etp-image-label"
+                                                 t-out="vid.label"/>
+                                            <video class="etp-eval-video"
+                                                   controls="controls"
+                                                   preload="metadata"
+                                                   playsinline="playsinline"
+                                                   controlsList="nodownload"
+                                                   oncontextmenu="return false;"
+                                                   t-att-poster="vid.poster_url or None">
+                                                <source
+                                                    t-att-src="'/pro_assessment/qvideo/%s/%d' % (token, vid.id)"/>
+                                            </video>
+                                        </div>
+                                    </t>
+                                </div>
+                                </div>
+                                <div class="etp-answer-col">
+                                <t t-foreach="dimensions" t-as="qd">
+                                    <fieldset class="etp-options">
+                                        <legend class="etp-dim-legend"
+                                                t-out="qd.name"/>
+                                        <t t-foreach="qd.option_line_ids" t-as="opt">
+                                            <div class="form-check etp-option">
+                                                <input class="form-check-input"
+                                                       type="radio"
+                                                       t-att-name="'dimension_%d' % qd.id"
+                                                       t-att-value="opt.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.id in (selected_option_ids or []) else None"/>
+                                                <label class="form-check-label"
+                                                       t-att-for="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-out="opt.name"/>
+                                            </div>
+                                        </t>
+                                    </fieldset>
+                                </t>
+                                <div class="etp-field">
+                                    <label class="form-label">Your Prompt</label>
+                                    <textarea name="justification" rows="6"
+                                              class="form-control etp-textarea"
+                                              t-out="existing_justification or ''"/>
+                                </div>
+                                </div>
+                                </div>
+                            </t>
+
+                            <t t-if="question.question_type == 'image_label'">
+                                <div class="etp-image-layout">
+                                <div class="etp-image-col">
+                                <div class="etp-image-panel row g-3 mb-3"
+                                     t-if="label_image">
+                                    <div class="col-md-8 etp-image-slot">
+                                        <div class="etp-image-label"
+                                             t-out="label_image.label"/>
+                                        <div class="etp-image-zoomable"
+                                             tabindex="0" role="button"
+                                             aria-label="Open image — click to zoom and inspect">
+                                            <img class="etp-eval-image img-fluid"
+                                                 draggable="false"
+                                                 oncontextmenu="return false;"
+                                                 t-att-src="(label_image.annotated_image_url or ('/pro_assessment/qimage/%s/%d?annotated=1' % (token, label_image.id))) if (label_boxes and label_image.detections_json) else ('/pro_assessment/qimage/%s/%d' % (token, label_image.id))"
+                                                 t-att-alt="label_image.label"/>
+                                            <span class="etp-zoom-hint" aria-hidden="true">
+                                                <i class="fa fa-search-plus"/>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                </div>
+                                <div class="etp-answer-col">
+                                <t t-foreach="dimensions" t-as="qd">
+                                    <fieldset class="etp-options">
+                                        <legend class="etp-dim-legend"
+                                                t-out="qd.name"/>
+                                        <t t-foreach="qd.option_line_ids" t-as="opt">
+                                            <div class="form-check etp-option">
+                                                <input class="form-check-input"
+                                                       type="radio"
+                                                       t-att-name="'dimension_%d' % qd.id"
+                                                       t-att-value="opt.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.id in (selected_option_ids or []) else None"/>
+                                                <label class="form-check-label"
+                                                       t-att-for="'opt_%d_%d' % (qd.id, opt.id)"
+                                                       t-out="opt.name"/>
+                                            </div>
+                                        </t>
+                                    </fieldset>
+                                </t>
+                                <t t-if="label_boxes">
+                                    <div class="etp-field">
+                                        <label class="form-label">Label each numbered box</label>
+                                        <t t-foreach="label_boxes" t-as="box_num">
+                                            <div class="etp-label-row mb-2">
+                                                <label class="form-label"
+                                                       t-att-for="'label_%d' % box_num"
+                                                       t-out="'Label for box %d' % box_num"/>
+                                                <input type="text"
+                                                       class="form-control etp-input"
+                                                       t-att-name="'label_%d' % box_num"
+                                                       t-att-id="'label_%d' % box_num"
+                                                       t-att-value="label_answers.get(str(box_num)) or ''"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </t>
+                                <t t-else="">
+                                    <div class="etp-field">
+                                        <label class="form-label">Your Labels</label>
+                                        <textarea name="justification" rows="6"
+                                                  class="form-control etp-textarea"
+                                                  t-out="existing_justification or ''"/>
+                                    </div>
+                                </t>
+                                </div>
+                                </div>
+                            </t>
+
                             <t t-if="question.question_type in ('mcq', 'msq') and assessment.require_objective_justification">
                                 <div class="etp-field">
                                     <label class="form-label">Justification</label>
@@ -666,10 +751,6 @@
                            id="etp-violation-reason" value=""/>
                 </form>
 
-                <!-- Config carrier: data-* attributes are read by the runner
-                     JS via JSON.parse. Passing JSON through a data attribute
-                     (not interpolated into the script body) avoids QWeb HTML-
-                     escaping turning quotes into &#34; and breaking the JS. -->
                 <span id="etp-exam-config" class="d-none"
                       t-att-data-rules="rules_json"/>
 
@@ -739,7 +820,6 @@
                                     t.classList.add('bg-danger', 'text-white');
                                     if (!fired) {
                                         fired = true;
-                                        try { etpSerializeMsq(); } catch (e) {}
                                         document.getElementById('etp-response-form').submit();
                                     }
                                     return;
@@ -759,62 +839,148 @@
                                 document.getElementById('etp-nav').value = 'prev';
                             });
                         }
-                        // MSQ: serialize checked boxes per dimension into the
-                        // hidden csv input the controller splits on ','. Shared
-                        // helper so EVERY submit path (button, timer auto-submit,
-                        // violation) serializes — a programmatic form.submit()
-                        // does NOT fire the 'submit' event, so the timer/
-                        // violation paths must call this explicitly or the
-                        // candidate's MSQ picks are silently lost.
-                        function etpSerializeMsq() {
+
+                        // ---- Real-time progress (client-side visual aid only) ----
+                        // Purely cosmetic: never mutates submitted data, never
+                        // gates required fields, never blocks navigation/submit.
+                        // One-question-per-page exam: the confirmed bar width is
+                        // server-driven (answered questions / total). Here we (a)
+                        // show a live "X / N answered on this page" readout by
+                        // grouping the page's answer controls by their existing
+                        // name attribute, and (b) advance the bar by exactly one
+                        // question's share the moment the page is fully answered —
+                        // but only if it wasn't already answered at load (already
+                        // counted server-side), so it never double-counts.
+                        (function () {
                             var form = document.getElementById('etp-response-form');
-                            if (!form) { return; }
-                            var sets = form.querySelectorAll('[data-dim-id]');
-                            sets.forEach(function (fs) {
-                                var picks = [];
-                                fs.querySelectorAll('.etp-msq-cb:checked').forEach(function (cb) {
-                                    picks.push(cb.value);
-                                });
-                                var csv = fs.querySelector('.etp-msq-csv');
-                                if (csv) { csv.value = picks.join(','); }
-                            });
-                        }
-                        document.addEventListener('submit', function (e) {
-                            if (e.target.id !== 'etp-response-form') { return; }
-                            etpSerializeMsq();
-                        });
-                        // Expose for the timer/violation auto-submit paths.
-                        window.etpSerializeMsq = etpSerializeMsq;
+                            var track = document.querySelector('.etp-progress--live');
+                            var bar = track ? track.querySelector('.progress-bar') : null;
+                            if (!form || !track || !bar) { return; }
+                            var pctEl = document.getElementById('etp-progress-pct');
+                            var pageEl = document.getElementById('etp-page-answered');
+                            var pageTxt = pageEl ? pageEl.querySelector('.etp-page-answered-text') : null;
+                            var pageIcon = pageEl ? pageEl.querySelector('i') : null;
+                            var total = parseInt(track.dataset.total, 10) || 0;
+                            var basePercent = parseInt(track.dataset.basePercent, 10) || 0;
+                            // Non-answer control names that must be ignored.
+                            var IGNORE = { csrf_token: 1, question_id: 1, nav: 1,
+                                           violation_reason: 1 };
+
+                            function answerGroups() {
+                                // Group visible named answer controls by name so a
+                                // multi-radio/checkbox set counts as ONE group.
+                                var map = {};
+                                var els = form.querySelectorAll(
+                                    'input[name], textarea[name], select[name]');
+                                for (var i = 0; i &lt; els.length; i++) {
+                                    var el = els[i];
+                                    var nm = el.name;
+                                    if (!nm || IGNORE[nm] || el.type === 'hidden') {
+                                        continue;
+                                    }
+                                    (map[nm] = map[nm] || []).push(el);
+                                }
+                                return map;
+                            }
+                            function groupFilled(list) {
+                                for (var i = 0; i &lt; list.length; i++) {
+                                    var el = list[i];
+                                    if (el.type === 'radio' || el.type === 'checkbox') {
+                                        if (el.checked) { return true; }
+                                    } else if ((el.value || '').trim() !== '') {
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }
+                            function tally() {
+                                var map = answerGroups();
+                                var names = Object.keys(map);
+                                var filled = 0;
+                                for (var i = 0; i &lt; names.length; i++) {
+                                    if (groupFilled(map[names[i]])) { filled++; }
+                                }
+                                return { total: names.length, filled: filled };
+                            }
+
+                            // Snapshot at load: if every group is already filled the
+                            // question is saved and already inside basePercent.
+                            var atLoad = tally();
+                            var answeredAtLoad = atLoad.total > 0 &amp;&amp;
+                                                 atLoad.filled === atLoad.total;
+
+                            function recompute() {
+                                var t = tally();
+                                var n = t.total;
+                                var filled = t.filled;
+                                var complete = n > 0 &amp;&amp; filled === n;
+                                if (pageTxt) {
+                                    pageTxt.textContent = filled + ' / ' + n +
+                                        ' answered on this page';
+                                }
+                                if (pageEl) {
+                                    pageEl.classList.toggle('is-complete', complete);
+                                    pageEl.classList.toggle('is-started',
+                                                            filled > 0 &amp;&amp; !complete);
+                                }
+                                if (pageIcon) {
+                                    pageIcon.className = complete
+                                        ? 'fa fa-check-circle'
+                                        : (filled > 0 ? 'fa fa-adjust'
+                                                      : 'fa fa-circle-o');
+                                }
+                                var pct = basePercent;
+                                if (complete &amp;&amp; !answeredAtLoad &amp;&amp; total > 0) {
+                                    pct = Math.min(100,
+                                        basePercent + Math.round(100 / total));
+                                }
+                                bar.style.width = pct + '%';
+                                track.classList.toggle('is-advancing',
+                                    complete &amp;&amp; !answeredAtLoad);
+                                if (pctEl) {
+                                    pctEl.textContent = pct + '% complete';
+                                }
+                            }
+
+                            // Event delegation: one listener survives every input
+                            // type (radio, checkbox, textarea, text label inputs).
+                            form.addEventListener('input', recompute);
+                            form.addEventListener('change', recompute);
+                            recompute();
+                        })();
                     })();
                 </script>
 
-                <!-- Image zoom/pan lightbox (vanilla JS, namespaced, lives
-                     outside #etp-response-form so it can't submit the exam). -->
                 <t t-call="etp_assessment_pro.portal_image_zoom"/>
             </t>
         </t>
     </template>
 
-    <!-- REVIEW & SUBMIT -->
     <template id="portal_review_page" name="ETP Assessment — Review">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
+                <span class="etp-eyebrow">Final step</span>
                 <h3 t-out="assessment.name"/>
-                <h6 t-if="day_session" class="text-muted">
-                    Day <span t-out="day_session.day_id.sequence"/>:
-                    <span t-out="day_session.skill_id.name"/>
-                </h6>
-                <div class="card my-3">
+                <div class="card my-3 etp-review">
                     <div class="card-body">
-                        <h4>Review your answers</h4>
-                        <p class="text-muted">
+                        <h4 class="etp-review-title">Review your answers</h4>
+                        <div t-if="submit_blocked and unanswered"
+                             class="alert alert-warning etp-review-warn"
+                             role="alert">
+                            <i class="fa fa-exclamation-triangle me-2"/>
+                            You can't submit yet —
+                            <strong><span t-out="len(unanswered)"/></strong>
+                            question(s) still need an answer. Please answer
+                            every question, then click Submit Assessment.
+                        </div>
+                        <p class="etp-review-sub text-muted">
                             <span t-out="answered_count"/> of
                             <span t-out="total_questions"/> answered.
                             <span t-if="unanswered" class="text-danger">
                                 <span t-out="len(unanswered)"/> still unanswered.
                             </span>
                         </p>
-                        <table class="table table-sm">
+                        <table class="table table-sm etp-review-table">
                             <tbody>
                                 <t t-foreach="review_rows" t-as="r">
                                     <tr>
@@ -845,9 +1011,7 @@
                                 <button type="submit"
                                         t-att-class="'btn btn-warning' if unanswered else 'btn btn-success'"
                                         t-att-onclick="'return confirm(\'You have unanswered questions. Submit anyway?\');' if unanswered else None">
-                                    Submit
-                                    <t t-if="day_session"> Day</t>
-                                    <t t-else=""> Assessment</t>
+                                    Submit Assessment
                                 </button>
                             </form>
                         </div>
@@ -857,31 +1021,6 @@
         </t>
     </template>
 
-    <template id="portal_day_finish_prompt" name="ETP Assessment — Day Finish">
-        <t t-call="etp_assessment_pro.portal_exam_layout">
-            <t t-set="exam_body">
-                <div class="etp-exam-card etp-state is-success">
-                    <div class="etp-state-icon"><i class="fa fa-check"/></div>
-                    <h3>All questions answered</h3>
-                    <p>
-                        You have answered every question for day
-                        <span t-out="day_session.day_id.sequence"/>.
-                        Submit the day to finalize your score.
-                    </p>
-                    <form t-att-action="finish_url" method="post" class="etp-state-actions">
-                        <input type="hidden" name="csrf_token"
-                               t-att-value="request.csrf_token()"/>
-                        <button type="submit" class="btn btn-success">Submit Day</button>
-                        <a t-att-href="back_url" class="btn btn-link">Review answers</a>
-                    </form>
-                </div>
-            </t>
-        </t>
-    </template>
-
-    <!-- ===================================================================
-         WRONG CANDIDATE (login-gate: link belongs to another account)
-         =================================================================== -->
     <template id="portal_wrong_candidate" name="ETP Assessment — Wrong Candidate">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
@@ -907,216 +1046,7 @@
         </t>
     </template>
 
-    <!-- ===================================================================
-         DAY RESULT (per-question breakdown, gated by results_release)
-         =================================================================== -->
-    <template id="portal_day_result" name="ETP Assessment — Day Result">
-        <t t-call="etp_assessment_pro.portal_exam_layout">
-            <t t-set="exam_body">
-                <div class="etp-result-header">
-                    <div>
-                        <h2 t-out="assessment.name"/>
-                        <div class="etp-result-sub" t-if="day_session">
-                            Day <span t-out="day_session.day_id.sequence"/>:
-                            <span t-out="day_session.skill_id.name"/>
-                        </div>
-                    </div>
-                    <div class="text-end" t-if="show_results">
-                        <div class="etp-score-pill">
-                            <span class="etp-score-label">Day Score</span>
-                            <span class="etp-score-value">
-                                <span t-out="day_session.score"/> /
-                                <span t-out="day_session.max_score"/>
-                            </span>
-                        </div>
-                        <div t-if="evaluator.result and evaluator.result != 'pending'">
-                            <span class="etp-verdict is-neutral">
-                                Overall <span t-out="evaluator.score_percent"/>%
-                            </span>
-                            <span t-attf-class="etp-verdict {{ 'is-pass' if evaluator.result == 'pass' else 'is-fail' }}"
-                                  t-out="evaluator.result.upper()"/>
-                        </div>
-                    </div>
-                </div>
 
-                <t t-if="not show_results">
-                    <div class="etp-exam-card etp-result-hero">
-                        <div class="etp-result-icon is-info"><i class="fa fa-paper-plane"/></div>
-                        <h3>Responses Submitted</h3>
-                        <p>
-                            Your responses for day
-                            <span t-out="day_session.day_id.sequence"/> have been
-                            submitted. Results will be released by the
-                            administrator.
-                        </p>
-                        <a href="/my/pro_assessments" class="btn btn-primary mt-3">
-                            Back to My Assessments
-                        </a>
-                    </div>
-                </t>
-
-                <t t-else="">
-                    <t t-if="not responses">
-                        <div class="etp-exam-card"><div class="card-body">
-                            <p class="text-muted mb-0">No submitted responses to display.</p>
-                        </div></div>
-                    </t>
-
-                    <t t-foreach="responses" t-as="response">
-                        <t t-set="question" t-value="response.question_id"/>
-                        <!-- A response shows as objective when it actually has
-                             a scored objective part (max_score &gt; 0). This
-                             covers mcq/msq, image_ab, and a gated image_text,
-                             while a labelling-only image_text (no gate dims)
-                             correctly falls through to the LLM verdict. -->
-                        <t t-set="is_objective"
-                           t-value="response.max_score &gt; 0"/>
-                        <t t-set="is_correct"
-                           t-value="is_objective and response.max_score &gt; 0 and response.score == response.max_score"/>
-                        <t t-set="qstatus"
-                           t-value="('correct' if is_correct else 'incorrect') if is_objective else (('correct' if response.llm_passed else 'incorrect') if response.llm_state == 'scored' else 'pending')"/>
-                        <div t-attf-class="card etp-qresult etp-qresult--#{qstatus}">
-                            <div class="card-header">
-                                <span>
-                                    <span class="etp-qnum">Q<span t-out="response_index + 1"/>.</span>
-                                    <span t-out="question.name"/>
-                                </span>
-                                <span class="d-inline-flex align-items-center gap-1">
-                                    <t t-if="is_objective">
-                                        <span t-if="is_correct" class="etp-tag is-correct">Correct</span>
-                                        <span t-else="" class="etp-tag is-wrong">Incorrect</span>
-                                        <span class="etp-tag is-score">
-                                            <span t-out="response.score"/> /
-                                            <span t-out="response.max_score"/>
-                                        </span>
-                                    </t>
-                                    <t t-else="">
-                                        <span t-if="response.llm_state == 'scored'">
-                                            <span t-attf-class="etp-tag {{ 'is-correct' if response.llm_passed else 'is-wrong' }}"
-                                                  t-out="'Pass' if response.llm_passed else 'Fail'"/>
-                                            <span class="etp-tag is-score">
-                                                <t t-out="int(response.ab_final_pct) if response.question_type == 'image_ab' else int(round(response.llm_raw_100))"/> / 100
-                                            </span>
-                                        </span>
-                                        <span t-elif="response.llm_state == 'error'" class="etp-tag is-wrong">
-                                            Not scored
-                                        </span>
-                                        <span t-elif="response.llm_state == 'not_needed'" class="etp-tag">
-                                            Not answered
-                                        </span>
-                                        <span t-else="" class="etp-tag is-pending">
-                                            Scoring in progress
-                                        </span>
-                                    </t>
-                                </span>
-                            </div>
-                            <div class="card-body">
-                                <p t-if="question.prompt and question.prompt != question.name"
-                                   class="etp-question-desc" t-out="question.prompt"/>
-
-                                <t t-if="question.image_ids">
-                                    <div class="etp-image-panel row g-3 mb-3">
-                                        <t t-foreach="question.image_ids" t-as="img">
-                                            <div class="col-md-6 etp-image-slot">
-                                                <div class="etp-image-label"
-                                                     t-out="img.label"/>
-                                                <div class="etp-image-zoomable"
-                                                     tabindex="0" role="button"
-                                                     aria-label="Open image — click to zoom and inspect">
-                                                    <img class="etp-eval-image img-fluid"
-                                                         draggable="false"
-                                                         oncontextmenu="return false;"
-                                                         t-att-src="'/pro_assessment/qimage/%s/%d' % (token, img.id)"
-                                                         t-att-alt="img.label"/>
-                                                    <span class="etp-zoom-hint" aria-hidden="true">
-                                                        <i class="fa fa-search-plus"/>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </t>
-                                    </div>
-                                </t>
-
-                                <t t-if="is_objective">
-                                    <p class="etp-answer-row">
-                                        <span class="etp-answer-label">Your answer:</span>
-                                        <span t-if="response.answer_summary"
-                                              t-out="response.answer_summary"/>
-                                        <em t-else="" class="text-muted">No answer</em>
-                                    </p>
-                                    <p class="etp-answer-correct" t-if="not is_correct">
-                                        <span class="etp-answer-label">Correct answer:</span>
-                                        <span t-out="response.correct_summary"/>
-                                    </p>
-                                </t>
-
-                                <t t-else="">
-                                    <!-- image_ab: the answer is the per-axis verdicts; show them
-                                         (+ expected, once released) and the justification if any. -->
-                                    <t t-if="response.question_type == 'image_ab'">
-                                        <p class="etp-answer-row mb-1">
-                                            <span class="etp-answer-label">Your answer:</span>
-                                            <span t-if="response.answer_summary"
-                                                  t-out="response.answer_summary"/>
-                                            <em t-else="" class="text-muted">No selection</em>
-                                        </p>
-                                        <p class="etp-answer-row mb-1"
-                                           t-if="show_results and response.correct_summary">
-                                            <span class="etp-answer-label">Expected:</span>
-                                            <span t-out="response.correct_summary"/>
-                                        </p>
-                                        <t t-if="response.justification">
-                                            <p class="etp-answer-row mb-1 mt-2">
-                                                <span class="etp-answer-label">Your justification:</span>
-                                            </p>
-                                            <p class="etp-justification"
-                                               t-out="response.justification"/>
-                                        </t>
-                                        <p class="etp-answer-row mb-1 mt-2"
-                                           t-if="show_results and response.llm_state == 'scored'">
-                                            <span class="etp-answer-label">Score:</span>
-                                            Verdicts <span t-out="int(round(response.ab_mcq_pct))"/>%
-                                            <t t-if="assessment.require_justification_image_comparison">
-                                                · Justification <span t-out="int(round(response.llm_raw_100))"/>/100
-                                            </t>
-                                            · Final <span t-out="int(response.ab_final_pct)"/>/100
-                                        </p>
-                                    </t>
-                                    <!-- subjective / image_text: the justification IS the answer. -->
-                                    <t t-else="">
-                                        <p class="etp-answer-row mb-1">
-                                            <span class="etp-answer-label">Your answer:</span>
-                                        </p>
-                                        <p class="etp-justification"
-                                           t-out="response.justification"/>
-                                    </t>
-                                    <div t-if="response.llm_feedback" class="etp-feedback">
-                                        <strong>Feedback:</strong>
-                                        <span t-out="response.llm_feedback"/>
-                                    </div>
-                                </t>
-                            </div>
-                        </div>
-                    </t>
-
-                    <div class="mt-3">
-                        <a href="/my/pro_assessments" class="btn btn-primary">
-                            Back to My Assessments
-                        </a>
-                    </div>
-
-                    <!-- Same zoom/pan lightbox for reviewing result images. -->
-                    <t t-call="etp_assessment_pro.portal_image_zoom"/>
-                </t>
-            </t>
-        </t>
-    </template>
-
-    <!-- ===================================================================
-         MY ASSESSMENTS (candidate hub — portal users land here)
-         A single card renderer (portal_my_assessment_card) is reused across
-         all four buckets; the caller passes `bucket` to pick the action.
-         =================================================================== -->
     <template id="portal_my_assessment_card" name="ETP — My Assessment Card">
         <div t-attf-class="etp-acard etp-acard--#{item['status_kind']}">
             <div class="etp-acard-main">
@@ -1134,11 +1064,6 @@
                         <i class="fa fa-list-ol"/>
                         <span t-out="item['total_questions']"/> questions
                     </span>
-                    <span t-if="bucket == 'in_progress' and item['total_questions']"
-                          class="etp-acard-metaitem">
-                        <i class="fa fa-check-circle-o"/>
-                        <span t-out="item['answered_count']"/> answered
-                    </span>
                     <span t-if="bucket == 'upcoming' and item['scheduled_start']"
                           class="etp-acard-metaitem">
                         <i class="fa fa-calendar-o"/> Opens
@@ -1149,11 +1074,47 @@
                         <i class="fa fa-hourglass-half"/> Due
                         <span t-out="item['deadline']"/>
                     </span>
+                    <span t-if="bucket == 'completed' and item.get('submitted_on')"
+                          class="etp-acard-metaitem">
+                        <i class="fa fa-calendar-check-o"/> Submitted
+                        <span t-out="item['submitted_on']"/>
+                    </span>
+                </div>
+                <div t-if="bucket in ('available', 'in_progress', 'upcoming') and item['total_questions']"
+                     t-attf-class="etp-acard-progress#{'' if bucket == 'in_progress' else ' is-idle'}">
+                    <div class="etp-acard-progress-head">
+                        <span class="etp-acard-progress-label">
+                            <span t-out="item['answered_count']"/> / <span t-out="item['total_questions']"/> answered
+                        </span>
+                        <span class="etp-acard-progress-pct" t-out="str(item['progress_pct']) + '%'"/>
+                    </div>
+                    <div class="etp-acard-bar" role="progressbar" aria-valuemin="0"
+                         aria-valuemax="100" t-att-aria-valuenow="item['progress_pct']">
+                        <span class="etp-acard-bar-fill" t-attf-style="width: #{item['progress_pct']}%;"/>
+                    </div>
                 </div>
             </div>
             <div class="etp-acard-aside">
-                <span t-if="item['score_display']" class="etp-acard-score"
-                      t-out="item['score_display']"/>
+                <t t-if="bucket == 'completed' and item['results_released']">
+                    <div t-attf-class="etp-acard-ring is-#{item['result'] or 'pending'}"
+                         t-attf-style="--etp-ring-pct: #{item['score_pct']};"
+                         role="img" t-attf-aria-label="Score #{item['score_pct']} percent">
+                        <span class="etp-acard-ring-val">
+                            <b t-out="item['score_pct']"/><small>%</small>
+                        </span>
+                    </div>
+                    <span t-if="item['result']"
+                          t-attf-class="etp-acard-verdict is-#{item['result']}">
+                        <i t-attf-class="fa fa-#{'check-circle' if item['result'] == 'pass' else 'times-circle'} me-1"/>
+                        <t t-out="item['result'].capitalize()"/>
+                    </span>
+                </t>
+                <t t-elif="bucket == 'completed'">
+                    <div class="etp-acard-await" title="Submitted — awaiting results">
+                        <span class="etp-acard-await-icon"><i class="fa fa-check"/></span>
+                        <span class="etp-acard-await-label">Submitted — awaiting results</span>
+                    </div>
+                </t>
                 <t t-if="bucket == 'available'">
                     <a t-att-href="item['url']" class="btn btn-primary">
                         <i class="fa fa-play me-2"/>Start
@@ -1215,6 +1176,24 @@
                     </div>
                 </t>
                 <t t-else="">
+                    <div class="etp-my-stats">
+                        <div class="etp-stat is-available">
+                            <span class="etp-stat-num" t-out="len(available)"/>
+                            <span class="etp-stat-label">Available</span>
+                        </div>
+                        <div class="etp-stat is-progress">
+                            <span class="etp-stat-num" t-out="len(in_progress)"/>
+                            <span class="etp-stat-label">In progress</span>
+                        </div>
+                        <div class="etp-stat is-upcoming">
+                            <span class="etp-stat-num" t-out="len(upcoming)"/>
+                            <span class="etp-stat-label">Upcoming</span>
+                        </div>
+                        <div class="etp-stat is-done">
+                            <span class="etp-stat-num" t-out="len(completed)"/>
+                            <span class="etp-stat-label">Completed</span>
+                        </div>
+                    </div>
                     <t t-if="available">
                         <section class="etp-my-section">
                             <h2 class="etp-section-title">

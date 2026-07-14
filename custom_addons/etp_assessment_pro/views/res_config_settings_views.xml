@@ -27,9 +27,21 @@
                         </setting>
                         <setting id="etp_vertex_model"
                                  string="Model"
-                                 help="Single Gemini model used for EVERY task: skill extraction, question generation, subjective scoring AND image rendering (image_ab / image_text).">
+                                 help="Default Gemini model for scoring, image rendering, and any task without its own override.">
                             <field name="etp_assessment_pro_vertex_model"
                                    placeholder="gemini-3-pro-image"/>
+                        </setting>
+                        <setting id="etp_generation_model"
+                                 string="Question Generation Model"
+                                 help="Strong multimodal model that reads the SOP document (with images) and authors questions directly. Leave empty to use the default Model.">
+                            <field name="etp_assessment_pro_generation_model"
+                                   placeholder="gemini-3-pro"/>
+                        </setting>
+                        <setting id="etp_detection_model"
+                                 string="Image Detection Model"
+                                 help="Multimodal model that detects elements in an image_label stimulus for the numbered-box overlay. Leave empty to use the Question Generation Model.">
+                            <field name="etp_assessment_pro_detection_model"
+                                   placeholder="gemini-3.1-pro-preview"/>
                         </setting>
                         <setting id="etp_vertex_api_key"
                                  string="API Key"
@@ -56,6 +68,26 @@
                                 Current: <field name="etp_assessment_pro_vertex_service_account_filename"
                                                 readonly="1" nolabel="1"/>
                             </div>
+                        </setting>
+                    </block>
+
+                    <block title="Video Generation (Veo, optional)" name="etp_video_section">
+                        <setting id="etp_video_model"
+                                 string="Video Model (Veo)"
+                                 help="Optional. Veo model for async video_prompt clip generation. Video generation only fires when this AND Vertex credentials resolve; otherwise video_prompt clips stay upload-only.">
+                            <field name="etp_assessment_pro_video_model"
+                                   placeholder="veo-3.1-generate-001"/>
+                        </setting>
+                        <setting id="etp_video_location"
+                                 string="Video Location"
+                                 help="Vertex region for Veo. Veo is served on us-central1, NOT 'global' (the gemini default 404s for Veo).">
+                            <field name="etp_assessment_pro_video_location"
+                                   placeholder="us-central1"/>
+                        </setting>
+                        <setting id="etp_video_default_duration_s"
+                                 string="Clip Duration (s)"
+                                 help="Default generated clip length in seconds when a brief omits one.">
+                            <field name="etp_assessment_pro_video_default_duration_s"/>
                         </setting>
                     </block>
 
@@ -100,16 +132,6 @@
                     </block>
 
                     <block title="Scoring" name="etp_scoring_section">
-                        <setting id="etp_pass_threshold"
-                                 string="Overall Pass Threshold %"
-                                 help="A candidate passes when their score percent is >= this value (every question is worth equal marks).">
-                            <field name="etp_assessment_pro_pass_threshold"/>
-                        </setting>
-                        <setting id="etp_subjective_pass_threshold"
-                                 string="Per-Question Subjective Pass %"
-                                 help="An LLM-graded answer earns its single mark when its 0-100 score is >= this value.">
-                            <field name="etp_assessment_pro_subjective_pass_threshold"/>
-                        </setting>
                         <setting id="etp_llm_max_attempts"
                                  string="LLM Scoring Max Attempts"
                                  help="After this many failed attempts a response resolves as a fail instead of staying pending.">
@@ -123,24 +145,6 @@
                     </block>
 
                     <block title="System Prompts" name="etp_prompts_section">
-                        <setting id="etp_skill_gen_prompt"
-                                 string="Skill Generation Prompt (.md upload)"
-                                 help="Upload a .md to override the bundled prompts/skill_gen.md. Empty = use bundled.">
-                            <field name="skill_gen_prompt_upload"
-                                   widget="binary"
-                                   filename="skill_gen_prompt_upload_filename"/>
-                            <field name="skill_gen_prompt_upload_filename" invisible="1"/>
-                            <field name="etp_assessment_pro_skill_gen_prompt" invisible="1"/>
-                            <field name="etp_assessment_pro_skill_gen_prompt_filename" invisible="1"/>
-                            <div invisible="not etp_assessment_pro_skill_gen_prompt"
-                                 class="text-muted mt-1">
-                                Current: <field name="etp_assessment_pro_skill_gen_prompt_filename"
-                                              readonly="1" nolabel="1" class="d-inline-block"/>
-                                <br/>
-                                Custom override active. Clear at Technical → System
-                                Parameters → etp_assessment_pro.skill_gen_prompt to revert.
-                            </div>
-                        </setting>
                         <setting id="etp_question_prompt"
                                  string="Question Generation Prompt (.md upload)"
                                  help="Upload a .md to override the bundled prompts/question.md. Empty = use bundled.">

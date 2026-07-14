@@ -1,8 +1,11 @@
 from odoo import models, fields, api
 
+from odoo.exceptions import UserError
+
 from ..constants import (
-    QUESTION_TYPE_SELECTION, DIFFICULTY_SELECTION, option_name_reveals_reasoning,
-    text_has_source_reference,
+    QUESTION_TYPE_SELECTION, DIFFICULTY_SELECTION, IMAGE_QUESTION_TYPES,
+    VIDEO_QUESTION_TYPES, DETECTION_MODE_SELECTION,
+    option_name_reveals_reasoning, text_has_source_reference,
 )
 
 
@@ -22,15 +25,9 @@ class EtpAssessmentQuestion(models.Model):
     prompt = fields.Text(string="Prompt", required=True)
     description = fields.Text()
     active = fields.Boolean(default=True)
-    category_id = fields.Many2one(
-        "etp.assessment.pro.category", string="Category", ondelete="restrict"
-    )
-    skill_ids = fields.Many2many(
-        "etp.assessment.pro.skill",
-        relation="etp_assessment_pro_question_skill_rel",
-        column1="question_id",
-        column2="skill_id",
-        string="Skills",
+    generator_id = fields.Many2one(
+        "etp.assessment.pro.prompt", string="Generator",
+        ondelete="set null", index=True,
     )
     question_dimension_ids = fields.One2many(
         "etp.assessment.pro.question.dimension",
@@ -45,33 +42,53 @@ class EtpAssessmentQuestion(models.Model):
         "question_id",
         string="Images",
     )
+    video_ids = fields.One2many(
+        "etp.assessment.pro.question.video",
+        "question_id",
+        string="Videos",
+    )
+    upload_video = fields.Binary(
+        string="Upload Clip", attachment=True,
+        help="video_prompt: attach an mp4/webm, pick the slot, then use "
+             "'Apply Uploaded Video' to store it as a question.video row.")
+    upload_video_filename = fields.Char(string="Upload Clip Filename")
+    upload_video_slot = fields.Selection(
+        [("reference", "Reference"), ("output", "Output"), ("single", "Single")],
+        string="Upload Slot", default="reference",
+        help="Which clip the uploaded file becomes: Reference + Output for a "
+             "video_prompt pair, Single for a lone clip.")
     official_reasoning = fields.Text(
         string="Official Reasoning",
         help="image_ab: the official rationale the LLM grades the candidate's "
              "justification against.")
+    flaw_plan_json = fields.Text(
+        string="Flaw Plan (JSON)",
+        help="image_ab flaw-injection plan copied from the draft on approve: the "
+             "worker/render prompts, planted flaws, and the construction_keys the "
+             "answer key was derived from. NULL for pre-Phase-3 questions (guards "
+             "no-op). The approve- and score-time key-drift guards hard-fail if "
+             "the stored answer key ever diverges from these keys.")
     difficulty = fields.Selection(
         DIFFICULTY_SELECTION,
         string="Difficulty",
     )
+    detection_mode = fields.Selection(
+        DETECTION_MODE_SELECTION,
+        string="Detection Mode",
+        default="object",
+        help="image_label: whether the source picture is a photo (detect "
+             "objects) or a UI screenshot (detect clickable UI elements). "
+             "Selects which detection prompt the annotation cron uses.")
     time_minutes = fields.Integer(string="Time (minutes)", default=0)
     has_subjective = fields.Boolean(
         compute="_compute_has_subjective", store=True
     )
     source_ref = fields.Char(string="Source Ref")
 
-    # Reviewer-facing answer-key preview so a BANK question (whether imported or
-    # approved from an LLM draft) READS like the draft preview — every option as
-    # a chip, the correct one(s) highlighted green with a ✓ — instead of forcing
-    # the reviewer to open the Dimensions editor. Mirrors the draft model's
-    # dimensions_preview, but sourced from the materialized question.dimension /
-    # option lines (is_correct) that actually drive scoring.
     answer_key_preview = fields.Html(
         string="Answer Key", compute="_compute_answer_key_preview",
         sanitize=False)
     has_answer_key = fields.Boolean(compute="_compute_answer_key_preview")
-    # Mis-keyed objective questions (mcq/msq with no correct option anywhere)
-    # are unscoreable and must NOT silently vanish from the grade. This flag
-    # surfaces them in the bank list/form so a reviewer can fix the key.
     has_valid_key = fields.Boolean(
         string="Answer Key OK", compute="_compute_has_valid_key", store=True,
         help="False when an objective (MCQ/MSQ) question has no correct option "
@@ -121,7 +138,7 @@ class EtpAssessmentQuestion(models.Model):
 
     @api.depends("question_dimension_ids.option_line_ids.is_correct",
                  "question_dimension_ids.option_line_ids.name",
-                 "question_dimension_ids.dimension_id.name")
+                 "question_dimension_ids.name")
     def _compute_answer_key_preview(self):
         import html as _html
         for rec in self:
@@ -133,7 +150,6 @@ class EtpAssessmentQuestion(models.Model):
                     cls = ("badge text-bg-success" if is_c
                            else "badge text-bg-light border")
                     mark = " \u2713" if is_c else ""
-                    # Bigger, more legible chips than the Bootstrap default.
                     style = ("margin:3px;font-size:0.95rem;padding:0.45em 0.7em;"
                              "font-weight:%s") % ("600" if is_c else "400")
                     chips.append(
@@ -143,7 +159,7 @@ class EtpAssessmentQuestion(models.Model):
                     continue
                 blocks.append(
                     '<div class="mb-2"><strong style="font-size:0.95rem">'
-                    f'{_html.escape(qd.dimension_id.name or "")}</strong><br/>'
+                    f'{_html.escape(qd.name or "")}</strong><br/>'
                     f'{"".join(chips)}</div>')
             rec.answer_key_preview = "".join(blocks) if blocks else False
             rec.has_answer_key = bool(blocks)
@@ -153,7 +169,67 @@ class EtpAssessmentQuestion(models.Model):
         for rec in self:
             text = (rec.subjective_rubric_json or "").strip()
             rec.has_subjective = bool(text and text not in ("[]", "{}")) or \
-                rec.question_type in ("subjective_justification", "subjective_rubric")
+                rec.question_type == "subjective_rubric"
+
+    def _has_required_images(self):
+        """False when this is an image question missing its picture(s): an
+        image_ab needs both the a and b slots, image_prompt/image_label need at
+        least one.
+        The exam-selection/serving guards drop such questions so a candidate is
+        never shown an image question with no image."""
+        self.ensure_one()
+        if self.question_type not in IMAGE_QUESTION_TYPES:
+            return True
+        slots = set(self.image_ids.mapped("slot"))
+        if self.question_type == "image_ab":
+            return {"a", "b"}.issubset(slots)
+        return bool(self.image_ids)
+
+    def _has_required_videos(self):
+        """False when a video question has no clip. video_prompt is the video
+        twin of image_prompt: it needs at least one video, mirroring
+        _has_required_images. The exam-selection guard drops such questions so a
+        candidate is never shown a video question with no clip."""
+        self.ensure_one()
+        if self.question_type not in VIDEO_QUESTION_TYPES:
+            return True
+        return bool(self.video_ids)
+
+    def action_apply_uploaded_video(self):
+        """Store the uploaded clip as a question.video row for upload_video_slot,
+        replacing any existing clip in that slot. Mirrors the draft image
+        uploader (action_apply_uploaded_image): the binary is ingested to S3 when
+        configured (video_url), else kept on the record as a dev-only fallback."""
+        self.ensure_one()
+        if not self.upload_video:
+            return self._bank_notify(
+                "No File", "Attach a clip in 'Upload Clip' first.", "warning")
+        from ..services import image_ingest
+        slot = (self.upload_video_slot or "reference").strip().lower()
+        raw_b64 = self.upload_video
+        if isinstance(raw_b64, bytes):
+            raw_b64 = raw_b64.decode("ascii", errors="ignore")
+        filename = self.upload_video_filename or ""
+        content_type = "video/webm" if filename.lower().endswith(".webm") \
+            else "video/mp4"
+        url, stored_b64 = image_ingest.ingest(
+            self.env, None, raw_b64, content_type=content_type,
+            key_hint="qvideo-%s-%s" % (self.id, slot))
+        existing = self.video_ids.filtered(lambda v: v.slot == slot)
+        existing.unlink()
+        Video = self.env["etp.assessment.pro.question.video"]
+        Video.create({
+            "question_id": self.id,
+            "slot": slot,
+            "label": slot.title(),
+            "video_url": url or False,
+            "video": stored_b64 or False,
+            "video_filename": filename or False,
+            "sequence": {"reference": 10, "output": 20}.get(slot, 30),
+        })
+        self.write({"upload_video": False, "upload_video_filename": False})
+        return self._bank_notify(
+            "Video Uploaded", "Your clip now fills the %r slot." % slot)
 
     def action_offload_images_s3(self):
         from ..services import s3_service
@@ -207,6 +283,26 @@ class EtpAssessmentQuestion(models.Model):
             "Edit an image row below and use its Image field to upload your "
             "own picture, or add a new image line.", "info")
 
+    def action_detect_now(self):
+        """Run image_label detection immediately on the Single source image
+        (respecting detection_mode) instead of waiting for the 1-min cron.
+        Delegates to the image row, which reuses the cron's attempt cap and
+        surfaces Vertex failures as a friendly UserError."""
+        self.ensure_one()
+        if self.question_type != "image_label":
+            raise UserError(
+                "Detect Now is only available for Image - Labelling questions.")
+        images = self.image_ids.filtered(
+            lambda im: im.slot == "single" and (im.image or im.image_url))
+        if not images:
+            raise UserError(
+                "Add a source image to the Single slot before detecting.")
+        for img in images:
+            img.action_detect_now()
+        return self._bank_notify(
+            "Detection Complete",
+            "Detected elements and drew the numbered overlay.")
+
     def _export_payload(self):
         import json
         out = []
@@ -227,8 +323,7 @@ class EtpAssessmentQuestion(models.Model):
             out.append({
                 "id": q.id,
                 "name": q.name,
-                "category": q.category_id.name or "",
-                "skills": q.skill_ids.mapped("name"),
+                "generator": q.generator_id.name or "",
                 "question_type": q.question_type,
                 "difficulty": q.difficulty or "",
                 "time_minutes": q.time_minutes,
@@ -249,7 +344,7 @@ class EtpAssessmentQuestion(models.Model):
         out = []
         for q in self:
             dims = [{
-                "name": qd.dimension_id.name or "",
+                "name": qd.name or "",
                 "options": [
                     {"name": ol.name or "", "is_correct": bool(ol.is_correct)}
                     for ol in qd.option_line_ids.sorted("sequence")],
@@ -273,8 +368,7 @@ class EtpAssessmentQuestion(models.Model):
                 "subjective_rubric_json": q.subjective_rubric_json or "",
                 "grading_json": q.grading_json or "",
                 "meta_json": q.meta_json or "",
-                "category": q.category_id.name or "",
-                "skills": q.skill_ids.mapped("name"),
+                "generator": q.generator_id.name or "",
                 "dimensions": dims,
                 "images": images,
             })
@@ -317,7 +411,7 @@ class EtpAssessmentQuestion(models.Model):
         recs = self or self.search([])
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["id","name","category","skills","question_type","difficulty",
+        w.writerow(["id","name","generator","question_type","difficulty",
                     "time_minutes","prompt","description","options",
                     "correct_answer","rubric_pass_condition","source_ref"])
         for row in recs._export_payload():
@@ -327,8 +421,8 @@ class EtpAssessmentQuestion(models.Model):
                 pass_cond = (rubric[0] or {}).get("pass_condition", "") if isinstance(rubric[0], dict) else ""
             elif isinstance(rubric, dict):
                 pass_cond = rubric.get("pass_condition", "")
-            w.writerow([row["id"], row["name"], row["category"],
-                        " | ".join(row["skills"]), row["question_type"],
+            w.writerow([row["id"], row["name"], row["generator"],
+                        row["question_type"],
                         row["difficulty"], row["time_minutes"], row["prompt"],
                         row["description"], " | ".join(row["options"]),
                         row["correct_answer"], pass_cond, row["source_ref"]])

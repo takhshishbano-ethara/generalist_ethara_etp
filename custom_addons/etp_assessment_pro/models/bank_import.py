@@ -33,28 +33,18 @@ class EtpAssessmentBankImport(models.AbstractModel):
                 raise UserError(f"Invalid JSON: {exc}")
         questions = (payload or {}).get("questions") or []
         Question = self.env["etp.assessment.pro.question"]
-        Skill = self.env["etp.assessment.pro.skill"]
-        Category = self.env["etp.assessment.pro.category"]
-        Dimension = self.env["etp.assessment.pro.dimension"]
+        Generator = self.env["etp.assessment.pro.prompt"]
         QDim = self.env["etp.assessment.pro.question.dimension"]
         Image = self.env["etp.assessment.pro.question.image"]
         created = 0
         for item in questions:
             if not isinstance(item, dict):
                 continue
-            cat = False
-            cname = (item.get("category") or "").strip()
-            if cname:
-                cat = Category.search([("name", "=", cname)], limit=1) \
-                    or Category.create({"name": cname})
-            skill_ids = []
-            for sname in item.get("skills") or []:
-                sname = (sname or "").strip()
-                if not sname:
-                    continue
-                sk = Skill.search([("name", "=", sname)], limit=1) \
-                    or Skill.create({"name": sname})
-                skill_ids.append(sk.id)
+            gen = False
+            gname = (item.get("generator") or "").strip()
+            if gname:
+                gen = Generator.search([("name", "=", gname)], limit=1) \
+                    or Generator.create({"name": gname})
             diff = item.get("difficulty")
             q = Question.create({
                 "name": (item.get("name") or "Imported Question")[:200],
@@ -69,30 +59,21 @@ class EtpAssessmentBankImport(models.AbstractModel):
                 "subjective_rubric_json": item.get("subjective_rubric_json") or False,
                 "grading_json": item.get("grading_json") or False,
                 "meta_json": item.get("meta_json") or False,
-                "category_id": cat.id if cat else False,
-                "skill_ids": [(6, 0, skill_ids)] if skill_ids else False,
+                "generator_id": gen.id if gen else False,
             })
-            # Private dimension per question (mirrors approve/materialize), so the
-            # answer set is self-contained and is_correct round-trips exactly.
             for dim in item.get("dimensions") or []:
                 opts = dim.get("options") or []
                 if not opts:
                     continue
-                d = Dimension.with_context(
-                    allow_shared_dimension_edit=True).create({
-                        "name": (dim.get("name") or "Answer")[:200],
-                        "option_ids": [
-                            (0, 0, {"name": o.get("name") or "",
-                                    "sequence": (i + 1) * 10})
-                            for i, o in enumerate(opts)],
-                    })
-                qd = QDim.create({"question_id": q.id, "dimension_id": d.id})
-                # Match by POSITION, not name: option lines are created in the
-                # payload's order, so a dimension with duplicate labels (e.g. two
-                # "N/A") keeps the exact correct option instead of flagging both.
-                for line, opt in zip(qd.option_line_ids.sorted("sequence"), opts):
-                    if opt.get("is_correct"):
-                        line.write({"is_correct": True})
+                QDim.create({
+                    "question_id": q.id,
+                    "name": (dim.get("name") or "Answer")[:200],
+                    "option_line_ids": [
+                        (0, 0, {"name": o.get("name") or "",
+                                "sequence": (i + 1) * 10,
+                                "is_correct": bool(o.get("is_correct"))})
+                        for i, o in enumerate(opts)],
+                })
             for im in item.get("images") or []:
                 vals = {
                     "question_id": q.id,
@@ -109,7 +90,7 @@ class EtpAssessmentBankImport(models.AbstractModel):
         return {"questions_created": created}
 
     @api.model
-    def import_bank(self, bank, category_id=False, category_name=None,
+    def import_bank(self, bank, generator_id=False, generator_name=None,
                     source_tag="json"):
         if isinstance(bank, str):
             try:
@@ -125,24 +106,19 @@ class EtpAssessmentBankImport(models.AbstractModel):
             raise UserError("question_bank is empty.")
 
         warnings = []
-        Cat = self.env["etp.assessment.pro.category"].sudo()
-        if category_id:
-            category = Cat.browse(category_id)
-            if not category.exists():
-                raise UserError("Target category not found.")
+        Gen = self.env["etp.assessment.pro.prompt"].sudo()
+        if generator_id:
+            generator = Gen.browse(generator_id)
+            if not generator.exists():
+                raise UserError("Target generator not found.")
         else:
-            name = (category_name or project.get("name") or "Imported Bank").strip()
-            category = Cat.search([("name", "=", name)], limit=1) or Cat.create(
+            name = (generator_name or project.get("name") or "Imported Bank").strip()
+            generator = Gen.search([("name", "=", name)], limit=1) or Gen.create(
                 {"name": name}
             )
 
-        skillset = bank.get("skillset") or []
-        skill_records, skills_created_count = self._upsert_skills(skillset)
-
         Question = self.env["etp.assessment.pro.question"].sudo()
-        Dimension = self.env["etp.assessment.pro.dimension"].sudo()
         QDim = self.env["etp.assessment.pro.question.dimension"].sudo()
-        QOpt = self.env["etp.assessment.pro.question.dimension.option"].sudo()
 
         created = 0
         obj_fields = 0
@@ -181,18 +157,13 @@ class EtpAssessmentBankImport(models.AbstractModel):
                     })
                     subj_fields += 1
 
-            question_skill_ids = []
-            skill_name = item.get("skill") or meta.get("skill")
-            if skill_name and skill_name in skill_records:
-                question_skill_ids.append(skill_records[skill_name].id)
-
             diff = meta.get("difficulty")
             question = Question.create({
                 "name": title,
                 "sequence": (item.get("id") or idx) * 10,
                 "question_type": qtype,
                 "prompt": prompt_text or title,
-                "category_id": category.id,
+                "generator_id": generator.id,
                 "grading_json": json.dumps(grading, ensure_ascii=False),
                 "subjective_rubric_json": json.dumps(
                     subjective_rubric, ensure_ascii=False
@@ -200,7 +171,6 @@ class EtpAssessmentBankImport(models.AbstractModel):
                 "meta_json": json.dumps(meta, ensure_ascii=False),
                 "difficulty": diff if diff in ("easy", "medium", "hard") else False,
                 "source_ref": f"{source_tag}:{proj_name}#{item.get('id', idx)}",
-                "skill_ids": [(6, 0, question_skill_ids)] if question_skill_ids else False,
             })
             created += 1
 
@@ -214,16 +184,15 @@ class EtpAssessmentBankImport(models.AbstractModel):
                     continue
                 obj_fields += 1
                 self._materialize_objective_field(
-                    Dimension, QDim, QOpt, question, f, grade, warnings
+                    QDim, question, f, grade, warnings
                 )
 
         return {
-            "category_id": category.id,
-            "category_name": category.name,
+            "generator_id": generator.id,
+            "generator_name": generator.name,
             "questions_created": created,
             "objective_fields": obj_fields,
             "subjective_fields": subj_fields,
-            "skills_created": skills_created_count,
             "warnings": warnings,
         }
 
@@ -237,39 +206,16 @@ class EtpAssessmentBankImport(models.AbstractModel):
             if t in _OBJECTIVE_TYPE_MAP:
                 types_seen.add(_OBJECTIVE_TYPE_MAP[t])
             elif t in SUBJECTIVE_FIELD_TYPES:
-                types_seen.add("subjective_justification")
+                types_seen.add("subjective_rubric")
         if not types_seen:
             return "mcq"
         if "msq" in types_seen:
             return "msq"
-        if "subjective_justification" in types_seen and "mcq" not in types_seen:
-            return "subjective_justification"
+        if "subjective_rubric" in types_seen and "mcq" not in types_seen:
+            return "subjective_rubric"
         return "mcq"
 
-    def _upsert_skills(self, skillset):
-        Skill = self.env["etp.assessment.pro.skill"].sudo()
-        out = {}
-        created_count = 0
-        for s in skillset or []:
-            if not isinstance(s, dict):
-                continue
-            name = (s.get("name") or "").strip()
-            if not name:
-                continue
-            existing = Skill.search([("name", "=", name)], limit=1)
-            if existing:
-                out[name] = existing
-                continue
-            rec = Skill.create({
-                "name": name,
-                "description": s.get("description") or False,
-                "tags": s.get("tags") or False,
-            })
-            out[name] = rec
-            created_count += 1
-        return out, created_count
-
-    def _materialize_objective_field(self, Dimension, QDim, QOpt, question,
+    def _materialize_objective_field(self, QDim, question,
                                      field_def, grade, warnings):
         label = field_def.get("label") or field_def.get("key") or "Field"
         options = list(field_def.get("options") or [])
@@ -283,22 +229,14 @@ class EtpAssessmentBankImport(models.AbstractModel):
             )
             return
 
-        dim = Dimension.search([("name", "=", label)], limit=1)
-        if not dim:
-            dim = Dimension.create({
-                "name": label,
-                "option_ids": [
-                    (0, 0, {"name": o, "sequence": (i + 1) * 10})
-                    for i, o in enumerate(options)
-                ],
-            })
-        else:
-            existing = set(dim.option_ids.mapped("name"))
-            missing = [o for o in options if o not in existing]
-            if missing:
-                dim.write({"option_ids": [(0, 0, {"name": o}) for o in missing]})
-
-        qd = QDim.create({"question_id": question.id, "dimension_id": dim.id})
+        qd = QDim.create({
+            "question_id": question.id,
+            "name": label,
+            "option_line_ids": [
+                (0, 0, {"name": o, "sequence": (i + 1) * 10})
+                for i, o in enumerate(options)
+            ],
+        })
 
         correct_answer = (grade or {}).get("answer")
         if correct_answer is None or correct_answer == "":

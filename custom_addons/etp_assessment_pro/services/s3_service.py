@@ -5,6 +5,8 @@ import uuid
 
 _logger = logging.getLogger(__name__)
 
+_MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024
+
 _RETRYABLE_CODES = {
     "RequestTimeout", "RequestTimeTooSkewed", "Throttling",
     "ThrottlingException", "SlowDown", "InternalError",
@@ -34,17 +36,27 @@ def _max_retries(env):
         return 3
 
 
+_S3_CLIENT_CACHE = {}
+
+
 def _client(env):
     import boto3
     from botocore.config import Config
     region = _param(env, "etp_assessment_pro.s3_region", "us-east-1")
-    return boto3.client(
-        "s3",
-        region_name=region,
-        aws_access_key_id=_param(env, "etp_assessment_pro.s3_access_key_id"),
-        aws_secret_access_key=_param(env, "etp_assessment_pro.s3_secret_key"),
-        config=Config(retries={"max_attempts": 3, "mode": "standard"}),
-    )
+    ak = _param(env, "etp_assessment_pro.s3_access_key_id")
+    sk = _param(env, "etp_assessment_pro.s3_secret_key")
+    cache_key = (ak, sk, region)
+    cli = _S3_CLIENT_CACHE.get(cache_key)
+    if cli is None:
+        cli = boto3.client(
+            "s3",
+            region_name=region,
+            aws_access_key_id=ak,
+            aws_secret_access_key=sk,
+            config=Config(retries={"max_attempts": 3, "mode": "standard"}),
+        )
+        _S3_CLIENT_CACHE[cache_key] = cli
+    return cli
 
 
 def _is_retryable(exc):
@@ -84,6 +96,10 @@ def upload_b64(env, b64_data, key_hint="file", content_type="application/octet-s
         ext = "png"
     elif "jpeg" in content_type or "jpg" in content_type:
         ext = "jpg"
+    elif "mp4" in content_type:
+        ext = "mp4"
+    elif "webm" in content_type:
+        ext = "webm"
     elif "json" in content_type:
         ext = "json"
     elif "text" in content_type:
@@ -143,24 +159,43 @@ def object_key_from_url(env, url):
     whether a stored image_url can be proxied from S3 or is an external URL."""
     if not url:
         return None
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, unquote
     bucket = _param(env, "etp_assessment_pro.s3_bucket")
     cdn = (_param(env, "etp_assessment_pro.s3_cdn_url") or "").rstrip("/")
     parsed = urlparse(url)
-    key = parsed.path.lstrip("/")
+    key = unquote(parsed.path.lstrip("/"))
     if not key:
         return None
     host = parsed.netloc
-    # https://{bucket}.s3.{region}.amazonaws.com/{key}
     if bucket and host.startswith(bucket + ".s3") and host.endswith("amazonaws.com"):
         return key
-    # https://{bucket}.s3.amazonaws.com/{key} (legacy, no region in host)
     if bucket and host == bucket + ".s3.amazonaws.com":
         return key
-    # A CDN configured in front of the same bucket -> the path IS the key.
     if cdn and url.startswith(cdn + "/"):
         return key
     return None
+
+
+def presigned_url(env, key, expires=900, client=None):
+    """Return a short-lived presigned GET URL for an object in the configured
+    bucket, or ``None`` on failure. Lets the portal 302-redirect the browser
+    straight to S3 (like a video ``video_url``) so a worker is not occupied for
+    the whole transfer, WITHOUT exposing a permanently-public object: the URL
+    is signed and expires after ``expires`` seconds. ``generate_presigned_url``
+    is a local signing operation (no S3 round-trip)."""
+    if not key or not is_configured(env):
+        return None
+    try:
+        cli = client or _client(env)
+        bucket = _param(env, "etp_assessment_pro.s3_bucket")
+        return cli.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=max(60, int(expires or 900)),
+        )
+    except Exception as exc:
+        _logger.warning("S3 presign failed for %s: %s", key, exc)
+        return None
 
 
 def download(env, key, client=None):
@@ -173,6 +208,12 @@ def download(env, key, client=None):
         cli = client or _client(env)
         bucket = _param(env, "etp_assessment_pro.s3_bucket")
         resp = cli.get_object(Bucket=bucket, Key=key)
+        length = resp.get("ContentLength") or 0
+        if length and length > _MAX_DOWNLOAD_BYTES:
+            _logger.warning(
+                "S3 object %s is %s bytes (> %s cap); not proxied through the "
+                "worker.", key, length, _MAX_DOWNLOAD_BYTES)
+            return None, None
         return resp["Body"].read(), resp.get("ContentType")
     except Exception as exc:
         _logger.warning("S3 download failed for %s: %s", key, exc)

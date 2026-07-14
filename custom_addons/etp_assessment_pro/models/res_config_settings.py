@@ -6,6 +6,9 @@ from odoo.exceptions import UserError
 from ..constants import (
     VERTEX_DEFAULT_LOCATION,
     VERTEX_DEFAULT_MODEL,
+    VIDEO_DEFAULT_MODEL,
+    VIDEO_DEFAULT_LOCATION,
+    VIDEO_DEFAULT_DURATION_S,
 )
 
 
@@ -25,8 +28,45 @@ class ResConfigSettings(models.TransientModel):
         string="Vertex Model",
         config_parameter="etp_assessment_pro.vertex_model",
         default=VERTEX_DEFAULT_MODEL,
-        help="Single model used for ALL tasks: skill extraction, question "
-             "generation, subjective scoring AND image rendering.",
+        help="Default model used for scoring, image rendering, and any task "
+             "without its own override.",
+    )
+    etp_assessment_pro_generation_model = fields.Char(
+        string="Question Generation Model",
+        config_parameter="etp_assessment_pro.generation_model",
+        help="Strong multimodal model used to read the SOP document (with its "
+             "images) and author questions directly — e.g. gemini-3-pro or "
+             "gemini-2.5-pro. Leave empty to fall back to the Vertex Model.",
+    )
+    etp_assessment_pro_detection_model = fields.Char(
+        string="Image Detection Model",
+        config_parameter="etp_assessment_pro.detection_model",
+        help="Multimodal model used to detect elements in an image_label "
+             "stimulus for the numbered-box overlay. Leave empty to fall back "
+             "to the Question Generation Model.",
+    )
+    etp_assessment_pro_video_model = fields.Char(
+        string="Video Generation Model (Veo)",
+        config_parameter="etp_assessment_pro.video_model",
+        default=VIDEO_DEFAULT_MODEL,
+        help="OPTIONAL. Veo model for async video_prompt clip generation, e.g. "
+             "veo-3.1-generate-001 (has audio) or the cheaper "
+             "veo-3.1-fast-generate-001. Video generation only fires when this "
+             "AND Vertex credentials resolve; otherwise video_prompt clips stay "
+             "upload-only.",
+    )
+    etp_assessment_pro_video_location = fields.Char(
+        string="Video Generation Location",
+        config_parameter="etp_assessment_pro.video_location",
+        default=VIDEO_DEFAULT_LOCATION,
+        help="Vertex region for Veo. Veo is served on a regional endpoint "
+             "(us-central1), NOT 'global' — the gemini default 404s for Veo.",
+    )
+    etp_assessment_pro_video_default_duration_s = fields.Integer(
+        string="Video Clip Duration (s)",
+        config_parameter="etp_assessment_pro.video_default_duration_s",
+        default=VIDEO_DEFAULT_DURATION_S,
+        help="Default generated clip length in seconds when a brief omits one.",
     )
     etp_assessment_pro_vertex_api_key = fields.Char(
         string="Vertex API Key",
@@ -79,21 +119,6 @@ class ResConfigSettings(models.TransientModel):
         default=3,
     )
 
-    # ---- Scoring (equal-marks, 0-100 threshold model) ----
-    etp_assessment_pro_pass_threshold = fields.Float(
-        string="Overall Pass Threshold %",
-        config_parameter="etp_assessment_pro.pass_threshold",
-        default=70.0,
-        help="A candidate passes the assessment when their score percent is "
-             ">= this value (0-100).",
-    )
-    etp_assessment_pro_subjective_pass_threshold = fields.Float(
-        string="Per-Question Subjective Pass %",
-        config_parameter="etp_assessment_pro.subjective_pass_threshold",
-        default=70.0,
-        help="An LLM-graded answer (subjective / image) earns its single mark "
-             "when its 0-100 score is >= this value.",
-    )
     etp_assessment_pro_llm_max_attempts = fields.Integer(
         string="LLM Scoring Max Attempts",
         config_parameter="etp_assessment_pro.llm_max_attempts",
@@ -110,10 +135,6 @@ class ResConfigSettings(models.TransientModel):
              "budget. Lower it if you see truncated scoring responses.",
     )
 
-    etp_assessment_pro_skill_gen_prompt = fields.Char(
-        string="Skill Generation Prompt",
-        config_parameter="etp_assessment_pro.skill_gen_prompt",
-    )
     etp_assessment_pro_question_prompt = fields.Char(
         string="Question Generation Prompt",
         config_parameter="etp_assessment_pro.question_prompt",
@@ -122,16 +143,10 @@ class ResConfigSettings(models.TransientModel):
         string="Scoring Prompt",
         config_parameter="etp_assessment_pro.scoring_system_prompt",
     )
-    skill_gen_prompt_upload = fields.Binary(string="Upload skill_gen.md")
-    skill_gen_prompt_upload_filename = fields.Char()
     question_prompt_upload = fields.Binary(string="Upload question.md")
     question_prompt_upload_filename = fields.Char()
     scoring_prompt_upload = fields.Binary(string="Upload scoring.md")
     scoring_prompt_upload_filename = fields.Char()
-    etp_assessment_pro_skill_gen_prompt_filename = fields.Char(
-        string="Skill Gen Prompt Filename",
-        config_parameter="etp_assessment_pro.skill_gen_prompt_filename",
-    )
     etp_assessment_pro_question_prompt_filename = fields.Char(
         string="Question Prompt Filename",
         config_parameter="etp_assessment_pro.question_prompt_filename",
@@ -159,21 +174,6 @@ class ResConfigSettings(models.TransientModel):
         ICP.set_param("etp_assessment_pro.vertex_minted_token_expires", "")
         self.etp_assessment_pro_vertex_service_account_json = text
         self.etp_assessment_pro_vertex_service_account_filename = fname
-
-    @api.onchange("skill_gen_prompt_upload")
-    def _onchange_skill_gen_prompt_upload(self):
-        if not self.skill_gen_prompt_upload:
-            return
-        try:
-            text = base64.b64decode(self.skill_gen_prompt_upload).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise UserError("Skill prompt must be UTF-8 text (%s)." % exc)
-        ICP = self.env["ir.config_parameter"].sudo()
-        fname = self.skill_gen_prompt_upload_filename or "skill_gen.md"
-        ICP.set_param("etp_assessment_pro.skill_gen_prompt", text)
-        ICP.set_param("etp_assessment_pro.skill_gen_prompt_filename", fname)
-        self.etp_assessment_pro_skill_gen_prompt = text
-        self.etp_assessment_pro_skill_gen_prompt_filename = fname
 
     @api.onchange("question_prompt_upload")
     def _onchange_question_prompt_upload(self):
@@ -205,35 +205,3 @@ class ResConfigSettings(models.TransientModel):
         self.etp_assessment_pro_scoring_prompt = text
         self.etp_assessment_pro_scoring_prompt_filename = fname
 
-    def set_values(self):
-        """Persist settings, then — when a scoring threshold changed — re-decide
-        every already-scored answer LIVE against the new threshold. Pass/fail and
-        the earned mark are computed fields off the immutable llm_raw_100, so we
-        only need to nudge a recompute; no answer is re-sent to the LLM. This is
-        what makes 'change the threshold in Settings -> results flip' work."""
-        ICP = self.env["ir.config_parameter"].sudo()
-        before_subj = ICP.get_param(
-            "etp_assessment_pro.subjective_pass_threshold")
-        before_overall = ICP.get_param("etp_assessment_pro.pass_threshold")
-        res = super().set_values()
-        after_subj = ICP.get_param(
-            "etp_assessment_pro.subjective_pass_threshold")
-        after_overall = ICP.get_param("etp_assessment_pro.pass_threshold")
-        if before_subj != after_subj or before_overall != after_overall:
-            self._recompute_scoring_after_threshold_change()
-        return res
-
-    def _recompute_scoring_after_threshold_change(self):
-        """Force a live recompute of the subjective marks + result rollups for
-        every scored/error response so the new threshold takes effect at once."""
-        Response = self.env["etp.assessment.pro.response"].sudo()
-        scored = Response.search([("llm_state", "in", ("scored", "error"))])
-        if not scored:
-            return
-        # Recompute per-answer marks (pass/fail, earned mark) from the stored
-        # raw score against the new threshold, then let the stored-compute
-        # dependency chain refresh evaluator rollups, score%, result, and day
-        # scores. modified() invalidates the computed cache so the new threshold
-        # is read on the next access.
-        scored.modified(["llm_raw_100", "llm_state"])
-        scored._compute_subjective_marks()

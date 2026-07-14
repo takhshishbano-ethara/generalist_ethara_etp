@@ -32,51 +32,51 @@ class TestGoBackEditPersists(TransactionCase):
         self.Assessment = self.env["etp.assessment.pro"]
         self.Evaluator = self.env["etp.assessment.pro.evaluator"]
         self.Applicant = self.env["hr.applicant"]
-        self.dim_if = self.env.ref("etp_assessment_pro.dim_image_if")
 
-    def _evaluator(self):
+    def _evaluator(self, question_ids=()):
         applicant = self.Applicant.create({
             "partner_name": "Back Cand", "email_from": "back@example.com"})
-        assessment = self.Assessment.create({"name": "Back Assessment"})
+        category = self.env["etp.assessment.pro.prompt"].create(
+            {"name": "Back Cat"})
+        assessment = self.Assessment.create({
+            "name": "Back Assessment", "generator_id": category.id})
         ev = self.Evaluator.create({
             "assessment_id": assessment.id,
             "applicant_id": applicant.id,
+            "question_order": json.dumps([int(q) for q in question_ids]),
         })
         return ev
 
     def _make_mcq(self):
         """Build an mcq question with one objective dimension, 2 options."""
-        master = self.env["etp.assessment.pro.dimension"].create({
-            "name": "Pick",
-        })
-        opt_a = self.env["etp.assessment.pro.dimension.option"].create({
-            "dimension_id": master.id, "name": "Alpha"})
-        opt_b = self.env["etp.assessment.pro.dimension.option"].create({
-            "dimension_id": master.id, "name": "Beta"})
         q = self.Question.create({
             "name": "MCQ", "prompt": "Pick one.", "question_type": "mcq"})
         qd = self.QDim.create({
-            "question_id": q.id, "dimension_id": master.id})
-        for line in qd.option_line_ids:
-            line.is_correct = line.master_option_id.id == opt_a.id
-        return q, master, opt_a, opt_b
+            "question_id": q.id, "name": "Pick",
+            "option_line_ids": [
+                (0, 0, {"name": "Alpha", "sequence": 10, "is_correct": True}),
+                (0, 0, {"name": "Beta", "sequence": 20, "is_correct": False}),
+            ]})
+        opt_a = qd.option_line_ids.filtered(lambda o: o.name == "Alpha")[:1]
+        opt_b = qd.option_line_ids.filtered(lambda o: o.name == "Beta")[:1]
+        return q, qd, opt_a, opt_b
 
     def _make_subjective(self):
         return self.Question.create({
             "name": "Subj", "prompt": "Explain.",
-            "question_type": "subjective_justification"})
+            "question_type": "subjective_rubric"})
 
     def test_justification_edit_on_goback_persists(self):
         q = self._make_subjective()
-        ev = self._evaluator()
+        ev = self._evaluator([q.id])
         ctrl = portal_ctrl.EtpAssessmentPortal()
         with patch.object(portal_ctrl, "request", _FakeRequest(self.env)):
             # First pass: candidate writes an answer.
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
                 "justification": "First draft answer."})
             # Candidate navigates back and edits the answer.
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
                 "justification": "EDITED final answer."})
         resp = self.Response.search([
@@ -88,18 +88,18 @@ class TestGoBackEditPersists(TransactionCase):
             "edited justification must persist when going back")
 
     def test_mcq_option_change_on_goback_persists(self):
-        q, master, opt_a, opt_b = self._make_mcq()
-        ev = self._evaluator()
+        q, qd, opt_a, opt_b = self._make_mcq()
+        ev = self._evaluator([q.id])
         ctrl = portal_ctrl.EtpAssessmentPortal()
         with patch.object(portal_ctrl, "request", _FakeRequest(self.env)):
             # First pass: pick Beta (wrong).
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
-                "dimension_%d" % master.id: str(opt_b.id)})
+                "dimension_%d" % qd.id: str(opt_b.id)})
             # Go back, change to Alpha (correct).
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
-                "dimension_%d" % master.id: str(opt_a.id)})
+                "dimension_%d" % qd.id: str(opt_a.id)})
         resp = self.Response.search([
             ("assessment_evaluator_id", "=", ev.id),
             ("question_id", "=", q.id)])
@@ -110,31 +110,27 @@ class TestGoBackEditPersists(TransactionCase):
 
     def _make_msq(self):
         """Build an msq question with one dimension, 3 options (A,B correct)."""
-        master = self.env["etp.assessment.pro.dimension"].create({
-            "name": "MultiPick",
-        })
-        opts = [
-            self.env["etp.assessment.pro.dimension.option"].create({
-                "dimension_id": master.id, "name": n})
-            for n in ("One", "Two", "Three")]
         q = self.Question.create({
             "name": "MSQ", "prompt": "Pick all.", "question_type": "msq"})
         qd = self.QDim.create({
-            "question_id": q.id, "dimension_id": master.id})
-        for line in qd.option_line_ids:
-            line.is_correct = line.master_option_id.id in (
-                opts[0].id, opts[1].id)
-        return q, master, opts
+            "question_id": q.id, "name": "MultiPick",
+            "option_line_ids": [
+                (0, 0, {"name": n, "sequence": (i + 1) * 10,
+                        "is_correct": n in ("One", "Two")})
+                for i, n in enumerate(("One", "Two", "Three"))
+            ]})
+        opts = qd.option_line_ids.sorted("sequence")
+        return q, qd, opts
 
     def test_added_justification_on_goback_sets_needs_llm(self):
         q = self._make_subjective()
-        ev = self._evaluator()
+        ev = self._evaluator([q.id])
         ctrl = portal_ctrl.EtpAssessmentPortal()
         with patch.object(portal_ctrl, "request", _FakeRequest(self.env)):
             # First save with a (placeholder-ish) short answer, then a real one.
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id), "justification": "x"})
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
                 "justification": "A thorough, real justification."})
         resp = self.Response.search([
@@ -147,18 +143,18 @@ class TestGoBackEditPersists(TransactionCase):
             "a real justification must mark the response as needs_llm")
 
     def test_msq_picks_change_on_goback_persists(self):
-        q, master, opts = self._make_msq()
-        ev = self._evaluator()
+        q, qd, opts = self._make_msq()
+        ev = self._evaluator([q.id])
         ctrl = portal_ctrl.EtpAssessmentPortal()
         with patch.object(portal_ctrl, "request", _FakeRequest(self.env)):
             # First pass: pick One+Three (CSV as the runner serializes it).
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
-                "dimension_%d" % master.id: "%d,%d" % (opts[0].id, opts[2].id)})
+                "dimension_%d" % qd.id: "%d,%d" % (opts[0].id, opts[2].id)})
             # Go back, change selection to One+Two (the correct set).
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
-                "dimension_%d" % master.id: "%d,%d" % (opts[0].id, opts[1].id)})
+                "dimension_%d" % qd.id: "%d,%d" % (opts[0].id, opts[1].id)})
         resp = self.Response.search([
             ("assessment_evaluator_id", "=", ev.id),
             ("question_id", "=", q.id)])
@@ -184,28 +180,28 @@ class TestScoreConsistency(TransactionCase):
         self.Assessment = self.env["etp.assessment.pro"]
         self.Evaluator = self.env["etp.assessment.pro.evaluator"]
         self.Applicant = self.env["hr.applicant"]
-        self.Category = self.env["etp.assessment.pro.category"]
+        self.Category = self.env["etp.assessment.pro.prompt"]
 
     def _mcq(self, name, category):
-        master = self.env["etp.assessment.pro.dimension"].create({
-            "name": "Dim_%s" % name})
-        opts = [
-            self.env["etp.assessment.pro.dimension.option"].create({
-                "dimension_id": master.id, "name": n}) for n in ("A", "B")]
         q = self.Question.create({
             "name": name, "prompt": "Pick one.", "question_type": "mcq",
-            "category_id": category.id})
-        qd = self.QDim.create({"question_id": q.id, "dimension_id": master.id})
-        for line in qd.option_line_ids:
-            line.is_correct = line.master_option_id.id == opts[0].id  # A correct
-        return q, master, opts
+            "generator_id": category.id})
+        qd = self.QDim.create({
+            "question_id": q.id, "name": "Dim_%s" % name,
+            "option_line_ids": [
+                (0, 0, {"name": n, "sequence": (i + 1) * 10,
+                        "is_correct": n == "A"})  # A correct
+                for i, n in enumerate(("A", "B"))
+            ]})
+        opts = qd.option_line_ids.sorted("sequence")
+        return q, qd, opts
 
-    def _answer(self, ev, q, master, opt):
+    def _answer(self, ev, q, qd, opt):
         ctrl = portal_ctrl.EtpAssessmentPortal()
         with patch.object(portal_ctrl, "request", _FakeRequest(self.env)):
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q.id),
-                "dimension_%d" % master.id: str(opt.id)})
+                "dimension_%d" % qd.id: str(opt.id)})
 
     def test_denominator_identical_across_candidates(self):
         cat = self.Category.create({"name": "ScoreCat"})
@@ -215,8 +211,8 @@ class TestScoreConsistency(TransactionCase):
             "partner_name": "C%d" % i, "email_from": "c%d@x.com" % i})
             for i in range(2)]
         a = self.Assessment.create({
-            "name": "ScoreA", "assessment_mode": "single",
-            "category_id": cat.id, "question_limit": 2,
+            "name": "ScoreA",
+            "generator_id": cat.id, "question_limit": 2,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [e.id for e in emps])]})
         a.write({"question_ids": [(6, 0, [q1.id, q2.id])]})
@@ -253,8 +249,8 @@ class TestScoreConsistency(TransactionCase):
         emp = self.Applicant.create({
             "partner_name": "Partial", "email_from": "partial@x.com"})
         a = self.Assessment.create({
-            "name": "PartialA", "assessment_mode": "single",
-            "category_id": cat.id, "question_limit": 2,
+            "name": "PartialA",
+            "generator_id": cat.id, "question_limit": 2,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])]})
         a.write({"question_ids": [(6, 0, [q1.id, q2.id])]})
@@ -275,8 +271,7 @@ class TestScoreConsistency(TransactionCase):
 
 
 class TestMandatoryAndDuration(TransactionCase):
-    """#7 final submit blocked until required questions answered, and
-    #8 day-plan generation blocked when a day has no duration (no timer)."""
+    """#7 final submit blocked until required questions answered."""
 
     def setUp(self):
         super().setUp()
@@ -285,21 +280,21 @@ class TestMandatoryAndDuration(TransactionCase):
         self.Response = self.env["etp.assessment.pro.response"]
         self.Assessment = self.env["etp.assessment.pro"]
         self.Applicant = self.env["hr.applicant"]
-        self.Category = self.env["etp.assessment.pro.category"]
-        self.Skill = self.env["etp.assessment.pro.skill"]
+        self.Category = self.env["etp.assessment.pro.prompt"]
 
     def _mcq(self, name, category):
-        master = self.env["etp.assessment.pro.dimension"].create({
-            "name": "Dim_%s" % name})
-        opts = [self.env["etp.assessment.pro.dimension.option"].create({
-            "dimension_id": master.id, "name": n}) for n in ("A", "B")]
         q = self.Question.create({
             "name": name, "prompt": "Pick.", "question_type": "mcq",
-            "category_id": category.id})
-        qd = self.QDim.create({"question_id": q.id, "dimension_id": master.id})
-        for line in qd.option_line_ids:
-            line.is_correct = line.master_option_id.id == opts[0].id
-        return q, master, opts
+            "generator_id": category.id})
+        qd = self.QDim.create({
+            "question_id": q.id, "name": "Dim_%s" % name,
+            "option_line_ids": [
+                (0, 0, {"name": n, "sequence": (i + 1) * 10,
+                        "is_correct": n == "A"})
+                for i, n in enumerate(("A", "B"))
+            ]})
+        opts = qd.option_line_ids.sorted("sequence")
+        return q, qd, opts
 
     def test_unanswered_blocks_final_submit(self):
         cat = self.Category.create({"name": "MandCat"})
@@ -308,8 +303,8 @@ class TestMandatoryAndDuration(TransactionCase):
         emp = self.Applicant.create({
             "partner_name": "Mand", "email_from": "m@x.com"})
         a = self.Assessment.create({
-            "name": "MandA", "assessment_mode": "single",
-            "category_id": cat.id, "question_limit": 2,
+            "name": "MandA",
+            "generator_id": cat.id, "question_limit": 2,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])]})
         a.write({"question_ids": [(6, 0, [q1.id, q2.id])]})
@@ -318,35 +313,13 @@ class TestMandatoryAndDuration(TransactionCase):
         ctrl = portal_ctrl.EtpAssessmentPortal()
         with patch.object(portal_ctrl, "request", _FakeRequest(self.env)):
             # Answer only q1.
-            ctrl._record_response(ev, None, {
+            ctrl._record_response(ev, {
                 "question_id": str(q1.id),
                 "dimension_%d" % m1.id: str(o1[0].id)})
-            unanswered = ctrl._unanswered_question_ids(ev, False)
+            unanswered = ctrl._unanswered_question_ids(ev)
         self.assertEqual(
             unanswered, [q2.id],
             "q2 must be reported as unanswered, blocking final submit")
-
-    def test_generate_plan_blocks_zero_duration_day(self):
-        skill = self.Skill.create({
-            "name": "DurSkill", "question_type": "mcq", "question_count": 1,
-            "time_minutes": 0})
-        cat = self.Category.create({"name": "DurCat"})
-        self._mcq("DurQ", cat)
-        emp = self.Applicant.create({
-            "partner_name": "Dur", "email_from": "d@x.com"})
-        a = self.Assessment.create({
-            "name": "DurA", "assessment_mode": "multi_day", "num_days": 1,
-            "sequential_days": True,
-            "evaluator_ids": [(6, 0, [emp.id])]})
-        a.action_scaffold_days()
-        # Day with a category pool but duration left at 0 (the forgotten field).
-        a.day_ids[0].write({
-            "pool_by": "category", "category_id": cat.id,
-            "question_count": 1, "duration_minutes": 0})
-        from odoo.exceptions import UserError
-        with self.assertRaises(UserError) as cm:
-            a.action_generate_plan()
-        self.assertIn("no time limit", str(cm.exception).lower())
 
 
 

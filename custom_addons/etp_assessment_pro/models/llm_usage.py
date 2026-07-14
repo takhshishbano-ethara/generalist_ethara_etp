@@ -12,8 +12,13 @@ class EtpLlmUsage(models.Model):
     operation = fields.Selection(
         [
             ("extract_skills", "Extract Skills"),
+            ("extract_tags", "Extract Tags"),
             ("generate_questions", "Generate Questions"),
             ("generate_image", "Generate Image"),
+            ("detect_image_elements", "Detect Image Elements"),
+            ("verify_planted_flaws", "Verify Planted Flaws"),
+            ("generate_video", "Generate Video"),
+            ("submit_video_op", "Submit Video (Veo)"),
             ("score_subjective", "Score Subjective"),
             ("other", "Other"),
         ],
@@ -27,16 +32,17 @@ class EtpLlmUsage(models.Model):
     total_tokens = fields.Integer(
         string="Total Tokens", compute="_compute_total_tokens", store=True)
     image_count = fields.Integer(string="Images")
+    video_seconds = fields.Float(
+        string="Video Seconds", digits=(12, 2), default=0.0,
+        help="Seconds of generated video (Veo) for this call; drives the "
+             "per-second video cost. 0 for non-video calls.")
     cost_usd = fields.Float(
         string="Est. Cost (USD)", digits=(12, 5),
         help="Best-effort estimate from a per-model rate table in "
              "services/vertex.py; the token counts are exact.")
-    # Optional context links (set null on delete so the ledger survives).
     prompt_id = fields.Many2one(
         "etp.assessment.pro.prompt", string="Generator",
         ondelete="set null", index=True)
-    skill_id = fields.Many2one(
-        "etp.assessment.pro.skill", string="Skill", ondelete="set null")
     evaluator_id = fields.Many2one(
         "etp.assessment.pro.evaluator", string="Candidate",
         ondelete="set null")
