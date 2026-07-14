@@ -66,6 +66,14 @@ export class KenseiTaskerDashboard extends KenseiDashboardBase {
             target: "current",
         });
     }
+
+    /** Keyboard equivalent of clicking a recent-task row (the <tr> is t-on-click). */
+    onRowKeydown(ev, row) {
+        if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
+            ev.preventDefault();
+            this.openTask(row);
+        }
+    }
 }
 
 registry.category("actions").add("kensei_tasker_dashboard", KenseiTaskerDashboard);

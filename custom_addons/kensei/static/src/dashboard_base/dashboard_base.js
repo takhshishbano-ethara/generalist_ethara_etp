@@ -18,14 +18,28 @@ export class KenseiDashboardBase extends Component {
     setup() {
         this.notification = useService("notification");
         this.action = useService("action");
+        // Monotonic request counter — see _fetch.
+        this._seq = 0;
     }
 
     /**
      * RPC helper that folds the current date range into the params and manages
      * ``loading`` + ``lastUpdated``. Returns the payload, or null on a hard
      * failure (a soft ``{error}`` payload is returned for the caller to handle).
+     *
+     * Returns null for a STALE response too. Every filter control (setPreset,
+     * onDateInput, setGroupBy, setStage) calls _load() immediately, so two quick
+     * clicks put two RPCs in flight; without sequencing, whichever resolves LAST
+     * wins — and that is often the older, slower one, which then overwrites the
+     * fresh data with results for a filter the user already moved off. The counter
+     * makes late arrivals identifiable, so they can be dropped instead of applied.
+     *
+     * Callers already treat null as "nothing to do" (hard failure), which is
+     * exactly the right handling for a stale response as well.
      */
     async _fetch(route, params = {}, errorMsg = "Failed to load data.") {
+        const seq = ++this._seq;
+        const isStale = () => seq !== this._seq;
         this.state.loading = true;
         try {
             const res = await rpc(route, {
@@ -33,6 +47,9 @@ export class KenseiDashboardBase extends Component {
                 date_to: this.state.dateTo || false,
                 ...params,
             });
+            if (isStale()) {
+                return null;
+            }
             if (res && !res.error) {
                 this.state.lastUpdated = new Date().toLocaleTimeString("en-US", {
                     hour: "2-digit",
@@ -41,11 +58,18 @@ export class KenseiDashboardBase extends Component {
             }
             return res;
         } catch (e) {
+            if (isStale()) {
+                return null;
+            }
             this.notification.add(errorMsg, { type: "danger" });
             console.error("[kensei-dashboard]", e);
             return null;
         } finally {
-            this.state.loading = false;
+            // Only the newest request owns the spinner. A stale response resolving
+            // late must not clear `loading` while the current one is still running.
+            if (!isStale()) {
+                this.state.loading = false;
+            }
         }
     }
 

@@ -26,8 +26,13 @@
                             </td>
                         </tr>
                     </t>
-                    <t t-foreach="pageRows" t-as="row" t-key="row.id">
-                        <tr class="o_ktd_clickable" t-on-click="() => this.rowClick(row)">
+                    <!-- t-key on row.id alone collides: the server emits id 0 for the
+                         "Unassigned" bucket, and any second id-less row would key the
+                         same, making OWL patch the wrong <tr>. _idx is unique per page. -->
+                    <t t-foreach="pageRows" t-as="row" t-key="row.id + '_' + row._idx">
+                        <tr class="o_ktd_clickable" t-on-click="() => this.rowClick(row)"
+                            tabindex="0" role="button"
+                            t-on-keydown="(ev) => this.rowKeydown(ev, row)">
                             <td class="o_ktd_col_idx"><t t-out="row._idx"/></td>
                             <td class="o_ktd_col_pl"><t t-out="row.name"/></td>
                             <td><t t-out="row.total"/></td>
@@ -45,16 +50,19 @@
                     </t>
                 </tbody>
             </table>
+            <!-- reads `page` (the clamped getter), never state.page — a stale
+                 state.page would otherwise render "5 / 3" after a filter shrinks
+                 the rows, and leave the buttons enabled with nothing to do. -->
             <div class="o_ktd_pager" t-if="totalPages > 1">
-                <button class="o_ktd_pager_btn" t-att-disabled="state.page &lt;= 1"
+                <button class="o_ktd_pager_btn" t-att-disabled="page &lt;= 1"
                         t-on-click="prev" aria-label="Previous page">
                     <i class="fa fa-chevron-left"/>
                 </button>
                 <span class="o_ktd_pager_info">
-                    <t t-out="state.page"/> / <t t-out="totalPages"/>
+                    <t t-out="page"/> / <t t-out="totalPages"/>
                     <span class="text-muted"> · <t t-out="total"/></span>
                 </span>
-                <button class="o_ktd_pager_btn" t-att-disabled="state.page >= totalPages"
+                <button class="o_ktd_pager_btn" t-att-disabled="page >= totalPages"
                         t-on-click="next" aria-label="Next page">
                     <i class="fa fa-chevron-right"/>
                 </button>

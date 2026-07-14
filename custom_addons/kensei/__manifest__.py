@@ -1,6 +1,6 @@
 {
     "name": "Kensei",
-    "version": "19.0.1.9.0",
+    "version": "19.0.1.10.0",
     "category": "Tools",
     "summary": "Kensei — LLM task management with sandbox environments and file attachments",
     "description": """
@@ -71,6 +71,9 @@
             "kensei/static/src/costing_dashboard/costing_dashboard.xml",
             "kensei/static/src/costing_dashboard/costing_dashboard.scss",
             "kensei/static/src/tracker_common.js",
+            "kensei/static/src/list_stats/list_stats.js",
+            "kensei/static/src/list_stats/list_stats.xml",
+            "kensei/static/src/list_stats/list_stats.scss",
             "kensei/static/src/dashboard_base/dashboard_base.js",
             "kensei/static/src/dashboard_base/dashboard_base.xml",
             "kensei/static/src/progress_table/progress_table.js",

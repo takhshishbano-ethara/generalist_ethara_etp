@@ -142,9 +142,16 @@ export class KenseiTrackerDaily extends Component {
 
     cellClass(row, col) {
         const v = row.cells[col.key] || 0;
-        let cls = "o_ktd_cell";
-        if (col.weekend) cls += " o_ktd_weekend";
-        if (v > 0) cls += " o_ktd_has";
+        // o_kd_*, not o_ktd_*. This file's stylesheet (tracker_daily.scss) defines
+        // .o_kd_cell / .o_kd_weekend / .o_kd_has; o_ktd_* belongs to the OTHER
+        // dashboard (tracker_dashboard.scss). With the wrong prefix these three
+        // classes matched nothing, so weekend shading and the green "has
+        // completions" highlight never rendered in the table body — while the <th>,
+        // which correctly used o_kd_weekend, did shade. Hence shaded headers above
+        // unshaded columns.
+        let cls = "o_kd_cell";
+        if (col.weekend) cls += " o_kd_weekend";
+        if (v > 0) cls += " o_kd_has";
         return cls;
     }
 

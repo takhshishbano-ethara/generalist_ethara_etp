@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from odoo.tests import tagged
 
 from .common import KenseiTestCase
-from ..controllers.kensei_controller import Kensei as KenseiController
+from ..controllers.kensei_controller import KenseiController
 
 
 def _make_mock_response(jsonl_lines):

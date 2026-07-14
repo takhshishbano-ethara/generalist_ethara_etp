@@ -18,6 +18,10 @@ const TRAJECTORY_FIELD_MAP = {
 
 const BATCH_POLL_INTERVAL_MS = 5000;
 
+// ~10 minutes at 5s. A description that has not resolved by then is not going to,
+// and an unbounded poller is a leak waiting for the one record that never settles.
+const DESC_POLL_MAX_ATTEMPTS = 120;
+
 export class TaskDashboard extends Component {
     static template = "kensei.TaskDashboard";
     static components = { GogAuthDialog };
@@ -28,6 +32,9 @@ export class TaskDashboard extends Component {
         this.orm = useService("orm");
         this.batchModels = BATCH_MODELS;
         this._pollTimer = null;
+        // Every description poller started by _pollDescriptionThenTriggerQc, so
+        // onWillUnmount can cancel them. Without this they outlive the component.
+        this._descPollTimers = new Set();
 
         this.state = useState({
             batchPrompt: "",
@@ -74,6 +81,10 @@ export class TaskDashboard extends Component {
         onWillUnmount(() => {
             this._stopPolling();
             if (this._testWeightsPollTimer) clearInterval(this._testWeightsPollTimer);
+            for (const timer of this._descPollTimers) {
+                clearInterval(timer);
+            }
+            this._descPollTimers.clear();
             this.env.bus.removeEventListener(
                 "KENSEI:BATCH_STATUS_CHANGED",
                 this._onBatchStatusChanged,
@@ -415,9 +426,28 @@ export class TaskDashboard extends Component {
         }
     }
 
+    /**
+     * Poll until the task description resolves, then kick off QC.
+     *
+     * The handle is tracked on the component and bounded by an attempt count. It
+     * used to live in a local `const`, so onWillUnmount could not reach it: if the
+     * status never left "pending" the interval kept calling record.load() on a
+     * destroyed record every 5s, forever — and since this is fired once per model
+     * from _handleBatchStatusChanged and again from _pollBatchStatus, several
+     * would stack up.
+     */
     _pollDescriptionThenTriggerQc(recordId, fieldName, entryIndex) {
+        let attempts = 0;
+        const stop = () => {
+            clearInterval(poll);
+            this._descPollTimers.delete(poll);
+        };
         const poll = setInterval(async () => {
             try {
+                if (++attempts > DESC_POLL_MAX_ATTEMPTS) {
+                    stop();
+                    return;
+                }
                 await this.props.record.load();
                 const raw = this.props.record.data[fieldName];
                 if (!raw || !raw.trim()) return;
@@ -426,7 +456,7 @@ export class TaskDashboard extends Component {
                 if (entryIndex >= entries.length) return;
                 const status = entries[entryIndex].task_description_status;
                 if (!status || status === "pending") return;
-                clearInterval(poll);
+                stop();
                 if (status !== "done") return;
                 const qcStatus = entries[entryIndex].qc_status;
                 if (qcStatus === "pending" || qcStatus === "done") return;
@@ -440,10 +470,11 @@ export class TaskDashboard extends Component {
                     entry_index: entryIndex,
                 });
             } catch (e) {
-                clearInterval(poll);
+                stop();
                 console.warn("[kensei-dashboard] Auto QC trigger failed:", e);
             }
         }, 5000);
+        this._descPollTimers.add(poll);
     }
 
     getTestResultsForTrajectory(trajIndex) {
@@ -820,5 +851,14 @@ export class TaskDashboard extends Component {
     }
 }
 
-export const taskDashboardDef = { component: TaskDashboard };
+export const taskDashboardDef = {
+    component: TaskDashboard,
+    // batch_size is read by the `batchSize` getter but was never declared in the
+    // form arch, so record.data.batch_size was always undefined and totalPods
+    // silently hard-wired itself to BATCH_MODELS.length * 8 — the "Start Batch
+    // (N pods)" label and the progress bar both ignored the configured pod count.
+    // Declaring it here makes the widget load the field itself instead of
+    // depending on someone remembering to add an invisible <field/> to the view.
+    fieldDependencies: [{ name: "batch_size", type: "integer" }],
+};
 registry.category("view_widgets").add("kensei_task_dashboard", taskDashboardDef);

@@ -54,6 +54,11 @@ _PROGRESS_GROUPS = {
     "tasker": "tasker_member_id",
 }
 
+# Hard ceiling on rows returned in one Daily Tracker response. The export path
+# skips pagination, so without this a client-supplied page_size was the one way to
+# pull the entire allocation table down in a single JSON payload.
+_MAX_PAGE_SIZE = 5000
+
 
 def _funnel(sc):
     """Build the RL-pipeline funnel cards from a {status: count} map. Shared by
@@ -84,6 +89,32 @@ def _to_int(v):
         return None
 
 
+def _label(record):
+    """Label for a grouped m2o — safe to read as a non-HR user.
+
+    NEVER read ``.name`` off one of these. The group key is often an ``hr.employee``
+    (``pl_id``, ``team_lead_id``), and a PL/QL is NOT an HR user, so hr.employee
+    exposes only its *public profile* to them. Reading ``.name`` makes the ORM
+    prefetch the whole row, which trips the public-profile restriction and raises
+    AccessError — killing the entire request. That is what made the Daily Tracker
+    show every PL "Failed to load Daily Tracker data.": ``daily_data`` and
+    ``daily_filters`` both read ``pl.name`` / ``lead.name`` directly.
+
+    Measured on hr.employee as a PL with no HR groups:
+
+        rec.name           -> AccessError
+        rec.display_name   -> OK
+        rec.sudo().name    -> OK
+
+    ``display_name`` is the reason this works; the ``sudo()`` is deliberate
+    belt-and-braces so the call stays correct even if a future hr.employee tightens
+    what a public profile may compute. Route every grouped label through here.
+    """
+    if not record:
+        return ""
+    return record.sudo().display_name or ""
+
+
 def _progress_rows(Alloc, group_field, base_domain=None):
     """Per-<group> progress buckets via grouped SQL. ``group_field`` is any m2o
     (``pl_id`` -> hr.employee, ``assigned_ql_id`` -> res.users,
@@ -97,7 +128,7 @@ def _progress_rows(Alloc, group_field, base_domain=None):
         row = rows.get(rid)
         if not row:
             row = rows[rid] = {
-                "id": rid, "name": rec.display_name if rec else "Unassigned",
+                "id": rid, "name": _label(rec) if rec else "Unassigned",
                 "total": 0, "in_auth": 0, "ready": 0, "in_traj": 0,
                 "manual_qc": 0, "handed_off": 0, "verified": 0, "blocked": 0,
                 "avg_score": None,
@@ -114,6 +145,138 @@ def _progress_rows(Alloc, group_field, base_domain=None):
             base_domain + [("overall_score", ">", 0)], [group_field], ["overall_score:avg"]):
         _row(rec)["avg_score"] = round(avg, 1) if avg else None
     return sorted(rows.values(), key=lambda r: (-r["total"], r["name"].lower()))
+
+
+# ---------------------------------------------------------------------------- #
+#  List-view stat cards (Task Allocation / Personas / Team Management)
+#
+#  Every builder is handed the model AS THE CALLING USER and the list's CURRENT
+#  search domain, so the cards always agree with the rows underneath them: they
+#  are scoped by the record rules (a PL sees their team's numbers, a tasker their
+#  own) and they move when the user filters. Aggregation is grouped SQL — never
+#  search([]) — so this stays cheap at 10k+ allocations.
+# ---------------------------------------------------------------------------- #
+
+def _card(key, label, value, icon="fa-tasks", tone="purple", suffix=None,
+          share=None, filter_domain=None):
+    """One stat card.
+
+    Deliberately the same shape as the Daily Tracker's summary cards (icon tile +
+    value + uppercase label): the two surfaces sit one menu click apart, so they
+    should read as the same product.
+
+    ``icon``          FontAwesome class for the tinted tile.
+    ``tone``          which tint the tile carries — blue / green / amber / purple /
+                      red, matching the Daily Tracker's .o_kd_ic_* set.
+    ``share``         this value's fraction of the total (0..1), or None where the
+                      metric is not a subset of anything (an average). Surfaced in
+                      the tooltip, not as another mark on the card.
+    ``filter_domain`` clicking the card adds this as a search filter. Cards that
+                      cannot narrow anything (the total) leave it None and render
+                      inert — a control that looks clickable and does nothing is
+                      worse than one that plainly is not.
+    """
+    return {
+        "key": key,
+        "label": label,
+        "value": value,
+        "icon": icon,
+        "tone": tone,
+        "suffix": suffix,
+        "share": share,
+        "domain": filter_domain,
+    }
+
+
+def _share(value, total):
+    return (value / total) if total else 0.0
+
+
+def _stats_allocation(Alloc, domain):
+    counts = {s: c for s, c in
+              Alloc._read_group(domain, ["status"], ["__count"])}
+    total = sum(counts.values())
+    completed = counts.get("deliverable", 0)
+    failed = counts.get("failed", 0)
+    active = total - completed - failed
+    avg = next((a for a, in Alloc._read_group(
+        domain + [("overall_score", ">", 0)], [], ["overall_score:avg"])), None)
+    return [
+        _card("total", "Total Tasks", total,
+              icon="fa-tasks", tone="purple"),
+        _card("active", "In Progress", active,
+              icon="fa-spinner", tone="blue",
+              share=_share(active, total),
+              filter_domain=[("status", "in", _ACTIVE_STATUSES)]),
+        _card("completed", "Completed", completed,
+              icon="fa-check-circle", tone="green",
+              share=_share(completed, total),
+              filter_domain=[("status", "=", "deliverable")]),
+        _card("failed", "Failed", failed,
+              icon="fa-times-circle", tone="red",
+              share=_share(failed, total),
+              filter_domain=[("status", "=", "failed")]),
+        _card("avg_score", "Avg Score", round(avg, 1) if avg else None,
+              icon="fa-line-chart", tone="amber", suffix="%"),
+    ]
+
+
+def _stats_persona(Persona, domain):
+    counts = {s: c for s, c in
+              Persona._read_group(domain, ["assignment_status"], ["__count"])}
+    assigned = counts.get("assigned", 0)
+    unassigned = counts.get("unassigned", 0)
+    total = assigned + unassigned
+    return [
+        _card("total", "Total Personas", total,
+              icon="fa-id-badge", tone="purple"),
+        _card("assigned", "Assigned", assigned,
+              icon="fa-check-circle", tone="green",
+              share=_share(assigned, total),
+              filter_domain=[("assignment_status", "=", "assigned")]),
+        _card("unassigned", "Unassigned", unassigned,
+              icon="fa-inbox", tone="blue",
+              share=_share(unassigned, total),
+              filter_domain=[("assignment_status", "=", "unassigned")]),
+    ]
+
+
+def _stats_team(Member, domain):
+    roles = {r: c for r, c in Member._read_group(domain, ["role"], ["__count"])}
+    statuses = {s: c for s, c in
+                Member._read_group(domain, ["status"], ["__count"])}
+    total = sum(roles.values())
+    benched = statuses.get("inactive", 0) + statuses.get("on_hold", 0)
+    return [
+        _card("total", "Total Members", total,
+              icon="fa-users", tone="purple"),
+        _card("taskers", "Taskers", roles.get("tasker", 0),
+              icon="fa-user", tone="blue",
+              share=_share(roles.get("tasker", 0), total),
+              filter_domain=[("role", "=", "tasker")]),
+        _card("qls", "Quality Leads", roles.get("ql", 0),
+              icon="fa-check-square-o", tone="green",
+              share=_share(roles.get("ql", 0), total),
+              filter_domain=[("role", "=", "ql")]),
+        _card("pls", "Project Leads", roles.get("pl", 0),
+              icon="fa-briefcase", tone="amber",
+              share=_share(roles.get("pl", 0), total),
+              filter_domain=[("role", "=", "pl")]),
+        _card("benched", "Not Active", benched,
+              icon="fa-pause-circle", tone="red",
+              share=_share(benched, total),
+              filter_domain=[("status", "in", ["inactive", "on_hold"])]),
+    ]
+
+
+# Whitelist. The model name arrives from the client, so it is matched against this
+# map rather than passed to request.env — otherwise the route would happily
+# aggregate any model in the database.
+_LIST_STATS = {
+    "kensei.tracker.allocation": _stats_allocation,
+    "kensei.persona": _stats_persona,
+    "kensei.tracker.team.member": _stats_team,
+}
 
 
 _PERSONA_SAMPLE_CSV = (
@@ -156,6 +319,26 @@ class KenseiTrackerController(http.Controller):
         )
 
     # ------------------------------------------------------------------ #
+    #  Stat cards above the Task Allocation / Personas / Team list views
+    # ------------------------------------------------------------------ #
+    @http.route("/kensei/tracker/list_stats", type="json", auth="user")
+    def list_stats(self, model=None, domain=None, **kw):
+        """Stat cards for a list view, scoped to its CURRENT search domain.
+
+        ``model`` is client-supplied, so it is looked up in the _LIST_STATS
+        whitelist instead of being handed to request.env — an unrecognised model
+        yields no cards rather than aggregating an arbitrary table. The domain is
+        applied as the calling user, so the record rules scope the figures exactly
+        the way they scope the rows below.
+        """
+        builder = _LIST_STATS.get(model)
+        if not builder:
+            return {"cards": []}
+        if not isinstance(domain, list):
+            domain = []
+        return {"cards": builder(request.env[model], domain)}
+
+    # ------------------------------------------------------------------ #
     #  Daily Tracker (custom pivot table)
     # ------------------------------------------------------------------ #
     @http.route("/kensei/tracker/daily/filters", type="json", auth="user")
@@ -166,9 +349,11 @@ class KenseiTrackerController(http.Controller):
         # Distinct dropdown values via grouped queries — the previous
         # search([]).mapped(...) materialised every allocation just to collect a
         # few dozen PLs/leads/projects (a full-table load on each page open).
-        pls = [{"id": pl.id, "name": pl.name}
+        # _label(): pl_id / team_lead_id are hr.employee, and a PL/QL is not an HR
+        # user — reading .name direct raises AccessError (public-profile fields).
+        pls = [{"id": pl.id, "name": _label(pl)}
                for pl, in Alloc._read_group([("pl_id", "!=", False)], ["pl_id"])]
-        leads = [{"id": lead.id, "name": lead.name}
+        leads = [{"id": lead.id, "name": _label(lead)}
                  for lead, in Alloc._read_group([("team_lead_id", "!=", False)], ["team_lead_id"])]
         projects = sorted(
             p for p, in Alloc._read_group([("project", "!=", False)], ["project"]) if p)
@@ -238,7 +423,9 @@ class KenseiTrackerController(http.Controller):
                 emp[key] = {
                     "name": name or email or "Unknown",
                     "email": email or "",
-                    "pl": pl.name if pl else "",
+                    # pl is an hr.employee — see _label(): a PL/QL cannot read it
+                    # directly without HR rights.
+                    "pl": _label(pl),
                     "cells": {k: 0 for k in date_keys},
                     "total": 0,
                 }
@@ -275,9 +462,21 @@ class KenseiTrackerController(http.Controller):
         total_employees = total_rows
         avg = round(total_completed / total_employees, 1) if total_employees else 0.0
 
-        if not export:
-            page = max(1, int(page))
-            page_size = max(1, int(page_size))
+        # Coerce defensively: these land straight from the client. A non-numeric
+        # ``page`` used to raise on int() and surface as a 500 instead of degrading
+        # to page 1 — every other request param in this file already goes through
+        # _to_int.
+        page = max(1, _to_int(page) or 1)
+        page_size = min(max(1, _to_int(page_size) or 20), _MAX_PAGE_SIZE)
+        # The export path deliberately skips pagination, so it is the one route that
+        # can return the whole table in a single payload. Bound it, and TELL the
+        # client when it was bounded — a silently truncated export reads as a
+        # complete one.
+        truncated = False
+        if export:
+            truncated = len(rows) > _MAX_PAGE_SIZE
+            rows = rows[:_MAX_PAGE_SIZE]
+        else:
             rows = rows[(page - 1) * page_size:(page - 1) * page_size + page_size]
 
         date_cols = [{"key": d.isoformat(), "label": d.strftime("%d %b"),
@@ -294,8 +493,9 @@ class KenseiTrackerController(http.Controller):
                 "date_to": d_to.strftime("%d %b %Y"),
             },
             "total_rows": total_rows,
-            "page": int(page),
-            "page_size": int(page_size),
+            "page": page,
+            "page_size": page_size,
+            "truncated": truncated,
         }
 
     @http.route("/kensei/tracker/dashboard", type="json", auth="user")

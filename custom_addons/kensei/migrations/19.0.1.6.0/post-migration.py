@@ -19,10 +19,18 @@ def migrate(cr, version):
     if not version:
         return
 
+    # Only ever promotes a gate that is still at its column default. Without the
+    # second predicate this UPDATE is not idempotent: on a re-run (a version
+    # regression, a manual -u, a restored dump replayed forward) it would resurrect
+    # a baseline_ready_status that had since been legitimately set to 'failed' or
+    # reverted to 'in_progress' by a QL, silently re-promoting the record. Backfills
+    # must only ever touch rows they have not already touched.
     cr.execute("""
         UPDATE kensei_tracker_allocation
            SET baseline_ready_status = 'done'
          WHERE pl_verified_status = 'done'
+           AND (baseline_ready_status IS NULL
+                OR baseline_ready_status = 'in_progress')
     """)
 
     env = api.Environment(cr, SUPERUSER_ID, {})

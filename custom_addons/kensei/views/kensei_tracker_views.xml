@@ -45,7 +45,10 @@
 
              Row decorations do the triage the badges used to make you read: finished
              work recedes, dead work is red. Everything else stays at normal weight. -->
-        <list string="Task Allocation" sample="1"
+        <!-- js_class: adds the stat cards above the rows. The cards are scoped by
+             the record rules and follow the active search filters, so they always
+             agree with the rows underneath. See static/src/list_stats/. -->
+        <list string="Task Allocation" sample="1" js_class="kensei_stats_list"
               decoration-muted="status == 'deliverable'"
               decoration-danger="status == 'failed'">
           <header>
@@ -131,6 +134,14 @@
                     class="btn-secondary" icon="fa-undo"
                     confirm="Reopening withdraws this task's completion: its delivery date is cleared and it drops back into the pipeline. Continue?"
                     invisible="status not in ('deliverable', 'failed')"
+                    groups="kensei.group_kensei_ql"/>
+            <!-- Reset is NOT Reopen. Reopen un-freezes one stage and keeps its work;
+                 this DESTROYS the work on every stage and starts the task over. It is
+                 always available (a task can be reset at any point in the pipeline),
+                 QL/PL-only, and confirmed — there is no undo. -->
+            <button name="action_reset_task" type="object" string="Reset Task"
+                    class="btn-secondary text-danger" icon="fa-refresh"
+                    confirm="Reset the ENTIRE task? Every stage input — drive links, QC results, scores and notes — will be permanently erased, any later stage will be DELETED, and the task will start again from Tasker QC. Its Task ID, persona, tasker and leads are kept. This cannot be undone."
                     groups="kensei.group_kensei_ql"/>
             <field name="can_hand_off" invisible="1"/>
             <field name="stage_no" invisible="1"/>
