@@ -87,9 +87,14 @@ def place_badge(box, bw, bh, boxes, placed, w, h, own_idx):
     return scored[0][1], scored[0][0]
 
 
-def annotate_image(image_bytes, detections):
-    """Draw numbered red boxes for ``detections`` (each ``{"box_2d","label",
-    "description"}`` with box_2d in 0-1000 space) onto ``image_bytes``. Element
+def annotate_from_pixels(image_bytes, items):
+    """Numbered-box overlay working directly in IMAGE-PIXEL space.
+
+    ``items`` is ``[{"label","description","box_px":[l,t,r,b]}]`` with box_px
+    already in the image's own pixel coordinates — NO 0-1000 round trip — so a
+    caller holding exact rects (the DOM capture path, whose boxes are CSS px *
+    device-scale-factor) draws them tight on the real element edges instead of
+    quantizing every edge to the ~1.4px steps of Gemini's 0-1000 grid. Element
     rectangles are drawn first, then each numbered badge is positioned with
     :func:`place_badge` so it avoids covering neighbouring boxes and other badges.
     Returns ``(annotated_png_bytes, label_key)`` where label_key is the answer
@@ -101,11 +106,11 @@ def annotate_image(image_bytes, detections):
     fsize = max(13, w // 90)
     font = _font(fsize)
 
-    valid = [d for d in (detections or [])
-             if isinstance(d, dict)
-             and isinstance(d.get("box_2d"), (list, tuple))
-             and len(d["box_2d"]) == 4]
-    px_boxes = [list(_to_pixels(d["box_2d"], w, h)) for d in valid]
+    valid = [it for it in (items or [])
+             if isinstance(it, dict)
+             and isinstance(it.get("box_px"), (list, tuple))
+             and len(it["box_px"]) == 4]
+    px_boxes = [[int(round(float(v))) for v in it["box_px"]] for it in valid]
 
     for left, top, right, bottom in px_boxes:
         draw.rounded_rectangle(
@@ -113,7 +118,7 @@ def annotate_image(image_bytes, detections):
 
     label_key = []
     placed = []
-    for i, det in enumerate(valid):
+    for i, it in enumerate(valid):
         number = str(i + 1)
         tb = draw.textbbox((0, 0), number, font=font)
         tw, th = tb[2] - tb[0], tb[3] - tb[1]
@@ -127,11 +132,39 @@ def annotate_image(image_bytes, detections):
         left, top, right, bottom = px_boxes[i]
         label_key.append({
             "number": i + 1,
-            "label": str(det.get("label") or "").strip(),
-            "description": str(det.get("description") or "").strip(),
+            "label": str(it.get("label") or "").strip(),
+            "description": str(it.get("description") or "").strip(),
             "box_px": [left, top, right, bottom],
         })
 
     buf = io.BytesIO()
     base.save(buf, format="PNG")
     return buf.getvalue(), label_key
+
+
+def annotate_image(image_bytes, detections):
+    """Draw numbered red boxes for ``detections`` (each ``{"box_2d","label",
+    "description"}`` with box_2d in 0-1000 space) onto ``image_bytes``. Element
+    rectangles are drawn first, then each numbered badge is positioned with
+    :func:`place_badge` so it avoids covering neighbouring boxes and other badges.
+    Returns ``(annotated_png_bytes, label_key)`` where label_key is the answer
+    sheet ``[{"number","label","description","box_px":[l,t,r,b]}]``.
+
+    This is the Gemini-detection entry point: box_2d rects are mapped from the
+    0-1000 grid into pixel space against the image size, then drawn by
+    :func:`annotate_from_pixels`. Callers that already hold exact pixel rects
+    (the DOM capture path) should call :func:`annotate_from_pixels` directly."""
+    from PIL import Image
+    w, h = Image.open(io.BytesIO(image_bytes)).size
+    items = []
+    for d in (detections or []):
+        if not (isinstance(d, dict)
+                and isinstance(d.get("box_2d"), (list, tuple))
+                and len(d["box_2d"]) == 4):
+            continue
+        items.append({
+            "label": d.get("label"),
+            "description": d.get("description"),
+            "box_px": list(_to_pixels(d["box_2d"], w, h)),
+        })
+    return annotate_from_pixels(image_bytes, items)

@@ -16,7 +16,6 @@ hard-fails when Playwright/Chromium is absent; callers gate on
 declared in the manifest's external_dependencies for the same reason.
 """
 import datetime
-import io
 import logging
 
 try:  # pragma: no cover - exercised only where Playwright is installed
@@ -27,6 +26,12 @@ except ImportError:  # the common case in this environment
     PLAYWRIGHT_AVAILABLE = False
 
 _logger = logging.getLogger(__name__)
+
+_DESKTOP_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/149.0.0.0 Safari/537.36"
+)
 
 # Ported VERBATIM from the reference generator
 # (dummy_testing/reference sop/agon-proj2-proj3/proj-2/run*/generate_assets.py,
@@ -304,6 +309,30 @@ def _boxes_to_detections(boxes, width, height, dsf):
     return dets
 
 
+def _boxes_to_px_items(boxes, dsf):
+    """Adapt captured DOM elements to exact screenshot-pixel draw items.
+
+    ``box_css`` rects are absolute CSS pixels; the screenshot is rendered at
+    ``device_scale_factor`` dsf, so screenshot px == css px * dsf. We keep those
+    exact rects (unlike :func:`_boxes_to_detections`, which quantizes to Gemini's
+    0-1000 grid for the model path) so the DOM boxes sit tight on the real
+    element edges. Yields ``{"label","description","box_px":[l,t,r,b]}`` for
+    :func:`imaging.annotate_from_pixels`."""
+    items = []
+    for b in boxes:
+        box = b.get("box_css")
+        if not (isinstance(box, (list, tuple)) and len(box) == 4):
+            continue
+        left, top, right, bottom = (float(v) * dsf for v in box)
+        name = (b.get("name") or b.get("text") or b.get("tag") or "").strip()
+        items.append({
+            "label": name[:60],
+            "description": draft_functionality(b),
+            "box_px": [round(left), round(top), round(right), round(bottom)],
+        })
+    return items
+
+
 def apply_omit(boxes, omit):
     """Drop ONE interactive element matching the ``omit`` directive from the
     drawn boxes and record it as the deliberately-omitted ground-truth element,
@@ -346,13 +375,15 @@ def apply_omit(boxes, omit):
 
 
 def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None,
-                         dismiss=None, wait_ms=2500):
+                         dismiss=None, wait_ms=5000):
     """Open ``url`` in headless Chromium, enumerate its interactive DOM elements,
     screenshot it, draw numbered boxes at the real DOM geometry (via the shared
     imaging overlay), and mechanically draft a behavioural answer key.
 
-    ``wait_ms`` is the settle delay after ``load`` (default 2500) before the DOM
-    is enumerated; ``dismiss`` is a list of CSS selectors for cookie/consent
+    ``wait_ms`` is the settle delay after ``load`` + a best-effort ``networkidle``
+    wait (default 5000) before the DOM is enumerated, giving single-page apps time
+    to finish their network burst and hydrate; ``dismiss`` is a list of CSS
+    selectors for cookie/consent
     "accept" controls — each is clicked (errors ignored, exactly as the reference
     generator's dismiss loop) so an overlay does not hide the real page elements.
 
@@ -373,20 +404,33 @@ def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None,
     try:
         settle = int(wait_ms)
     except (TypeError, ValueError):
-        settle = 2500
+        settle = 5000
     if settle < 0:
-        settle = 2500
+        settle = 5000
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
-            page = browser.new_page(
+            # a real desktop UA + en-US locale so sites serve their full desktop
+            # layout (not a bot/mobile fallback) to the headless capture, exactly
+            # as the reference generator's browser context does
+            context = browser.new_context(
                 viewport={"width": int(vw), "height": int(vh)},
-                device_scale_factor=dsf)
+                device_scale_factor=dsf,
+                locale="en-US",
+                user_agent=_DESKTOP_UA)
+            page = context.new_page()
             page.goto(url, wait_until="load", timeout=60000)
+            # let a single-page app finish its network burst + hydration before
+            # enumerating; networkidle is best-effort (a page holding a socket
+            # open never fires it), so it is followed by the fixed settle delay
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:  # noqa: BLE001 - long-poll/socket pages never idle
+                pass
             page.wait_for_timeout(settle)
             # dismiss cookie/consent overlays: click each selector, ignore any
-            # error (the overlay may be absent), then settle briefly so the
-            # overlay finishes tearing down before the DOM is enumerated
+            # error (the overlay may be absent), then wait for the page to reflow
+            # into the freed space before the DOM is enumerated
             dismissed = False
             for sel in (dismiss or []):
                 if not str(sel).strip():
@@ -397,16 +441,16 @@ def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None,
                 except Exception:  # noqa: BLE001 - overlay may not be present
                     pass
             if dismissed:
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(2000)
             boxes = page.evaluate(_COLLECT_JS) or []
             screenshot_png = page.screenshot(full_page=False)
         finally:
             browser.close()
     boxes, omitted = apply_omit(boxes, omit)
-    from PIL import Image
-    width, height = Image.open(io.BytesIO(screenshot_png)).size
-    dets = _boxes_to_detections(boxes, width, height, dsf)
-    annotated_png, label_key = imaging.annotate_image(screenshot_png, dets)
+    # draw boxes at EXACT screenshot-pixel geometry (css px * dsf), skipping the
+    # 0-1000 quantization the Gemini-detection path needs, so DOM boxes sit tight
+    items = _boxes_to_px_items(boxes, dsf)
+    annotated_png, label_key = imaging.annotate_from_pixels(screenshot_png, items)
     dom_manifest, behavioural_key = _build_manifest_and_key(boxes)
     return {
         "screenshot_png": screenshot_png,
