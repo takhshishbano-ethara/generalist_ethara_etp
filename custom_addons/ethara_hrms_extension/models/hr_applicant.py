@@ -112,9 +112,7 @@ class HrApplicant(models.Model):
 
     def action_screen_resume(self):
         self.ensure_one()
-        from odoo.addons.ethara_hrms_extension.services import (
-            llm_client, credential_manager,
-        )
+        from odoo.addons.ethara_hrms_extension.services import llm_client
 
         missing = []
         if not self.job_id:
@@ -128,14 +126,14 @@ class HrApplicant(models.Model):
                 'Please fill them in and try again.' % '\n  • '.join(missing)
             )
 
-        api_key = credential_manager.get_llm_api_key(self.env)
+        ICP = self.env['ir.config_parameter'].sudo()
+        api_key = (ICP.get_param('ethara_hrms.llm_api_key', '') or '').strip()
         if not api_key:
             raise UserError(
-                'LLM API key not configured. Set '
-                '"ethara_hrms.llm_api_key" via Settings or shell.'
+                'LLM API key not configured. Set the '
+                '"ethara_hrms.llm_api_key" system parameter '
+                '(Settings → Technical → System Parameters).'
             )
-
-        ICP = self.env['ir.config_parameter'].sudo()
         base_url = ICP.get_param(
             'ethara_hrms.llm_base_url', llm_client.DEFAULT_BASE_URL,
         )
