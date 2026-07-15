@@ -4,11 +4,8 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, useState, onWillStart } from "@odoo/owl";
 
-const DEFAULT_TRAJECTORIES_URL =
-//    "https://github.com/Ethara-Ai/kaiju";
-    "https://github.com/Ethara-Ai/kaiju";
-const DEFAULT_DATASET_URL =
-    "https://huggingface.co/datasets/ethara/Kaiju";
+const DEFAULT_TRAJECTORIES_URL = "https://github.com/EtharaOrion/kaiju-samples.git";
+const DEFAULT_DATASET_URL = "https://huggingface.co/datasets/ethara/kaiju-samples";
 
 export class KaijuShowcase extends Component {
     static template = "kaiju_dashboard.KaijuShowcase";

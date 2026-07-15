@@ -1,4 +1,3 @@
-import json
 import os
 
 from odoo import http
@@ -19,20 +18,22 @@ class KaijuShowcaseController(http.Controller):
         values = {
             "trajectories_url": ICP.get_param(
                 "kaiju_dashboard.trajectories_url", ""
-            ) or "https://github.com/Ethara-Ai/kaiju",
+            ) or "https://github.com/EtharaOrion/kaiju-samples.git",
             "dataset_url": ICP.get_param(
                 "kaiju_dashboard.dataset_url", ""
-            ) or "https://huggingface.co/datasets/ethara/Kaiju",
+            ) or "https://huggingface.co/datasets/ethara/kaiju-samples",
         }
         return request.render("kaiju_dashboard.portal_showcase", values)
 
-    @http.route("/kaiju/api/instances", type="http", auth="public", cors="*")
+    @http.route(
+        "/kaiju/api/instances", type="http", auth="public", website=True, sitemap=False
+    )
     def api_instances(self, **kw):
         try:
-            with open(_DATA_PATH, "r") as f:
+            with open(_DATA_PATH, "r", encoding="utf-8") as f:
                 data = f.read()
-        except FileNotFoundError:
+        except (FileNotFoundError, IOError):
             data = "[]"
-        return http.Response(
-            data, content_type="application/json", status=200
+        return request.make_response(
+            data, headers=[("Content-Type", "application/json")]
         )

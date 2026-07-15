@@ -12,12 +12,12 @@
                         <setting string="Trajectories URL"
                                  help="Override the Trajectories button link. Leave empty to use the default GitHub URL.">
                             <field name="kaiju_trajectories_url"
-                                   placeholder="https://github.com/Ethara-Ai/kaiju"/>
+                                   placeholder="https://github.com/EtharaOrion/kaiju-samples.git"/>
                         </setting>
                         <setting string="Dataset URL"
                                  help="Override the Dataset button link. Leave empty to use the default HuggingFace URL.">
                             <field name="kaiju_dataset_url"
-                                   placeholder="https://huggingface.co/datasets/ethara/Kaiju"/>
+                                   placeholder="https://huggingface.co/datasets/ethara/kaiju-samples"/>
                         </setting>
                     </block>
                 </app>
