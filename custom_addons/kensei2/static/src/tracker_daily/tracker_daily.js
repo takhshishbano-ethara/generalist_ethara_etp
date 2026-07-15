@@ -36,6 +36,7 @@ export class Kensei2TrackerDaily extends Component {
                 status: "",
                 project: "",
                 team_lead_id: "",
+                stage: "",
             },
         });
 
@@ -63,6 +64,7 @@ export class Kensei2TrackerDaily extends Component {
             status: f.status,
             project: f.project,
             team_lead_id: f.team_lead_id,
+            stage: f.stage,
             sort_by: this.state.sortBy,
             sort_dir: this.state.sortDir,
             page: this.state.page,
@@ -128,6 +130,7 @@ export class Kensei2TrackerDaily extends Component {
             status: "",
             project: "",
             team_lead_id: "",
+            stage: "",
         };
         this.state.page = 1;
         this._load();

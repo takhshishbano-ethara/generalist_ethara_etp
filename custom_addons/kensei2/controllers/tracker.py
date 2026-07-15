@@ -461,7 +461,7 @@ class Kensei2TrackerController(http.Controller):
 
     @http.route("/kensei2/tracker/daily/data", type="json", auth="user")
     def daily_data(self, date_from=None, date_to=None, employee=None, pl_id=None,
-                   status=None, project=None, team_lead_id=None,
+                   status=None, project=None, team_lead_id=None, stage=None,
                    sort_by="name", sort_dir="asc", page=1, page_size=20,
                    export=False, **kw):
         """Paginated per-tasker daily completion pivot for the Daily Tracker,
@@ -485,6 +485,16 @@ class Kensei2TrackerController(http.Controller):
             d_from, d_to = d_to, d_from
 
         domain = []
+        # Stage scope. A cell counts COMPLETED STAGES, and the two stages are
+        # different work -- a bare "3" merges an authoring pass with a Pass It K run
+        # and cannot say which. Scoping the whole domain (not just the completions)
+        # is deliberate: filtering to Stage 2 should drop a tasker who has never
+        # worked a Stage 2 out of the roster entirely, rather than leave them as an
+        # all-zero row.
+        stage_no = _to_int(stage)
+        if stage_no in (1, 2):
+            domain.append(("stage_no", "=", stage_no))
+
         pl_int, lead_int = _to_int(pl_id), _to_int(team_lead_id)
         if pl_int is not None:
             domain.append(("pl_id", "=", pl_int))
