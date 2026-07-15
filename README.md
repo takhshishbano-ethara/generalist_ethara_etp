@@ -1,1 +1,1 @@
-stage test
+stage build test
