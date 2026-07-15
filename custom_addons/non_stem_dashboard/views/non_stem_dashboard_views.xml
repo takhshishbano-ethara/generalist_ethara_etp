@@ -96,13 +96,13 @@
 
     <!-- Dashboard Client Action -->
     <record id="action_non_stem_dashboard_view" model="ir.actions.client">
-        <field name="name">Non Stem Dashboards</field>
+        <field name="name">MM Performance Dashboards</field>
         <field name="tag">non_stem_dashboard_view</field>
     </record>
 
     <!-- Menu Items -->
     <menuitem id="menu_non_stem_root"
-              name="Non Stem Dashboard"
+              name="MM Performance Dashboard"
               web_icon="non_stem_dashboard,static/description/icon.png"
               sequence="100"/>
 

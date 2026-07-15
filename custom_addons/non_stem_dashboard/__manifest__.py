@@ -1,5 +1,5 @@
 {
-    "name": "Non Stem Dashboard",
+    "name": "MM Performance Dashboard",
     "version": "19.0.1.0.0",
     "category": "Productivity",
     "summary": "Upload CSVs, run performance pipeline, and view HTML dashboards",
