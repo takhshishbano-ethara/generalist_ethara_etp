@@ -824,6 +824,111 @@
     });
   }
 
+  function rdRetention(el, data, p) {
+    function curve(key) {
+      var r = data.map(function (d) { return (d.models[key].reward || 0) * 100; }).sort(function (a, b) { return b - a; });
+      var sum = 0, peak = r.length ? r[0] : 1, out = [];
+      for (var i = 0; i < r.length; i++) { sum += r[i]; out.push(+((sum / (i + 1)) / (peak || 1) * 100).toFixed(1)); }
+      return out;
+    }
+    var opus = curve("Claude Opus 4.8"), haiku = curve("Claude Haiku 4.5");
+    var labels = opus.map(function (v, i) { return i + 1; });
+    var endLabels = {
+      id: "rdRetEnd",
+      afterDatasetsDraw: function (chart) {
+        var ctx = chart.ctx;
+        [{ i: 0, v: opus[opus.length - 1], c: p.opus }, { i: 1, v: haiku[haiku.length - 1], c: p.haiku }].forEach(function (e) {
+          var m = chart.getDatasetMeta(e.i); if (!m || !m.data.length) { return; }
+          var last = m.data[m.data.length - 1];
+          ctx.save(); ctx.font = "700 13px 'DM Sans', sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = e.c;
+          ctx.fillText(Math.round(e.v) + "%", last.x + 8, last.y);
+          ctx.restore();
+        });
+      }
+    };
+    return new Chart(el, {
+      type: "line",
+      data: { labels: labels, datasets: [
+        { label: "Opus 4.8", data: opus, borderColor: p.opus, backgroundColor: "transparent", borderWidth: 2.5, borderDash: [6, 4], pointRadius: 2.5, pointBackgroundColor: p.opus, tension: 0.2, fill: false, clip: false },
+        { label: "Haiku 4.5", data: haiku, borderColor: p.haiku, backgroundColor: rdAlpha(p.haiku, 0.12), borderWidth: 2.5, pointRadius: 2.5, pointBackgroundColor: p.haiku, tension: 0.2, fill: { target: 0 }, clip: false }
+      ] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 600 },
+        layout: { padding: { top: 8, right: 46 } },
+        plugins: {
+          legend: rdLegend(p),
+          tooltip: {
+            backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
+            callbacks: {
+              title: function (items) { return items[0].label + " tasks included"; },
+              label: function (ctx) { return " " + ctx.dataset.label + ": " + Number(ctx.raw).toFixed(1) + "% of peak"; }
+            }
+          }
+        },
+        scales: {
+          y: { min: 40, max: 100, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: "Cumulative mean reward (% of peak)", color: p.ink, font: { size: 11 } } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 11, family: "'DM Sans', sans-serif" } }, title: { display: true, text: "Tasks included (easiest to hardest)", color: p.ink, font: { size: 11 } } }
+        }
+      },
+      plugins: [endLabels]
+    });
+  }
+
+  function rdRelShare(el, data, p) {
+    var O = "Claude Opus 4.8", H = "Claude Haiku 4.5", accent = "#8A5CF0";
+    var series = data.map(function (d) {
+      var o = (d.models[O].reward || 0), h = (d.models[H].reward || 0);
+      var r = o > 0 ? (h / o) * 100 : (h > 0 ? 100 : 0);
+      return Math.max(0, Math.min(100, +r.toFixed(1)));
+    }).sort(function (a, b) { return b - a; });
+    var labels = series.map(function (v, i) { return i + 1; });
+    var parity = {
+      id: "rdShareParity",
+      beforeDatasetsDraw: function (chart) {
+        var area = chart.chartArea, y = chart.scales.y.getPixelForValue(100), ctx = chart.ctx;
+        ctx.save(); ctx.strokeStyle = rdAlpha(p.ink, 0.32); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(area.left, y); ctx.lineTo(area.right, y); ctx.stroke(); ctx.restore();
+      }
+    };
+    var endLabel = {
+      id: "rdShareEnd",
+      afterDatasetsDraw: function (chart) {
+        var m = chart.getDatasetMeta(0); if (!m || !m.data.length) { return; }
+        var last = m.data[m.data.length - 1], ctx = chart.ctx;
+        ctx.save(); ctx.font = "700 13px 'DM Sans', sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = accent;
+        ctx.fillText(Math.round(series[series.length - 1]) + "%", last.x + 8, last.y);
+        ctx.restore();
+      }
+    };
+    return new Chart(el, {
+      type: "line",
+      data: { labels: labels, datasets: [
+        { label: "Haiku reward / Opus reward", data: series, borderColor: accent, backgroundColor: rdAlpha(accent, 0.10), borderWidth: 2.5, pointRadius: 2.6, pointBackgroundColor: accent, tension: 0.2, fill: false, clip: false }
+      ] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 600 },
+        layout: { padding: { top: 8, right: 46 } },
+        plugins: {
+          legend: rdLegend(p),
+          tooltip: {
+            backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
+            callbacks: {
+              title: function (items) { return "Task rank " + items[0].label; },
+              label: function (ctx) { return " Haiku captures " + Number(ctx.raw).toFixed(1) + "% of Opus"; }
+            }
+          }
+        },
+        scales: {
+          y: { min: 0, max: 105, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 }, stepSize: 20, callback: function (v) { return v > 100 ? "" : v; } }, title: { display: true, text: "Haiku reward as % of Opus", color: p.ink, font: { size: 11 } } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 11, family: "'DM Sans', sans-serif" } }, title: { display: true, text: "Task rank (highest share to lowest)", color: p.ink, font: { size: 11 } } }
+        }
+      },
+      plugins: [parity, endLabel]
+    });
+  }
+
   function rdRenderCharts() {
     if (typeof Chart === "undefined" || !rdChartData) return;
     var p = rdPalette();
@@ -837,27 +942,11 @@
     if (elS3) { rdCharts.dumbS3 = rdDumbbell(elS3, data.filter(function (d) { return d.scope === "S3"; }).sort(byH), p); }
     if (elDDB) { rdCharts.dumbDDB = rdDumbbell(elDDB, data.filter(function (d) { return d.scope === "DynamoDB"; }).sort(byH), p); }
 
-    var agg = rdTierAgg(data);
-    var tl = agg.map(function (t) { return t.tier + " (" + t.n + ")"; });
-    var elR = document.getElementById("rd-chart-reward-tier");
-    if (elR) {
-      rdCharts.rewardTier = rdBar(elR, tl,
-        agg.map(function (t) { return +t.opusReward.toFixed(1); }),
-        agg.map(function (t) { return +t.haikuReward.toFixed(1); }),
-        p, { horizontal: false, valMax: 100, valTitle: "Mean reward (%)", unit: "%", cat: 0.62 });
-    }
-    var elCt = document.getElementById("rd-chart-cost-tier");
-    if (elCt) {
-      var scAgg = ["S3", "DynamoDB"].map(function (sc) {
-        var a = data.filter(function (d) { return d.scope === sc; });
-        var mean = function (f) { return a.length ? a.reduce(function (s, x) { return s + f(x); }, 0) / a.length : 0; };
-        return { sc: sc, n: a.length, oc: mean(function (d) { return d.models["Claude Opus 4.8"].cost_usd || 0; }), hc: mean(function (d) { return d.models["Claude Haiku 4.5"].cost_usd || 0; }) };
-      });
-      var cLab = agg.map(function (t) { return t.tier + " (" + t.n + ")"; }).concat(scAgg.map(function (s) { return s.sc + " (" + s.n + ")"; }));
-      var cOp = agg.map(function (t) { return +t.opusCost.toFixed(3); }).concat(scAgg.map(function (s) { return +s.oc.toFixed(3); }));
-      var cHk = agg.map(function (t) { return +t.haikuCost.toFixed(3); }).concat(scAgg.map(function (s) { return +s.hc.toFixed(3); }));
-      rdCharts.costTier = rdCostCombo(elCt, cLab, cOp, cHk, agg.length, p);
-    }
+    var elRet = document.getElementById("rd-chart-retention");
+    if (elRet) { rdCharts.retention = rdRetention(elRet, data, p); }
+
+    var elShare = document.getElementById("rd-chart-relshare");
+    if (elShare) { rdCharts.relshare = rdRelShare(elShare, data, p); }
   }
 
   function rdReRenderCharts() {
@@ -867,7 +956,7 @@
   }
 
   function initCharts() {
-    if (!document.getElementById("rd-chart-pertask-s3") && !document.getElementById("rd-chart-reward-tier")) return;
+    if (!document.getElementById("rd-chart-pertask-s3") && !document.getElementById("rd-chart-retention") && !document.getElementById("rd-chart-relshare")) return;
     fetch("/raiden/api/instances")
       .then(function (r) { return r.json(); })
       .then(function (data) {

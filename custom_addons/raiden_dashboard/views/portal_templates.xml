@@ -41,12 +41,12 @@
       <!-- Raiden dark editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
            does not override the design). -->
-      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=36"/>
+      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=40"/>
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer="defer"/>
-      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=36" defer="defer"/>
+      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=40" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -261,31 +261,36 @@
         Two Anthropic models were run end-to-end against all 20 tasks under the openhands-sdk v1.12.0 / harbor 0.13.1 scaffold (pass@1).
       </p>
       <p class="reveal-line reveal-kicker">
-        Claude Opus 4.8 stays near the ceiling on all 20 tasks (mean 95.6%) while Claude Haiku 4.5 spreads across the full range (mean 48.9%). The gap tracks difficulty: on the 10 Hard tasks Opus holds 94.8% while Haiku drops to 19.9%. Combined mean gap +46.7 pts.
+        Measured as a share of Opus 4.8, Haiku 4.5 captures nearly all of Opus's reward on the easiest tasks (98%) but that share decays steadily toward 0% on the hardest tail. Aggregated across all 20 tasks Haiku recovers 51% of Opus's reward (48.9% vs 95.6% mean).
       </p>
+    </div>
+
+    <p class="section-desc">Per-task Haiku reward as a percentage of Opus, ranked highest share to lowest: near-parity on the easiest tasks decays toward 0% on the hard tail.</p>
+
+    <div class="charts" style="grid-template-columns: 1fr">
+      <figure class="chart">
+        <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-relshare" aria-label="Haiku reward as percent of Opus, per task ranked highest to lowest"></canvas></div>
+        <figcaption>Fig. 1: Relative capability share. Haiku 4.5 captures 98% of Opus 4.8's reward on the easiest tasks but only 51% aggregated across all 20, bottoming out at 0% on the hardest.</figcaption>
+      </figure>
+    </div>
+
+    <p class="section-desc">Capability retention as progressively harder tasks are included: cumulative mean reward as a percentage of each model's peak.</p>
+
+    <div class="charts" style="grid-template-columns: 1fr">
+      <figure class="chart">
+        <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-retention" aria-label="Capability retention curve, Opus 4.8 vs Haiku 4.5"></canvas></div>
+        <figcaption>Fig. 2: Capability retention. Opus 4.8 retains ~96% of its peak across all 20 tasks; Haiku 4.5 collapses to ~50%, a clean discriminative gradient.</figcaption>
+      </figure>
     </div>
 
     <div class="charts">
       <figure class="chart">
         <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-pertask-s3" aria-label="S3 per-task reward, Opus 4.8 vs Haiku 4.5"></canvas></div>
-        <figcaption>Fig. 1a: S3 tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell = capability gap), sorted by Haiku reward. </figcaption>
+        <figcaption>Fig. 3a: S3 tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell = capability gap), sorted by Haiku reward.</figcaption>
       </figure>
       <figure class="chart">
         <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-pertask-ddb" aria-label="DynamoDB per-task reward, Opus 4.8 vs Haiku 4.5"></canvas></div>
-        <figcaption>Fig. 1b: DynamoDB tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell). Haiku spans 0% to 98%; Opus holds ≥94%. Longer dumbbell = more RL headroom.</figcaption>
-      </figure>
-    </div>
-
-    <p class="section-desc">Reward and inference cost by difficulty tier: Easy (6), Medium (4), Hard (10), calibrated on observed Haiku 4.5 reward.</p>
-
-    <div class="charts">
-      <figure class="chart">
-        <div class="rd-chart-canvas"><canvas id="rd-chart-reward-tier" aria-label="Mean reward by difficulty tier"></canvas></div>
-        <figcaption>Fig. 2: Mean reward by difficulty tier. Opus 4.8 stays 94% to 98% across tiers; Haiku 4.5 falls from 90.9% (easy) to 19.9% (hard).</figcaption>
-      </figure>
-      <figure class="chart">
-        <div class="rd-chart-canvas"><canvas id="rd-chart-cost-tier" aria-label="Mean agent cost per run by difficulty tier"></canvas></div>
-        <figcaption>Fig. 3: Mean agent cost per run (USD), by difficulty tier and by surface. Opus 4.8 spans $1.28 to $1.72 (medium tier and S3 priciest); Haiku 4.5 stays $0.66 to $0.75.</figcaption>
+        <figcaption>Fig. 3b: DynamoDB tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell). Haiku spans 0% to 98%; Opus holds ≥94%. Longer dumbbell = more RL headroom.</figcaption>
       </figure>
     </div>
 
@@ -308,8 +313,8 @@
     </div>
 
     <div class="confidence-strip" data-animate="fade-up">
-      <span class="rd-confidence-big">95.6%</span>
-      <span class="confidence-lbl mono">Claude Opus 4.8 Mean Reward</span>
+      <span class="rd-confidence-big">51.1%</span>
+      <span class="confidence-lbl mono">Haiku 4.5 Share of Opus Reward</span>
     </div>
   </section>
 
