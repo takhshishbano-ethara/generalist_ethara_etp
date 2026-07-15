@@ -658,6 +658,9 @@ class EmployeeSelfRegistrationController(http.Controller):
                         'experience_years': applicant.experience_years,
                         'aadhaar_card_url': aadhaar_url,
                         'resume_url': resume_url,
+                        'job_id': applicant.job_id.id if applicant.job_id else None,
+                        'job_name': applicant.job_id.name if applicant.job_id else None,
+                        'department_id': applicant.department_id.id if applicant.department_id else None,
                     }},
                 )
         except _AbortRegistration as abort:

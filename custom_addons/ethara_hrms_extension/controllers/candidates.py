@@ -46,6 +46,126 @@ def _current_status(applicant):
     return applicant.stage_id.name if applicant.stage_id else None
 
 
+def _f(rec, fname):
+    return rec[fname] if rec and fname in rec._fields else None
+
+
+def _serialize_position(job):
+    if not job:
+        return None
+    return {
+        "id":              job.id,
+        "title":           job.name,
+        "slug":            _f(job, "slug"),
+        "department":      job.department_id.name if job.department_id else None,
+        "summary":         _f(job, "summary"),
+        "description":     job.description or None,
+        "location":        job.address_id.city if job.address_id else None,
+        "employmentType":  _f(job, "employment_type"),
+        "workMode":        _f(job, "work_mode"),
+        "experienceLevel": _f(job, "experience_level"),
+        "experienceYears": _f(job, "experience_years"),
+        "salaryBracket":   _f(job, "salary_bracket"),
+        "responsibilities": _f(job, "responsibilities"),
+        "requirements":    _f(job, "requirements"),
+        "preferredSkills": _f(job, "preferred_skills"),
+        "benefits":        _f(job, "benefits"),
+        "featured":        bool(_f(job, "is_featured")),
+        "openings":        _f(job, "no_of_recruitment") or job.no_of_recruitment or 1,
+        "postedAt":        _iso(_f(job, "posted_at") or job.create_date),
+        "urgencyLevel":    _f(job, "urgency_level"),
+        "isActive":        bool(job.active),
+        "screeningPrompt": _f(job, "screening_prompt"),
+        "candidateCount":  _f(job, "application_count"),
+        "approvalStatus":  _f(job, "approval_status"),
+        "approvalRequestedAt": _iso(_f(job, "approval_requested_at")),
+        "approvalDecidedAt": _iso(_f(job, "approval_decided_at")),
+        "createdAt":       _iso(job.create_date),
+        "updatedAt":       _iso(job.write_date),
+    }
+
+
+def _serialize_college(college):
+    if not college:
+        return None
+    return {
+        "id":         college.id,
+        "name":       college.name,
+        "shortName":  _f(college, "short_name") or _f(college, "code"),
+        "isActive":   bool(college.active) if "active" in college._fields else True,
+        "createdAt":  _iso(college.create_date),
+        "updatedAt":  _iso(college.write_date),
+    }
+
+
+def _serialize_stage_logs(applicant):
+    logs = []
+    hist = applicant.job_history_ids if "job_history_ids" in applicant._fields else []
+    for h in hist.sorted(lambda r: r.create_date or _iso(r.create_date), reverse=True):
+        logs.append({
+            "id": h.id,
+            "candidateId": applicant.id,
+            "fromStage": h.previous_job_id.name if h.previous_job_id else None,
+            "toStage":   h.new_job_id.name if h.new_job_id else None,
+            "changedBy": h.changed_by_id.id if h.changed_by_id else None,
+            "changedByName": h.changed_by_id.name if h.changed_by_id else None,
+            "notes":     _f(h, "notes"),
+            "createdAt": _iso(h.create_date),
+        })
+    return logs
+
+
+def _serialize_documents(applicant):
+    docs = []
+    Attachment = applicant.env["ir.attachment"].sudo()
+    atts = Attachment.search([
+        ("res_model", "=", "hr.applicant"),
+        ("res_id", "=", applicant.id),
+    ], order="create_date desc")
+    for a in atts:
+        docs.append({
+            "id":         a.id,
+            "candidateId": applicant.id,
+            "type":       a.name.split(".")[0].lower() if a.name else "attachment",
+            "fileName":   a.name,
+            "fileUrl":    "/web/content/%d" % a.id,
+            "fileSize":   a.file_size,
+            "mimeType":   a.mimetype,
+            "status":     "uploaded",
+            "createdAt":  _iso(a.create_date),
+            "updatedAt":  _iso(a.write_date),
+        })
+    return docs
+
+
+def _serialize_contract(applicant):
+    Contract = applicant.env.get("documenso.contract")
+    if Contract is None:
+        return None
+    c = applicant.env["documenso.contract"].sudo().search([
+        ("applicant_id" if "applicant_id" in applicant.env["documenso.contract"]._fields
+         else "employee_id", "=", applicant.id),
+    ], limit=1)
+    if not c:
+        return None
+    return {
+        "id":           c.id,
+        "candidateId":  applicant.id,
+        "status":       _f(c, "status") or "draft",
+        "documensoId":  _f(c, "documenso_id"),
+        "templateId":   _f(c, "template_id"),
+        "signedUrl":    _f(c, "signed_url"),
+        "pdfUrl":       _f(c, "pdf_url"),
+        "sentAt":       _iso(_f(c, "sent_at")),
+        "signedAt":     _iso(_f(c, "signed_at")),
+        "expiresAt":    _iso(_f(c, "expires_at")),
+        "ctc":          _f(c, "ctc"),
+        "joiningDate":  _iso(_f(c, "joining_date")),
+        "createdAt":    _iso(c.create_date),
+        "updatedAt":    _iso(c.write_date),
+    }
+
+
 def _serialize(applicant):
     payload = {}
     try:
@@ -64,35 +184,51 @@ def _serialize(applicant):
             ),
         }
 
+    aadhaar = (applicant.aadhaar_number or "").strip() if "aadhaar_number" in applicant._fields else ""
+    employee = applicant.employee_id if applicant.employee_id else None
+    college = applicant.college_id if "college_id" in applicant._fields and applicant.college_id else None
+
     return {
         "id":                       applicant.id,
         "candidateId":              applicant.id,
+        "accessLevel":              "full",
+        "canOpenDetail":            True,
+        "candidateCode":            applicant.candidate_code or str(applicant.id),
+        "employeeCode":             _f(employee, "employee_code") if employee else None,
         "fullName":                 applicant.partner_name
                                     or (applicant.partner_id.name if applicant.partner_id else "")
                                     or "",
-        "candidateCode":            str(applicant.id),
         "personalEmail":            applicant.email_from or "",
+        "etharaEmail":              _f(employee, "work_email") if employee else None,
         "phone":                    applicant.partner_phone or "",
-        "jobId":                    applicant.job_id.id if applicant.job_id else None,
+        "aadhaarLast4":             aadhaar[-4:] if len(aadhaar) >= 4 else None,
+        "gender":                   _f(applicant, "gender"),
+        "dateOfBirth":              _iso(_f(applicant, "birthday")),
+        "sourceType":               applicant.source_type or "direct_application",
+        "sourceId":                 applicant.source_reference_id or None,
         "positionId":               applicant.job_id.id if applicant.job_id else None,
+        "jobId":                    applicant.job_id.id if applicant.job_id else None,
         "positionTitle":            applicant.job_id.name if applicant.job_id else None,
-        "position": {
-            "id":   applicant.job_id.id,
-            "title": applicant.job_id.name,
-        } if applicant.job_id else None,
+        "collegeId":                college.id if college else None,
+        "vendorId":                 None,
         "stageId":                  applicant.stage_id.id if applicant.stage_id else None,
         "currentStage":             applicant.stage_id.name if applicant.stage_id else None,
         "currentStatus":            _current_status(applicant),
         "priorityScore":            applicant.priority_score or 0,
         "onHold":                   bool(applicant.on_hold),
+        "isDuplicate":              bool(applicant.is_duplicate),
+        "duplicateReason":          applicant.duplicate_reason or None,
         "isReapplicationBlocked":   bool(applicant.is_reapplication_blocked),
         "blacklistReason":          applicant.blacklist_reason or "",
+        "lastAppliedAt":            _iso(applicant.create_date),
         "resumeUrl":                applicant.resume_url or None,
         "resumeScore":              applicant.resume_score or 0,
         "screeningScore":           applicant.resume_score or 0,
         "matchScore":               applicant.resume_score or 0,
         "resumeSummary":            applicant.resume_summary or "",
         "screeningSummary":         applicant.resume_summary or "",
+        "resumeText":               applicant.resume_text or None,
+        "resumeKeyPoints":          None,
         "resumeRecommendation":     _REC_OUT.get(applicant.resume_recommendation, "pending"),
         "recommendation":           _REC_OUT.get(applicant.resume_recommendation, "pending"),
         "screeningPayload":         payload,
@@ -106,6 +242,30 @@ def _serialize(applicant):
         "llmCompletionTokens":      applicant.resume_llm_completion_tokens or 0,
         "llmLatencyMs":             applicant.resume_llm_latency_ms or 0,
         "lastScreenedAt":           _iso(applicant.resume_screened_at),
+        "aadhaarExtracted":         None,
+        "aadhaarCardUrl":           _f(applicant, "aadhaar_card_url"),
+        "portfolioUrl":             _f(applicant, "portfolio_url"),
+        "githubUrl":                _f(applicant, "github_url"),
+        "linkedinProfile":          _f(applicant, "linkedin_profile"),
+        "experienceType":           _f(applicant, "experience"),
+        "experienceYears":          _f(applicant, "experience_years"),
+        "currentCompany":           applicant.current_company or None,
+        "currentCTC":               applicant.current_ctc or 0,
+        "expectedCTC":              applicant.expected_ctc or 0,
+        "noticePeriod":             applicant.notice_period_days or 0,
+        "position":                 _serialize_position(applicant.job_id),
+        "college":                  _serialize_college(college),
+        "vendor":                   None,
+        "contract":                 _serialize_contract(applicant),
+        "stageLogs":                _serialize_stage_logs(applicant),
+        "evaluations":              [],
+        "documents":                _serialize_documents(applicant),
+        "complianceForms":          [],
+        "escalations":              [],
+        "notifications":            [],
+        "itRequest":                None,
+        "selectionForm":            None,
+        "auditLogs":                [],
         "createdAt":                _iso(applicant.create_date),
         "updatedAt":                _iso(applicant.write_date),
         "lastActivityAt":           _iso(applicant.write_date),

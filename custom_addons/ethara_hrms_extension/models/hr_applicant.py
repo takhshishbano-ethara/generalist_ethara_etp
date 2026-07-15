@@ -70,6 +70,38 @@ class HrApplicant(models.Model):
     blacklist_reason = fields.Text(string='Blacklist Reason')
     on_hold = fields.Boolean(string='On Hold')
 
+    candidate_code = fields.Char(
+        string='Candidate Code', index=True, copy=False,
+        help='Auto-generated ETH-MMMYY-XXXXXX identifier',
+    )
+    source_type = fields.Selection([
+        ('direct_application', 'Direct Application'),
+        ('vendor', 'Vendor'),
+        ('campus_hire', 'Campus Hire'),
+        ('employee_referral', 'Employee Referral'),
+        ('internal_hiring', 'Internal Hiring'),
+        ('lateral_hiring', 'Lateral Hiring'),
+    ], string='Source Type', default='direct_application')
+    source_reference_id = fields.Char(string='Source Reference')
+    current_company = fields.Char(string='Current Company')
+    current_ctc = fields.Float(string='Current CTC (LPA)', digits=(10, 2))
+    expected_ctc = fields.Float(string='Expected CTC (LPA)', digits=(10, 2))
+    notice_period_days = fields.Integer(string='Notice Period (days)')
+    resume_text = fields.Text(string='Extracted Resume Text')
+    is_duplicate = fields.Boolean(string='Is Duplicate')
+    duplicate_reason = fields.Text(string='Duplicate Reason')
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if not vals.get('candidate_code'):
+                import uuid as _uuid
+                yymm = fields.Datetime.now().strftime('%b%y').upper()
+                vals['candidate_code'] = 'ETH-%s-%s' % (
+                    yymm, _uuid.uuid4().hex[:6].upper(),
+                )
+        return super().create(vals_list)
+
     def write(self, vals):
         if 'job_id' in vals:
             History = self.env['hr.applicant.job.history'].sudo()
@@ -235,6 +267,7 @@ class HrApplicant(models.Model):
             ),
             'resume_llm_latency_ms': int(result.get('latency_ms') or 0),
             'resume_screened_at': fields.Datetime.now(),
+            'resume_text': resume_text,
         })
         self._advance_stage_after_screening()
         return {
