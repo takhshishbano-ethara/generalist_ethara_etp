@@ -79,6 +79,71 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         }
     }
 
+    // ---- CSV export -----------------------------------------------------
+    // The progress table's columns, in the SAME order and wording as
+    // progress_table.xml. Kept here (not derived from a row) so an all-zero export
+    // still has every column, and so a stage-1 label can never be printed over a
+    // stage-2 count — the whole point of the split.
+    static PROGRESS_COLUMNS = [
+        ["in_auth", "In Auth"],
+        ["ready", "S1 Ready"],
+        ["in_traj", "S1 Baseline"],
+        ["s1_qc", "S1 Manual QC"],
+        ["handed_off", "Next Stage"],
+        ["pik_ready", "S2 PIK Ready"],
+        ["pass_it_k", "S2 Pass It K"],
+        ["s2_qc", "S2 Manual QC"],
+        ["verified", "Deliverable"],
+        ["blocked", "Blocked"],
+    ];
+
+    get stageLabel() {
+        return (STAGES.find((s) => s.value === this.state.stage) || STAGES[0]).label;
+    }
+
+    csvFileName() {
+        return `kensei2_dashboard_${this.state.groupBy}.csv`;
+    }
+
+    csvMeta() {
+        return [
+            ...super.csvMeta(),
+            ["Group by", this.group.label],
+            ["Stage", this.stageLabel],
+        ];
+    }
+
+    csvSections() {
+        const cols = this.constructor.PROGRESS_COLUMNS;
+        return [
+            {
+                title: "Summary",
+                headers: ["Metric", "Value"],
+                rows: this.state.stats.map((s) => [s.label, s.value]),
+            },
+            {
+                title: "Pipeline Funnel",
+                headers: ["Step", "Count"],
+                rows: this.state.funnel.map((c) => [c.label, c.value]),
+            },
+            {
+                title: "Team Composition",
+                headers: ["Role", "Count"],
+                rows: this.state.teamComposition.map((c) => [c.label, c.value]),
+            },
+            {
+                title: `Progress by ${this.group.label}`,
+                headers: [this.group.label, "Total",
+                    ...cols.map(([, label]) => label), "Avg Score"],
+                rows: this.state.rows.map((r) => [
+                    r.name, r.total,
+                    ...cols.map(([key]) => r[key] ?? 0),
+                    r.avg_score ?? "",
+                ]),
+            },
+        ];
+    }
+
     // ---- drill-down: open the filtered Task Allocation / Team Management list ----
     _openAllocations(domain, name) {
         this.action.doAction({

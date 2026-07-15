@@ -26,6 +26,12 @@
                 <i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/>
                 <span>Refresh</span>
             </button>
+            <button class="o_ktd_refresh_btn" t-on-click="onExport"
+                    t-att-disabled="!canExport"
+                    title="Download the figures shown, as CSV">
+                <i class="fa fa-download"/>
+                <span>Export</span>
+            </button>
         </div>
     </t>
 </templates>

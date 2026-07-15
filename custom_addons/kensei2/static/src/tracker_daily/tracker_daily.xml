@@ -83,6 +83,17 @@
                         </t>
                     </select>
                 </div>
+                <!-- A cell counts COMPLETED STAGES, and the two stages are different
+                     work: without this, "3" could be three authoring passes, three
+                     Pass It K runs, or any mix, with no way to tell. -->
+                <div class="o_kd_filter">
+                    <label>Stage</label>
+                    <select t-on-change="(ev) => this.onFilterInput('stage', ev)">
+                        <option value="">All Stages</option>
+                        <option value="1" t-att-selected="state.filters.stage == '1'">Stage 1 — Baseline</option>
+                        <option value="2" t-att-selected="state.filters.stage == '2'">Stage 2 — Pass It K</option>
+                    </select>
+                </div>
                 <div class="o_kd_filter">
                     <label>Task Status</label>
                     <select t-on-change="(ev) => this.onFilterInput('status', ev)">

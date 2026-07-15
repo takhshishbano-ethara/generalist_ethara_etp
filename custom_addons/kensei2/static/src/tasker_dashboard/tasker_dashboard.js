@@ -57,6 +57,55 @@ export class Kensei2TaskerDashboard extends Kensei2DashboardBase {
         return this.memberId ? this.state.subject.name || "Tasker" : "My Dashboard";
     }
 
+    // ---- CSV export -----------------------------------------------------
+    csvFileName() {
+        const who = (this.state.subject.name || "me")
+            .toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+        return `kensei2_performance_${who || "me"}.csv`;
+    }
+
+    csvMeta() {
+        return [
+            ...super.csvMeta(),
+            ["Tasker", this.state.subject.name || "Me"],
+        ];
+    }
+
+    csvSections() {
+        return [
+            {
+                title: "Performance",
+                headers: ["Metric", "Value"],
+                // suffix (%, days) is part of what the KPI MEANS, so fold it in —
+                // a bare "87" loses whether it was 87% or 87 days.
+                rows: this.state.kpis.map((k) => [
+                    k.label,
+                    k.value === null || k.value === undefined
+                        ? "" : `${k.value}${k.suffix || ""}`,
+                ]),
+            },
+            {
+                title: "My Pipeline",
+                headers: ["Step", "Count"],
+                rows: this.state.funnel.map((c) => [c.label, c.value]),
+            },
+            {
+                title: "Recent Tasks",
+                headers: ["Task ID", "Stage", "Persona", "Status",
+                    "Overall", "Assigned", "Completed"],
+                rows: this.state.recent.map((r) => [
+                    r.task_id,
+                    `${r.stage} / ${r.total_stages}`,
+                    r.persona,
+                    r.status_label,
+                    r.overall ?? "",
+                    r.assigned || "",
+                    r.completed || "",
+                ]),
+            },
+        ];
+    }
+
     openTask(row) {
         this.action.doAction({
             type: "ir.actions.act_window",

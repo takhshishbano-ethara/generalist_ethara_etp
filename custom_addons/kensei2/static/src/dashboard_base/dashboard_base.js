@@ -107,6 +107,84 @@ export class Kensei2DashboardBase extends Component {
         return fmt(value, suffix);
     }
 
+    // ---- CSV export -----------------------------------------------------
+    // The dashboards already hold every figure in reactive `state`, so the export
+    // is built entirely client-side from what is on screen — no second RPC, and it
+    // therefore matches the current filters (date range, group-by, stage) exactly.
+    // Contrast the Daily Tracker, which re-queries unpaginated because its table is
+    // paged; here nothing is paged, so state IS the full dataset.
+
+    /**
+     * The sections to write, in order. Each is
+     *   { title, headers: [..], rows: [[..], ..] }
+     * and renders as a title line, a header row, the data rows, then a blank line.
+     * Subclasses override; the base returns nothing so a dashboard that has not
+     * opted in simply exports its meta block.
+     */
+    csvSections() {
+        return [];
+    }
+
+    /** Download filename. Subclasses override to name their own file. */
+    csvFileName() {
+        return "kensei2_dashboard.csv";
+    }
+
+    /**
+     * Leading key/value lines describing WHAT was exported — the filters in force
+     * when the button was pressed. Without these a CSV of bare numbers is
+     * unreadable a week later ("42 what, over which dates?"). Subclasses append
+     * their own axes (group-by, stage) via super.
+     */
+    csvMeta() {
+        const range = this.isFiltered
+            ? `${this.state.dateFrom || "…"} to ${this.state.dateTo || "…"}`
+            : "All time";
+        return [
+            ["Date range", range],
+            // Local time, human-readable; deliberately not ISO — this is a caption
+            // for a person, not a machine key.
+            ["Generated", new Date().toLocaleString()],
+        ];
+    }
+
+    /** True when there is something worth exporting (guards the button). */
+    get canExport() {
+        return !this.state.loading && this.csvSections().some((s) => s.rows.length);
+    }
+
+    /** RFC-4180 cell: quote when the value contains a comma, quote or newline. */
+    _csvCell(v) {
+        const s = String(v === null || v === undefined ? "" : v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    onExport() {
+        const line = (cells) => cells.map((c) => this._csvCell(c)).join(",");
+        const out = this.csvMeta().map(line);
+        for (const section of this.csvSections()) {
+            out.push("");
+            if (section.title) {
+                out.push(line([section.title]));
+            }
+            if (section.headers) {
+                out.push(line(section.headers));
+            }
+            for (const row of section.rows) {
+                out.push(line(row));
+            }
+        }
+        // BOM so Excel reads the UTF-8 (em-dashes in the stage labels) correctly.
+        const blob = new Blob(["﻿" + out.join("\n")],
+            { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = this.csvFileName();
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
     /** Subclasses implement the actual data load. */
     async _load() {}
 }

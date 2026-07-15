@@ -22,6 +22,7 @@ import re
 import uuid
 from unittest.mock import patch
 
+from odoo import tools
 from odoo.addons.kensei2.controllers import tracker
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import tagged
@@ -1330,6 +1331,68 @@ class TestTrackerDailyEndpoint(HttpCase):
             "Daily Tracker filters failed for a PL: %s"
             % json.dumps(body.get("error", {}))[:400])
         self.assertIn("pls", body.get("result", {}))
+
+    def test_daily_stage_filter_partitions_the_completions(self):
+        """A cell counts COMPLETED STAGES, and the two stages are different work.
+
+        Unfiltered, one tasker who finished a stage 1 AND a stage 2 on the same day
+        shows a single "2" that merges an authoring pass with a Pass It K run. The
+        Stage filter is what lets you tell them apart, so it must actually partition:
+        stage 1 + stage 2 has to add back up to the unfiltered total.
+        """
+        Alloc = self.env["kensei2.tracker.allocation"]
+        member = self.alloc.tasker_member_id
+
+        def _done_stage(stage_no, suffix):
+            """One allocation driven to its stage's DONE state, which stamps
+            date_final -- the field the Daily Tracker keys its cells off."""
+            vals = {
+                "task_id": str(uuid.uuid4()),
+                "persona_id": self.alloc.persona_id.id,
+                "tasker_member_id": member.id,
+                "stage_no": stage_no,
+                "baseline_drive_link": "https://drive.example.com/%s" % suffix,
+                "baseline_gen_status": "done",
+                "qced_by": self.env.user.id,
+                "manual_qc_status": "done",
+            }
+            if stage_no == 1:                      # stage 1 has an authoring half
+                vals.update({"drive_link": "https://drive.example.com/a-%s" % suffix,
+                             "pl_verified_status": "done",
+                             "baseline_ready_status": "done"})
+            rec = Alloc.create(vals)
+            self.assertTrue(rec.date_final, "no date_final -> the pivot cannot see it")
+            return rec
+
+        s1 = _done_stage(1, "s1")
+        s2 = _done_stage(2, "s2")
+        self.assertEqual(s1.status, "ready_next_stage")   # stage 1 never delivers
+        self.assertEqual(s2.status, "deliverable")        # stage 2 does
+
+        self.authenticate("daily.pl@ethara.ai", "daily.pl.pw")
+
+        def _completed(stage):
+            params = {} if stage is None else {"stage": stage}
+            body = self._call("/kensei2/tracker/daily/data", params)
+            self.assertNotIn("error", body, json.dumps(body.get("error", {}))[:400])
+            return body["result"]["summary"]["total_completed"]
+
+        both, only1, only2 = _completed(None), _completed(1), _completed(2)
+        self.assertGreaterEqual(only1, 1, "stage 1 completion missing from Stage 1")
+        self.assertGreaterEqual(only2, 1, "stage 2 completion missing from Stage 2")
+        self.assertEqual(
+            only1 + only2, both,
+            "the stage filter must PARTITION the completions: %s + %s != %s"
+            % (only1, only2, both))
+
+    def test_daily_stage_filter_is_sent_on_export_too(self):
+        """_params() feeds both the table and the CSV. A filter added to the table
+        but not to the export silently ships a file that disagrees with the screen."""
+        js = tools.file_open(
+            "kensei2/static/src/tracker_daily/tracker_daily.js").read()
+        params_block = js[js.index("_params(extra = {})"):js.index("Load the pivot")]
+        self.assertIn("stage: f.stage", params_block,
+                      "the Stage filter never reaches the server (export included)")
 
     def test_dashboard_loads_for_a_pl(self):
         """Same trap: the Dashboard's progress table groups by pl_id."""

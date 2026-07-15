@@ -398,6 +398,13 @@ _MAX_OUTPUT_TOKENS_CEILING = 64000
 # doomed truncate + unparseable-JSON double call on large dense image_label JSON.
 _GEN_MAX_OUTPUT_TOKENS = 64000
 
+_TERSE_RETRY_DIRECTIVE = (
+    "CRITICAL: Output ONLY the JSON array — no reasoning, no explanation, no "
+    "markdown fences. Keep every string field concise (short prompts, no repeated "
+    "boilerplate) so the ENTIRE JSON array fits in a single response and is never "
+    "truncated."
+)
+
 
 def _json_parses(text):
     """True if ``text`` (optionally markdown-fenced) is parseable JSON."""
@@ -754,6 +761,35 @@ def _unwrap_json_list(value):
     return value
 
 
+def _salvage_json_objects(text):
+    """Recover the leading COMPLETE objects of a truncated JSON array.
+
+    When the model hits the output-token ceiling mid-array the response ends with
+    a partial trailing object, and neither ``json.loads`` nor the greedy ``[.*]``
+    regex can parse it. Locate the first ``[`` then repeatedly ``raw_decode``
+    top-level objects, skipping the commas/whitespace between them, until the
+    truncation point; return every fully-parsed object and drop the incomplete
+    tail. Returns ``[]`` when nothing complete can be recovered."""
+    start = text.find("[")
+    if start == -1:
+        return []
+    decoder = json.JSONDecoder()
+    i = start + 1
+    n = len(text)
+    out = []
+    while i < n:
+        while i < n and text[i] in " \t\r\n,":
+            i += 1
+        if i >= n or text[i] == "]":
+            break
+        try:
+            obj, i = decoder.raw_decode(text, i)
+        except ValueError:
+            break
+        out.append(obj)
+    return out
+
+
 def _extract_json_array(text):
     text = (text or "").strip()
     text = re.sub(r"^```(?:json)?", "", text).strip()
@@ -771,6 +807,12 @@ def _extract_json_array(text):
                     return out
             except Exception:
                 pass
+    salvaged = _salvage_json_objects(text)
+    if salvaged:
+        _logger.warning(
+            "etp_assessment recovered %d complete item(s) from a truncated JSON "
+            "response (dropped the trailing partial item).", len(salvaged))
+        return salvaged
     raise ValueError(
         "Could not parse JSON array from LLM response: %s" % text[:200]
     )
@@ -2030,13 +2072,31 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
         user_parts.append(
             {"text": "SAMPLE QUESTIONS (match this format):\n" + sample_text})
     user_parts.append({"text": directive})
-    raw = _call_vertex(
-        env, system_prompt, user_text="", user_parts=user_parts, model=model,
-        max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.5, response_json=True,
-        usage_ctx={"operation": "generate_questions",
-                   "prompt_id": prompt_record.id,
-                   "note": prompt_record.name or "SOP"})
-    items = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
+
+    def _run(parts, note):
+        raw = _call_vertex(
+            env, system_prompt, user_text="", user_parts=parts, model=model,
+            max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.5, response_json=True,
+            usage_ctx={"operation": "generate_questions",
+                       "prompt_id": prompt_record.id, "note": note})
+        return [it for it in _extract_json_array(raw) if isinstance(it, dict)]
+
+    try:
+        items = _run(user_parts, prompt_record.name or "SOP")
+    except ValueError:
+        items = []
+    if not items:
+        # even salvage recovered nothing (badly truncated/garbled JSON); re-roll
+        # ONCE with an explicit terse-output directive so the whole array fits
+        # under the token ceiling, instead of hard-failing the whole generation
+        _logger.warning(
+            "SOP generation for prompt %s produced no parseable items; retrying "
+            "once with a terse-output directive.", prompt_record.id)
+        try:
+            items = _run(user_parts + [{"text": _TERSE_RETRY_DIRECTIVE}],
+                         "%s (retry)" % (prompt_record.name or "SOP"))
+        except ValueError:
+            items = []
     PromptQuestion = env["etp.assessment.pro.prompt.question"].sudo()
     draft_ids = []
     for it in items:
