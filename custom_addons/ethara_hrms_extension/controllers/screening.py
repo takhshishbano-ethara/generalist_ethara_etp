@@ -88,6 +88,7 @@ def _serialize(applicant):
         or "",
         "candidateCode": str(applicant.id),
         "personalEmail": applicant.email_from or "",
+        "jobId": applicant.job_id.id if applicant.job_id else None,
         "positionTitle": applicant.job_id.name if applicant.job_id else None,
         "currentStatus": applicant.stage_id.name if applicant.stage_id else None,
         "resumeUrl": applicant.resume_url or None,
