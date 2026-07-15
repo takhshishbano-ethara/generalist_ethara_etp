@@ -70,6 +70,24 @@ class HrApplicant(models.Model):
     blacklist_reason = fields.Text(string='Blacklist Reason')
     on_hold = fields.Boolean(string='On Hold')
 
+    pipeline_status = fields.Selection(
+        [
+            ('applied',     'Applied'),
+            ('shortlisted', 'Shortlisted'),
+            ('evaluation',  'Evaluation'),
+            ('submission',  'Submission'),
+            ('contract',    'Contract'),
+            ('compliance',  'Compliance'),
+            ('email_id',    'Email ID'),
+            ('onboarded',   'Onboarded'),
+            ('rejected',    'Rejected'),
+        ],
+        string='Pipeline Status',
+        default='applied',
+        index=True,
+        tracking=True,
+    )
+
     candidate_code = fields.Char(
         string='Candidate Code', index=True, copy=False,
         help='Auto-generated ETH-MMMYY-XXXXXX identifier',
@@ -542,11 +560,17 @@ class HrApplicant(models.Model):
             reason = Reason.search(
                 [('name', '=', 'Rejected by AI resume screening')], limit=1,
             ) or Reason.create({'name': 'Rejected by AI resume screening'})
-            self.sudo().write({'refuse_reason_id': reason.id, 'active': False})
+            self.sudo().write({
+                'refuse_reason_id': reason.id,
+                'active': False,
+                'pipeline_status': 'rejected',
+            })
             return
 
         if rec != 'shortlist':
             return
+
+        self.sudo().write({'pipeline_status': 'shortlisted'})
 
         current_seq = self.stage_id.sequence if self.stage_id else -1
         job_ids = self.job_id.ids or [0]

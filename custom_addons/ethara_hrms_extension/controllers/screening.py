@@ -8,6 +8,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response,
     validate_token,
 )
+from odoo.addons.ethara_hrms_extension.controllers.candidates import (
+    _stage_to_enum,
+    _current_stage as _canon_current_stage,
+    _current_status as _canon_current_status,
+)
 
 _logger = logging.getLogger(__name__)
 BASE = "/api/v1/screening"
@@ -60,7 +65,9 @@ def _serialize(applicant):
         "personalEmail": applicant.email_from or "",
         "jobId": applicant.job_id.id if applicant.job_id else None,
         "positionTitle": applicant.job_id.name if applicant.job_id else None,
-        "currentStatus": applicant.stage_id.name if applicant.stage_id else None,
+        "stageName": applicant.stage_id.name if applicant.stage_id else None,
+        "currentStage": _canon_current_stage(applicant),
+        "currentStatus": _canon_current_status(applicant),
         "resumeUrl": applicant.resume_url or None,
         "matchScore": applicant.resume_score or 0,
         "screeningScore": applicant.resume_score or 0,
@@ -240,6 +247,14 @@ class EtharaScreeningApi(http.Controller):
             "resume_manual_override_at": fields.Datetime.now(),
             "resume_manual_override_by_id": request.env.user.id,
         })
+        try:
+            rec._advance_stage_after_screening()
+        except Exception:
+            _logger.exception(
+                "Post-override stage advance failed for hr.applicant %s",
+                rec.id,
+            )
+        rec.invalidate_recordset()
         return return_Response(
             message="Screening decision updated.",
             status=200, data=_serialize(rec),

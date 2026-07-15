@@ -36,14 +36,87 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _current_status(applicant):
+_STAGE_ENUM_MAP = [
+    (("new", "initial", "applied", "application"), "new_application"),
+    (("source", "sourc"),                          "source_tagged"),
+    (("resume upload", "resume received"),         "resume_uploaded"),
+    (("screening pending", "screen pending",
+      "resume screening", "qualif"),               "resume_screening_pending"),
+    (("shortlist",),                               "resume_shortlisted"),
+    (("resume reject", "rejected resume"),         "resume_rejected"),
+    (("evaluation assign",),                       "evaluation_assigned"),
+    (("evaluation progress", "in progress",
+      "first interview", "second interview",
+      "interview"),                                "evaluation_in_progress"),
+    (("evaluation pass", "passed"),                "evaluation_passed"),
+    (("evaluation fail", "failed"),                "evaluation_failed"),
+    (("selection form sent", "form sent"),         "selection_form_sent"),
+    (("selection form submit", "form submitted"),  "selection_form_submitted"),
+    (("form validated", "selection validated"),    "selection_form_validated"),
+    (("contract sent", "offer sent",
+      "contract proposal", "proposal"),            "contract_sent"),
+    (("contract signed", "offer signed", "hired"), "contract_signed"),
+    (("induction",),                               "induction_completed"),
+    (("email created", "it email"),                "it_email_created"),
+    (("welcome mail",),                            "welcome_mail_sent"),
+    (("statutory sent",),                          "statutory_forms_sent"),
+    (("statutory submit",),                        "statutory_forms_submitted"),
+    (("compliance verified",),                     "compliance_verified"),
+    (("onboarded", "onboarding complete"),         "onboarding_completed"),
+    (("reject",),                                  "resume_rejected"),
+]
+
+_STAGE_DISPLAY = {
+    "new_application":           "New Application",
+    "source_tagged":             "Source Tagged",
+    "resume_uploaded":           "Resume Uploaded",
+    "resume_screening_pending":  "Screening Pending",
+    "resume_shortlisted":        "Resume Shortlisted",
+    "resume_rejected":           "Rejected",
+    "evaluation_assigned":       "Evaluation Assigned",
+    "evaluation_in_progress":    "Evaluation In Progress",
+    "evaluation_passed":         "Evaluation Passed",
+    "evaluation_failed":         "Evaluation Failed",
+    "selection_form_sent":       "Selection Form Sent",
+    "selection_form_submitted":  "Selection Form Submitted",
+    "selection_form_validated":  "Selection Form Validated",
+    "contract_sent":             "Contract Sent",
+    "contract_signed":           "Contract Signed",
+    "induction_completed":       "Induction Completed",
+    "it_email_created":          "IT Email Created",
+    "welcome_mail_sent":         "Welcome Mail Sent",
+    "statutory_forms_sent":      "Statutory Forms Sent",
+    "statutory_forms_submitted": "Statutory Forms Submitted",
+    "compliance_verified":       "Compliance Verified",
+    "onboarding_completed":      "Onboarded",
+}
+
+
+def _stage_to_enum(stage_name):
+    if not stage_name:
+        return "new_application"
+    lower = stage_name.strip().lower()
+    for keywords, enum in _STAGE_ENUM_MAP:
+        if any(k in lower for k in keywords):
+            return enum
+    return "new_application"
+
+
+def _current_stage(applicant):
     if applicant.refuse_reason_id:
-        return "Rejected"
+        return "resume_rejected"
+    return _stage_to_enum(
+        applicant.stage_id.name if applicant.stage_id else None,
+    )
+
+
+def _current_status(applicant):
     if applicant.is_reapplication_blocked:
         return "Blacklisted"
     if applicant.on_hold:
         return "On Hold"
-    return applicant.stage_id.name if applicant.stage_id else None
+    return _STAGE_DISPLAY.get(_current_stage(applicant)) \
+        or (applicant.stage_id.name if applicant.stage_id else None)
 
 
 def _f(rec, fname):
@@ -212,7 +285,8 @@ def _serialize(applicant):
         "collegeId":                college.id if college else None,
         "vendorId":                 None,
         "stageId":                  applicant.stage_id.id if applicant.stage_id else None,
-        "currentStage":             applicant.stage_id.name if applicant.stage_id else None,
+        "stageName":                applicant.stage_id.name if applicant.stage_id else None,
+        "currentStage":             _current_stage(applicant),
         "currentStatus":            _current_status(applicant),
         "priorityScore":            applicant.priority_score or 0,
         "onHold":                   bool(applicant.on_hold),
@@ -226,15 +300,11 @@ def _serialize(applicant):
         "screeningScore":           applicant.resume_score or 0,
         "matchScore":               applicant.resume_score or 0,
         "resumeSummary":            applicant.resume_summary or "",
-        "screeningSummary":         applicant.resume_summary or "",
         "resumeText":               applicant.resume_text or None,
         "resumeKeyPoints":          None,
-        "resumeRecommendation":     _REC_OUT.get(applicant.resume_recommendation, "pending"),
         "recommendation":           _REC_OUT.get(applicant.resume_recommendation, "pending"),
         "screeningPayload":         payload,
         "manualOverride":           override,
-        "strengths":                payload.get("strengths") or [],
-        "gaps":                     payload.get("gaps") or [],
         "llmStatus":                applicant.resume_llm_status,
         "llmModel":                 applicant.resume_llm_model_used,
         "llmError":                 applicant.resume_llm_error,
@@ -634,3 +704,134 @@ class EtharaCandidatesApi(http.Controller):
                 status=404,
             )
         return request.redirect(rec.resume_url, code=302)
+
+    @http.route(
+        BASE + "/<int:aid>/progress", type="http", auth="none",
+        methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def candidates_progress(self, aid, **kwargs):
+        rec, err = _applicant_or_404(aid)
+        if err is not None:
+            return err
+
+        stage_enum = _stage_to_enum(rec.stage_id.name if rec.stage_id else "")
+        is_rejected = bool(rec.refuse_reason_id) or stage_enum == "resume_rejected"
+        is_archived = not rec.active
+
+        buckets = [
+            ("applied",     "Applied",     {"new_application", "source_tagged", "resume_uploaded", "resume_screening_pending"}),
+            ("shortlisted", "Shortlisted", {"resume_shortlisted"}),
+            ("evaluation",  "Evaluation",  {"evaluation_assigned", "evaluation_in_progress", "evaluation_passed", "evaluation_failed"}),
+            ("submission",  "Submission",  {"selection_form_sent", "selection_form_submitted", "selection_form_validated"}),
+            ("contract",    "Contract",    {"contract_sent", "contract_signed"}),
+            ("compliance",  "Compliance",  {"statutory_forms_sent", "statutory_forms_submitted", "compliance_verified"}),
+            ("email_id",    "Email ID",    {"it_email_created", "welcome_mail_sent", "induction_completed"}),
+            ("onboarded",   "Onboarded",   {"onboarding_completed"}),
+        ]
+
+        # Source of truth: hr.applicant.pipeline_status. Do NOT infer from
+        # stage_id — kanban drag or manual override moves stage_id without
+        # actually advancing the pipeline.
+        status_field = rec.pipeline_status or 'applied'
+        if status_field == 'rejected':
+            is_rejected = True
+            current_idx = 1
+        else:
+            current_idx = 0
+            for i, (key, _label, _stages) in enumerate(buckets):
+                if key == status_field:
+                    current_idx = i
+                    break
+
+        rec_out = _REC_OUT.get(rec.resume_recommendation) if rec.resume_recommendation else None
+
+        # Per-step evidence: (timestamp, detail-string) or (None, None) when no
+        # concrete data proves the step happened. A step past the current
+        # bucket with no evidence is `skipped`, not `completed` — because the
+        # applicant was moved forward manually (kanban drag or auto-advance)
+        # without the step actually producing data.
+        evidence = {
+            "applied":     (_iso(rec.create_date), "Registered as candidate"),
+            "shortlisted": (
+                _iso(rec.resume_screened_at),
+                (
+                    ("Rejected · Score %s" % int(rec.resume_score or 0))
+                    if is_rejected else
+                    ("Score %s · %s" % (int(rec.resume_score or 0),
+                                        rec_out.replace("_", " ").title()))
+                    if rec_out else None
+                ),
+            ) if rec.resume_screened_at else (None, None),
+            "evaluation":  (None, None),
+            "submission":  (None, None),
+            "contract":    (None, None),
+            "compliance":  (None, None),
+            "email_id":    (None, None),
+            "onboarded":   (None, None),
+        }
+
+        steps = []
+        for i, (key, label, _stages) in enumerate(buckets):
+            ev_at, ev_detail = evidence.get(key, (None, None))
+
+            if is_rejected:
+                if i == 0:
+                    status = "completed"
+                elif i == 1:
+                    status = "rejected"
+                else:
+                    status = "pending"
+            elif i == current_idx:
+                status = "current"
+            elif i < current_idx:
+                status = "completed" if ev_at else "skipped"
+            else:
+                status = "pending"
+
+            steps.append({
+                "key": key,
+                "label": label,
+                "status": status,
+                "at": ev_at,
+                "detail": ev_detail,
+            })
+
+        override_block = None
+        if rec.resume_manual_override_reason:
+            override_block = {
+                "reason": rec.resume_manual_override_reason,
+                "at":     _iso(rec.resume_manual_override_at),
+                "by":     rec.resume_manual_override_by_id.name if rec.resume_manual_override_by_id else None,
+            }
+
+        screening_block = {
+            "llmStatus":       rec.resume_llm_status or "pending",
+            "score":           float(rec.resume_score or 0),
+            "recommendation":  rec_out,
+            "screenedAt":      _iso(rec.resume_screened_at),
+            "model":           rec.resume_llm_model_used or None,
+            "override":        override_block,
+        }
+
+        total = len(buckets)
+        progress_percent = int(round((current_idx / max(total - 1, 1)) * 100))
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "candidateId":     rec.id,
+                "candidateName":   rec.partner_name or (rec.partner_id.name if rec.partner_id else None),
+                "currentStage":    stage_enum,
+                "currentStatus":   _current_status(rec),
+                "currentBucket":   buckets[current_idx][0],
+                "currentIndex":    current_idx,
+                "totalSteps":      total,
+                "progressPercent": progress_percent,
+                "steps":           steps,
+                "screening":       screening_block,
+                "isRejected":      is_rejected,
+                "isArchived":      is_archived,
+            },
+        )
