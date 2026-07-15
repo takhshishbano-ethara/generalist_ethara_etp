@@ -37,6 +37,26 @@ class EtpAssessmentQuestion(models.Model):
     grading_json = fields.Text(string="Grading (raw)")
     subjective_rubric_json = fields.Text(string="Subjective Rubric (JSON)")
     meta_json = fields.Text(string="Meta (JSON)")
+    covers_elements_json = fields.Text(
+        string="Covers Elements (JSON)",
+        help="Required-element ids this question exercises, carried from the "
+             "draft on approve. Threaded to scoring so the judge grades SOP "
+             "coverage against the project's real required_elements.")
+    solution_json = fields.Text(
+        string="Solution / Golden Answer (JSON)", copy=False,
+        help="The golden answer (research solutions.answers), carried from the "
+             "draft on approve. Fed to the subjective judge as the answer key "
+             "it decomposes into golden claims before reading the worker.")
+    solution_rationale = fields.Text(
+        string="Solution Rationale", copy=False,
+        help="How the golden answer is known (construction ground truth, the "
+             "SOP's own rule, or derivation).")
+    verification_json = fields.Text(
+        string="Verification Record (JSON)", copy=False,
+        help="image_ab construction verification carried from the draft on "
+             "approve: which planted flaws were confirmed visible in the "
+             "rendered assets. Fed to the judge in scoring Step 0 as the "
+             "confirmed-flaw ground-truth record.")
     image_ids = fields.One2many(
         "etp.assessment.pro.question.image",
         "question_id",

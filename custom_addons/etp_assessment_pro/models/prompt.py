@@ -96,6 +96,70 @@ class EtpAssessmentPrompt(models.Model):
         string="Tags (raw LLM output)", readonly=True, copy=False,
         help="Raw JSON array returned by the tag-extraction call, kept for "
              "debugging; the canonicalized tags live in tag_ids.")
+    # --- research schema (seed-prompt-v2 / schema 1.5) grounded metadata ------
+    # Adopted from research's SOP-intake: the generation call now returns ONE
+    # object {metadata, questions}; the metadata block (evidence quotes, faceted
+    # mapping, plain tags, skills registry, required_elements, question_spec) is
+    # stored here so scoring can thread required_elements/covered_by_all through.
+    metadata_json = fields.Text(
+        string="SOP Metadata (research schema)", readonly=True, copy=False,
+        help="The full grounded metadata object research's seed prompt emits: "
+             "sop_title, summary, mapping, tags, skills, evidence, "
+             "required_elements, covered_by_all, question_spec, gaps.")
+    plain_tags = fields.Char(
+        string="Plain Tags", readonly=True, copy=False,
+        help="The 3-4 unprefixed defining-trait tags (research 'tags' artifact), "
+             "distinct from the faceted mapping stored in tag_ids.")
+    required_elements_json = fields.Text(
+        string="Required Elements (JSON)", readonly=True, copy=False,
+        help="Atomic yes/no SOP requirements [{id,statement,evidence}] the "
+             "questions cover; load-bearing for scoring SOP-Coverage.")
+    covered_by_all_json = fields.Text(
+        string="Covered By All (JSON)", readonly=True, copy=False,
+        help="Required-element ids every question exercises (the coverage "
+             "baseline unioned with each question's covers_elements).")
+    # Historic project profile (research schema 1.5) — every artifact Growth's SOP
+    # yields is persisted here so a project's grounding survives for generation,
+    # ranking and audit. All readonly/copy=False: they describe THIS SOP intake.
+    sop_title = fields.Char(
+        string="SOP Title", readonly=True, copy=False,
+        help="The project title the SOP intake recovered (metadata.sop_title).")
+    sop_summary = fields.Text(
+        string="SOP Summary", readonly=True, copy=False,
+        help="Two or three plain sentences on what workers do (metadata.summary).")
+    mapping_json = fields.Text(
+        string="Faceted Mapping (JSON)", readonly=True, copy=False,
+        help="The full faceted profile [facet:value] the intake extracted; "
+             "reconciled into tag_ids so it drives the weighted-Jaccard ranking.")
+    skills_json = fields.Text(
+        string="Skills Registry (JSON)", readonly=True, copy=False,
+        help="[{id,name,weight 1-5,evidence}] — the SOP's skills and their "
+             "centrality weight, kept for ranking and reporting.")
+    evidence_json = fields.Text(
+        string="Evidence (JSON)", readonly=True, copy=False,
+        help="[{id,quote,supports}] verbatim SOP quotes grounding every value. "
+             "The audit trail proving each artifact traces to the SOP.")
+    question_spec_json = fields.Text(
+        string="Question Spec (JSON)", readonly=True, copy=False,
+        help="The answer-field contract the intake derived (answer_type, "
+             "answer_fields, assets_per_question, solution_shape, uses).")
+    sop_examples_json = fields.Text(
+        string="SOP Examples (JSON)", readonly=True, copy=False,
+        help="Examples mined from the SOP itself (worked example, sample "
+             "response), the primary form/difficulty reference.")
+    quality_criteria_json = fields.Text(
+        string="Quality Criteria (JSON)", readonly=True, copy=False)
+    failure_modes_json = fields.Text(
+        string="Common Failure Modes (JSON)", readonly=True, copy=False)
+    gaps_json = fields.Text(
+        string="Gaps (JSON)", readonly=True, copy=False,
+        help="Honesty log: rules that gave way on a thin SOP, silent fields.")
+    conflicts_json = fields.Text(
+        string="Conflicts (JSON)", readonly=True, copy=False,
+        help="Recorded SOP-vs-example conflicts (never silently merged).")
+    injection_flags_json = fields.Text(
+        string="Injection Flags (JSON)", readonly=True, copy=False,
+        help="SOP passages that tried to address the compiler as instructions.")
     similar_count = fields.Integer(
         string="Similar Generators", compute="_compute_similar_count",
         help="How many OTHER generators share enough weighted tags with this "
@@ -781,6 +845,21 @@ class EtpAssessmentPromptQuestion(models.Model):
              "so detection uses the right prompt.")
     options_json = fields.Text(string="Options (JSON)")
     correct_answer_json = fields.Text(string="Correct Answer (JSON)")
+    solution_json = fields.Text(
+        string="Solution / Golden Answer (JSON)", readonly=True, copy=False,
+        help="The most correct answer in an ideal worker's voice (research "
+             "solutions.answers), stored as historic ground truth and fed to "
+             "the subjective judge at score time so it decomposes golden claims "
+             "before reading the worker answer.")
+    solution_rationale = fields.Text(
+        string="Solution Rationale", readonly=True, copy=False,
+        help="How the golden answer is known (construction ground truth, the "
+             "SOP's own rule, or derivation). Provenance for the answer key.")
+    covers_elements_json = fields.Text(
+        string="Covers Elements (JSON)",
+        help="Required-element ids (from the SOP metadata) this question's "
+             "scenario uniquely exercises. Research schema 1.5 coverage; "
+             "threaded to scoring so SOP-Coverage grades against real elements.")
     dimensions_json = fields.Text(
         string="Dimensions (JSON)",
         help="General multi-dimension answer key: a JSON list of "
@@ -1235,6 +1314,10 @@ class EtpAssessmentPromptQuestion(models.Model):
                 "subjective_rubric_json": rec.rubric_json or False,
                 "official_reasoning": rec.official_reasoning or False,
                 "flaw_plan_json": rec.flaw_plan_json or False,
+                "covers_elements_json": rec.covers_elements_json or False,
+                "solution_json": rec.solution_json or False,
+                "solution_rationale": rec.solution_rationale or False,
+                "verification_json": rec.verification_json or False,
                 "source_ref": "gen:%s" % rec.prompt_id.name,
             }
             q = Question.create(vals)
@@ -1924,12 +2007,15 @@ class EtpAssessmentPromptQuestion(models.Model):
         return images
 
     def _render_all_images(self):
-        """Render ALL of this draft's briefs, ALL-OR-NOTHING: a draft is only
-        marked 'rendered' when every brief produced a picture, so a partial
-        result (e.g. one A/B image lost to a 429) is never stored and a
-        candidate can't get a half-rendered question. A quota (429) hit
-        re-queues without spending an attempt; other partial/failed renders
-        spend one and flip to 'failed' past the cap."""
+        """Render ALL of this draft's briefs, ALL-OR-NOTHING for the 'rendered'
+        stamp: a draft is only marked 'rendered' when every brief has a picture,
+        so a candidate never sees a half-rendered question. But money is never
+        wasted: slots that already rendered (persisted in images_json, or handed
+        back on a 429) are KEPT, and each retry renders ONLY the missing slots.
+        A quota (429) hit persists whatever came back and re-queues without
+        spending an attempt; other partial/failed renders spend one and flip to
+        'failed' past the cap.
+        """
         import json as _json
         from ..services import vertex
         self.ensure_one()
@@ -1938,16 +2024,55 @@ class EtpAssessmentPromptQuestion(models.Model):
                       if isinstance(b, dict) and b.get("prompt")]
         if not renderable:
             return False
+
+        # Reuse slots already paid for on a previous tick (money safety): only
+        # the briefs whose slot has no persisted image are re-rendered.
+        have = {img.get("slot"): img for img in self._current_images()
+                if isinstance(img, dict) and (img.get("data") or img.get("url"))}
+        todo = [b for b in renderable
+                if (b.get("slot") or "single") not in have]
+        if not todo:
+            # Everything is already rendered; just make sure the stamp is right.
+            fresh = list(have.values())
+            fresh = self._detect_label_on_render(fresh)
+            self.write({
+                "images_json": _json.dumps(fresh, ensure_ascii=False),
+                "image_state": "rendered",
+                "image_render_attempts": 0,
+            })
+            return True
+
         try:
-            images = vertex.render_draft_images(
-                self.env, briefs,
+            new_images = vertex.render_draft_images(
+                self.env, todo,
                 usage_ctx={"operation": "generate_image",
                            "prompt_id": self.prompt_id.id,
                            "note": self.name})
-        except vertex.VertexQuotaError:
-            self.write({"image_state": "pending"})
+        except vertex.VertexQuotaError as exc:
+            # Persist any slots that DID render before the 429, merged with the
+            # ones we already had, so the next tick renders only what's left.
+            salvaged = {**have}
+            for img in (getattr(exc, "partial", None) or []):
+                if isinstance(img, dict) and img.get("slot"):
+                    salvaged[img["slot"]] = img
+            if len(salvaged) > len(have):
+                self.write({
+                    "images_json": _json.dumps(
+                        list(salvaged.values()), ensure_ascii=False),
+                    "image_state": "pending",
+                })
+            else:
+                self.write({"image_state": "pending"})
             return False
-        if images and len(images) >= len(renderable):
+
+        # Merge freshly rendered slots with the ones we already had.
+        merged = {**have}
+        for img in (new_images or []):
+            if isinstance(img, dict) and img.get("slot"):
+                merged[img["slot"]] = img
+        images = list(merged.values())
+
+        if len(images) >= len(renderable):
             verification = None
             if (self.question_type == "image_ab" and self.flaw_plan_json
                     and self._verify_flaw_render_on()):
@@ -1961,7 +2086,12 @@ class EtpAssessmentPromptQuestion(models.Model):
                                            "prompt_id": self.prompt_id.id,
                                            "note": self.name})
                     except vertex.VertexQuotaError:
-                        self.write({"image_state": "pending"})
+                        # Keep the rendered pair; verification retries next tick.
+                        self.write({
+                            "images_json": _json.dumps(
+                                images, ensure_ascii=False),
+                            "image_state": "pending",
+                        })
                         return False
                     except Exception:  # noqa: BLE001 - never break generation
                         _logger.exception(
@@ -1979,11 +2109,17 @@ class EtpAssessmentPromptQuestion(models.Model):
                     verification, ensure_ascii=False)
             self.write(vals)
             return True
+
+        # Incomplete render (a slot came back empty, not a 429): persist what we
+        # have so it's not re-paid, spend an attempt, fail past the cap.
         attempts = (self.image_render_attempts or 0) + 1
-        self.write({
+        vals = {
             "image_render_attempts": attempts,
             "image_state": "failed" if attempts >= 3 else "pending",
-        })
+        }
+        if len(images) > len(have):
+            vals["images_json"] = _json.dumps(images, ensure_ascii=False)
+        self.write(vals)
         return False
 
     @api.model
