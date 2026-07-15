@@ -274,3 +274,35 @@ class TestTagExtractManualOnly(TransactionCase):
             self.env.ref("etp_assessment_pro.ir_cron_extract_tags",
                          raise_if_not_found=False),
             "the scheduled tag-extraction cron must no longer exist")
+
+
+class TestTruncatedJsonSalvage(TransactionCase):
+    """_extract_json_array recovers the complete leading items of a JSON array
+    truncated at the output-token ceiling, instead of hard-failing the run."""
+
+    def test_salvage_recovers_complete_objects_from_truncated_array(self):
+        truncated = (
+            '[\n {"name": "Q1", "question_type": "image_ab"},\n'
+            ' {"name": "Q2", "question_type": "image_ab"},\n'
+            ' {"name": "Q3", "prompt": "Evaluate the two ')
+        items = vertex._salvage_json_objects(truncated)
+        self.assertEqual([i["name"] for i in items], ["Q1", "Q2"])
+
+    def test_extract_json_array_returns_salvaged_on_truncation(self):
+        truncated = (
+            '[{"name": "Q1", "question_type": "image_ab"}, '
+            '{"name": "Q2", "prompt": "Rate them on Instruction Foll')
+        self.assertEqual(
+            [i["name"] for i in vertex._extract_json_array(truncated)], ["Q1"])
+
+    def test_extract_json_array_still_parses_clean_array(self):
+        clean = '[{"name": "Q1"}, {"name": "Q2"}]'
+        self.assertEqual(
+            [i["name"] for i in vertex._extract_json_array(clean)], ["Q1", "Q2"])
+
+    def test_salvage_returns_empty_when_first_object_incomplete(self):
+        self.assertEqual(vertex._salvage_json_objects('[{"name": "Q1'), [])
+
+    def test_extract_json_array_raises_when_unsalvageable(self):
+        with self.assertRaises(ValueError):
+            vertex._extract_json_array("total garbage no json here")
