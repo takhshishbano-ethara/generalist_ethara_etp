@@ -528,7 +528,15 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
 
 class VertexQuotaError(RuntimeError):
     """Vertex returned HTTP 429 (quota / rate limit). Transient: the caller
-    re-queues and retries later instead of marking the item permanently failed."""
+    re-queues and retries later instead of marking the item permanently failed.
+
+    ``partial`` carries any already-rendered slots (list of image dicts) that a
+    multi-image render managed to produce before the 429 fired, so the caller
+    can persist them and re-render only the missing slots — never re-paying for
+    a picture that already came back. Empty for single-image / non-render calls.
+    """
+
+    partial = []
 
 
 def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
@@ -1600,6 +1608,11 @@ def render_draft_images(env, briefs, usage_ctx=None, only_slot=None):
 
     On-demand Model 2 step, never run from the generate-questions request.
     ``only_slot`` (when set) renders just that slot.
+
+    MONEY SAFETY: when a 429 aborts the loop, the slots already rendered in this
+    call are NOT thrown away — they are attached to the raised VertexQuotaError
+    as ``.partial`` so the caller can persist them and re-render only what's
+    still missing, never re-paying for a picture that already came back.
     """
     images = []
     for brief in (briefs or []):
@@ -1619,7 +1632,10 @@ def render_draft_images(env, briefs, usage_ctx=None, only_slot=None):
                 "label": brief.get("label") or slot.title(),
                 "data": "data:%s;base64,%s" % (mime, b64),
             })
-        except VertexQuotaError:
+        except VertexQuotaError as exc:
+            # Keep the paid slots: hand them back on the exception so the caller
+            # can save progress and only retry the missing slots next tick.
+            exc.partial = images
             raise
         except Exception as exc:
             _logger.warning(
@@ -1937,6 +1953,20 @@ def _generation_model(env):
         or GENERATION_DEFAULT_MODEL
 
 
+def _scoring_model(env):
+    """The TEXT model used by the subjective judge. MUST be a text/multimodal
+    reasoning model, never the image model: the judge reads the golden answer +
+    worker text and returns structured JSON. Resolution order:
+    ``scoring_model`` config -> ``generation_model`` config -> the text default.
+    The bare ``vertex_model`` default (VERTEX_DEFAULT_MODEL) is deliberately NOT
+    consulted here because it is the image model on this deployment, which would
+    silently route grading through gemini-3-pro-image (wrong + expensive + image
+    quota bound)."""
+    return _param(env, "etp_assessment_pro.scoring_model") \
+        or _param(env, "etp_assessment_pro.generation_model") \
+        or GENERATION_DEFAULT_MODEL
+
+
 _SOP_MIME_BY_EXT = {
     "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg",
     "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif",
@@ -1969,11 +1999,30 @@ def _inline_doc_part(name, data, default_mime="application/pdf"):
     return {"inlineData": {"mimeType": mime, "data": raw}}
 
 
+_SOP_TEXT_EXTS = frozenset({"docx", "txt", "md", "markdown", "csv",
+                            "html", "htm", "json", "xml"})
+
+
 def _sop_doc_parts(resources):
-    """Native inline document parts (base64) for the SOP files, so the model
-    reads the REAL document — text, images and layout — not stripped text."""
+    """Document parts for the SOP files. PDF and images go NATIVE (inline base64)
+    so the model reads real layout/pixels. docx and text formats cannot be sent
+    as Gemini inlineData (docx would trip the %PDF guard), so they are extracted
+    to text via the resource's own _extract_text and sent as a text part — this
+    is what makes a .docx SOP work end to end, not just .pdf."""
     parts = []
     for res in resources.sorted("sequence"):
+        ext = (res.name or "").rsplit(".", 1)[-1].lower() if "." in (res.name or "") else ""
+        if ext in _SOP_TEXT_EXTS:
+            try:
+                text, err = res._extract_text()
+            except Exception as exc:  # noqa: BLE001
+                text, err = "", repr(exc)
+            if text and str(text).strip():
+                parts.append({"text": "SOP DOCUMENT (%s):\n%s"
+                              % (res.name or "sop", text)})
+                continue
+            _logger.warning("etp_assessment SOP %r extract failed: %s",
+                            res.name, err)
         part = _inline_doc_part(res.name or "", res.file)
         if part:
             parts.append(part)
@@ -1999,6 +2048,16 @@ _FORCED_TYPE_SPEC = {
 }
 
 
+_ENVELOPE_REMINDER = (
+    " Return ONE JSON OBJECT with three keys, \"metadata\" (the grounded SOP profile: "
+    "sop_title, summary, mapping, tags, skills, evidence, required_elements, "
+    "covered_by_all, question_spec, gaps), \"questions\" (the array of question "
+    "objects, each MAY carry covers_elements), and \"solutions\" (one entry per "
+    "question IN THE SAME ORDER, each {answers, rationale} holding the most correct "
+    "answer in an ideal worker's voice plus how it is known). First char '{', last "
+    "'}', no markdown.")
+
+
 def _forced_type_directive(force_type, count, ab_dims=None):
     """An EXCLUSIVE directive that pins every generated item to one question_type
     (with that type's required shape), used when the admin forces a type. An image
@@ -2010,12 +2069,120 @@ def _forced_type_directive(force_type, count, ab_dims=None):
         return (f"Generate EXACTLY {n} question(s). EVERY item's question_type MUST "
                 f'be exactly "{force_type}" — do NOT produce any other type. '
                 + _image_question_directive(force_type, n, ab_dims=ab_dims)
+                + _ENVELOPE_REMINDER
                 + _SELF_CONTAINED_RULE)
     spec = _FORCED_TYPE_SPEC.get(force_type, "")
     return (f"Generate EXACTLY {n} question(s). EVERY item's question_type MUST be "
             f'exactly "{force_type}" — do NOT produce any other type. For EACH item '
-            "provide " + spec + ". Return ONLY a JSON array, no markdown."
+            "provide " + spec + "." + _ENVELOPE_REMINDER
             + _SELF_CONTAINED_RULE)
+
+
+def _extract_solutions(raw):
+    """Pull the top-level "solutions" array from a {metadata, questions, solutions}
+    generation response. Returns [] for the legacy bare-array shape or when the
+    key is absent/unparseable, so callers can zip defensively by index."""
+    try:
+        text = (raw or "").strip()
+        text = re.sub(r"^```(?:json)?", "", text).strip()
+        text = re.sub(r"```$", "", text).strip()
+        try:
+            obj = json.loads(text)
+        except Exception:
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            obj = json.loads(m.group(0)) if m else None
+        if not isinstance(obj, dict):
+            return []
+        sols = obj.get("solutions")
+        if isinstance(sols, dict):
+            # keyed by q-id/position -> order by sorted key for stable zip
+            return [sols[k] for k in sorted(sols.keys())]
+        if isinstance(sols, list):
+            return sols
+        return []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _capture_sop_metadata(env, prompt_record, raw):
+    """Persist the FULL research schema-1.5 project profile when the generation
+    response is the {metadata, questions} object, and reconcile the faceted
+    ``mapping`` into ``tag_ids`` so research's mapping drives our existing
+    weighted-Jaccard ranking (parity with the research process). No-op for the
+    legacy bare-array shape, so this is safe to call on every run. Best-effort:
+    never raises into generation."""
+    try:
+        text = (raw or "").strip()
+        text = re.sub(r"^```(?:json)?", "", text).strip()
+        text = re.sub(r"```$", "", text).strip()
+        try:
+            obj = json.loads(text)
+        except Exception:
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            obj = json.loads(m.group(0)) if m else None
+        if not isinstance(obj, dict):
+            return
+        meta = obj.get("metadata")
+        if not isinstance(meta, dict):
+            return
+
+        def _dump_list(key):
+            v = meta.get(key)
+            return json.dumps(v, ensure_ascii=False) if isinstance(v, list) and v else False
+
+        vals = {"metadata_json": json.dumps(meta, ensure_ascii=False)}
+        # scalars
+        if meta.get("sop_title"):
+            vals["sop_title"] = str(meta["sop_title"])[:255]
+        if meta.get("summary"):
+            vals["sop_summary"] = str(meta["summary"])
+        tags = meta.get("tags")
+        if isinstance(tags, list) and tags:
+            vals["plain_tags"] = ", ".join(str(t) for t in tags)[:255]
+        # every list artifact -> its own column (historic project data)
+        for meta_key, field_name in (
+                ("mapping", "mapping_json"),
+                ("skills", "skills_json"),
+                ("evidence", "evidence_json"),
+                ("required_elements", "required_elements_json"),
+                ("covered_by_all", "covered_by_all_json"),
+                ("sop_examples", "sop_examples_json"),
+                ("quality_criteria", "quality_criteria_json"),
+                ("common_failure_modes", "failure_modes_json"),
+                ("gaps", "gaps_json"),
+                ("conflicts", "conflicts_json"),
+                ("injection_flags", "injection_flags_json")):
+            dumped = _dump_list(meta_key)
+            if dumped:
+                vals[field_name] = dumped
+        # question_spec is an object, not a list
+        qspec = meta.get("question_spec")
+        if isinstance(qspec, dict) and qspec:
+            vals["question_spec_json"] = json.dumps(qspec, ensure_ascii=False)
+
+        # RANKING PARITY: reconcile faceted mapping -> tag_ids. Research's mapping
+        # is exactly our prefixed-tag form (facet:value), so feed it straight into
+        # the same tag vocabulary the weighted-Jaccard ranking already reads.
+        mapping = meta.get("mapping")
+        if isinstance(mapping, list) and mapping:
+            tag_model = env["etp.assessment.pro.tag"].sudo()
+            tag_recs = tag_model._get_or_create(
+                [str(m) for m in mapping if str(m).strip()])
+            if tag_recs:
+                vals["tag_ids"] = [(6, 0, tag_recs.ids)]
+
+        prompt_record.sudo().write(vals)
+        _logger.info(
+            "etp_assessment captured research metadata for prompt %s "
+            "(%d evidence, %d required_elements, %d mapping->tags, %d skills)",
+            prompt_record.id,
+            len(meta.get("evidence") or []),
+            len(meta.get("required_elements") or []),
+            len(meta.get("mapping") or []),
+            len(meta.get("skills") or []))
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("etp_assessment metadata capture skipped: %s",
+                        repr(exc)[:160])
 
 
 def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
@@ -2057,7 +2224,7 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
           "an mcq/msq/subjective item that merely describes or refers to images. "
           "Use text types only for the genuinely text-based parts of the SOP "
           "(definitions, rules, procedures needing no visual judgment). "
-        + "Return ONLY a JSON array, no markdown."
+        + _ENVELOPE_REMINDER
         + _image_contracts_note(ab_dims)
         + _SELF_CONTAINED_RULE)
     user_parts = list(doc_parts)
@@ -2079,7 +2246,22 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.5, response_json=True,
             usage_ctx={"operation": "generate_questions",
                        "prompt_id": prompt_record.id, "note": note})
-        return [it for it in _extract_json_array(raw) if isinstance(it, dict)]
+        # Research schema 1.5 returns ONE object {metadata, questions}; capture
+        # the grounded metadata block (evidence, mapping, tags, skills,
+        # required_elements, question_spec) when present, then hand the questions
+        # list to the existing parser. Legacy bare-array output is unaffected:
+        # _extract_json_array + _unwrap_json_list already yield the same list.
+        _capture_sop_metadata(env, prompt_record, raw)
+        items = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
+        # Research schema 1.5 also returns a top-level "solutions" array, one
+        # entry per question IN ORDER. Zip each solution onto its question so the
+        # golden answer + rationale ride with the item into draft creation.
+        sols = _extract_solutions(raw)
+        if sols:
+            for idx, it in enumerate(items):
+                if idx < len(sols) and isinstance(sols[idx], dict):
+                    it["_solution"] = sols[idx]
+        return items
 
     try:
         items = _run(user_parts, prompt_record.name or "SOP")
@@ -2125,6 +2307,18 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "question_type": qtype,
             "difficulty": difficulty,
         }
+        ce = it.get("covers_elements")
+        if isinstance(ce, list) and ce:
+            vals["covers_elements_json"] = json.dumps(ce, ensure_ascii=False)
+        # Research schema 1.5 solution (golden answer + rationale) zipped on by
+        # _run: store as historic ground truth + the subjective judge's key.
+        sol = it.get("_solution")
+        if isinstance(sol, dict):
+            ans = sol.get("answers")
+            if ans is not None:
+                vals["solution_json"] = json.dumps(ans, ensure_ascii=False)
+            if sol.get("rationale"):
+                vals["solution_rationale"] = str(sol["rationale"])
         if qtype in _IMAGE_OR_VIDEO_TYPES:
             vals.update(_build_image_draft_fields(
                 env, qtype, it, ab_dims=ab_dims,

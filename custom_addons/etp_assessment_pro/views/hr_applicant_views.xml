@@ -17,6 +17,42 @@
         </field>
     </record>
 
+    <!-- Lightweight candidate quick-create: what you get when you click
+         "Create and edit..." on the Assign Candidates tag field. Just the two
+         fields a candidate needs (name + the email that receives their invite),
+         NOT the read-only analytics dashboard (that has create=0/edit=0 and no
+         inputs, which made new-candidate creation look broken). priority=1 so it
+         wins as the default FORM view for hr.applicant inside this module's
+         create dialogs. -->
+    <record id="etp_hr_applicant_candidate_quickcreate_form" model="ir.ui.view">
+        <field name="name">etp.hr.applicant.candidate.quickcreate.form</field>
+        <field name="model">hr.applicant</field>
+        <field name="priority">1</field>
+        <field name="arch" type="xml">
+            <form class="o_etp_backend" string="New Candidate">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="partner_name" string="Candidate Name"/>
+                        <h1>
+                            <field name="partner_name" placeholder="e.g. Jane Doe"
+                                   required="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <field name="email_from" string="Email" required="1"
+                               placeholder="jane@example.com" widget="email"/>
+                        <field name="partner_phone" string="Phone"
+                               placeholder="optional"/>
+                    </group>
+                    <p class="text-muted">
+                        The email is required — the candidate receives their exam
+                        invite and portal login at this address.
+                    </p>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
     <record id="etp_hr_applicant_candidate_dashboard_form" model="ir.ui.view">
         <field name="name">etp.hr.applicant.candidate.dashboard.form</field>
         <field name="model">hr.applicant</field>

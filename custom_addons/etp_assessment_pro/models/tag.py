@@ -37,6 +37,22 @@ class EtpAssessmentTag(models.Model):
                 rec.prefix = ""
                 rec.label = raw
 
+    @api.depends("name", "label")
+    @api.depends_context("etp_hide_tag_prefix")
+    def _compute_display_name(self):
+        """Display-only prefix hiding for the GENERATOR views. The canonical
+        ``name`` (``domain:image-evaluation``) is what the weighted-Jaccard
+        ranking reads (via ``prefix`` + the M2M relation), never ``display_name``,
+        so stripping the prefix here is purely cosmetic. Gated on the
+        ``etp_hide_tag_prefix`` context flag (set on the generator views only) so
+        every other place still shows the full faceted tag."""
+        hide = self.env.context.get("etp_hide_tag_prefix")
+        for rec in self:
+            if hide and rec.label:
+                rec.display_name = rec.label.replace("-", " ").title()
+            else:
+                rec.display_name = rec.name or ""
+
     @api.constrains("name")
     def _check_unique_name(self):
         """Case-insensitive unique name. Mirrors the module's @api.constrains

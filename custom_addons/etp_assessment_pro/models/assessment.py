@@ -1215,6 +1215,31 @@ class EtpAssessmentResponse(models.Model):
         string="Full Scoring Result (JSON)", readonly=True, copy=False,
         help="The complete per-field v6 result object from the grader, kept "
              "for audit.")
+    # Research subjective-judge v10 component scores (promoted from
+    # llm_result_json for querying/reporting; the judge computes them 0-100).
+    llm_key_closeness = fields.Float(
+        string="Key Closeness (0-100)", readonly=True, copy=False,
+        help="v10: how close the worker answer is to the golden answer, judged "
+             "claim by claim. Weight 0.60 of the score.")
+    llm_sop_coverage = fields.Float(
+        string="SOP Coverage (0-100)", readonly=True, copy=False,
+        help="v10: how many of the question's required elements the answer "
+             "demonstrates. Weight 0.25 of the score.")
+    llm_clarity = fields.Char(
+        string="Clarity", readonly=True, copy=False,
+        help="v10: clear / mixed / unclear. Weight 0.15 of the score.")
+    llm_ai_confidence = fields.Char(
+        string="AI-likeness Confidence", readonly=True, copy=False,
+        help="v10: none / medium / high. Never changes the score, a flag only.")
+    llm_verdict_consistency = fields.Char(
+        string="Verdict Consistency", readonly=True, copy=False,
+        help="v10: match / contradiction / indeterminate / not_applicable — "
+             "does the worker's committed verdict agree with the answer key.")
+    llm_golden_claims_json = fields.Text(
+        string="Golden Claims (JSON)", readonly=True, copy=False,
+        help="v10: the golden answer decomposed into deciding/supporting claims "
+             "with the worker's per-claim hit/partial/miss verdict + evidence "
+             "quote. The audit trail of how key closeness was judged.")
     llm_attempts = fields.Integer(
         string="Subjective Attempts", default=0, copy=False)
     llm_state = fields.Selection(

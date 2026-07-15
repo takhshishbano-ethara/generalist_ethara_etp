@@ -118,7 +118,9 @@
                         <page string="Assign Candidates" invisible="state != 'draft'">
                             <group string="Manual Assignment">
                                 <field name="evaluator_ids" widget="many2many_tags"
-                                       nolabel="1"/>
+                                       nolabel="1"
+                                       context="{'form_view_ref': 'etp_assessment_pro.etp_hr_applicant_candidate_quickcreate_form'}"
+                                       options="{'no_quick_create': True}"/>
                             </group>
                             <group string="Import from CSV">
                                 <group>

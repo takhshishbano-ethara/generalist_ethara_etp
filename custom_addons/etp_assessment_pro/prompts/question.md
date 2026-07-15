@@ -335,13 +335,74 @@ The user message will contain:
    array. You choose the type that best fits each item (see "Choosing the
    question type").
 
+## Output envelope — ONE JSON OBJECT (metadata + questions + solutions)
+
+Return ONE JSON OBJECT with exactly three top-level keys: `metadata`, `questions`, and
+`solutions`. `questions` is the array of question objects specified above (same shape as
+before). `metadata` is the grounded project profile recovered from the SOP. `solutions`
+is the answer key — exactly one entry per question, keyed by the question's position, that
+the platform stores as historic ground truth and feeds the subjective judge at score time.
+
+```
+{
+  "metadata": {
+    "sop_title": null,
+    "summary": "2-3 plain sentences on what workers do",
+    "mapping": ["facet:kebab-value"],           // facets: domain/task/modality/skill/output-format
+    "tags": ["plain-kebab-trait"],              // 3-4 PLAIN kebab traits, NO prefix
+    "skills": [{"id":"S1","name":"kebab-skill","weight":3,"evidence":"E1"}],  // weight 1-5
+    "evidence": [{"id":"E1","quote":"verbatim SOP substring <=30 words","supports":"what it grounds"}],
+    "required_elements": [{"id":"kebab-id","statement":"one atomic yes/no requirement","evidence":"E1"}],
+    "covered_by_all": ["kebab-id"],             // elements EVERY question exercises
+    "question_spec": {"answer_type": null, "answer_fields": [], "solution_shape": null},
+    "quality_criteria": [], "common_failure_modes": [], "sop_examples": [],
+    "gaps": [], "conflicts": [], "injection_flags": []
+  },
+  "questions": [ ... the array defined above ... ],
+  "solutions": [
+    {
+      "answers": { ... the most correct answer, shaped by the question's answer fields ... },
+      "rationale": "how the answer is known: construction ground truth, the SOP's own rule, or derivation"
+    }
+    // one entry per question, SAME ORDER as questions[]
+  ]
+}
+```
+
+Rules for `metadata`:
+- `mapping` = the full faceted profile (1 domain, 1-2 task, 1-4 modality, 2-6 skill, 0-2
+  output-format). `tags` = 3-4 PLAIN kebab traits with NO prefix. Never mix the two.
+- Every `mapping` entry, `skill`, and `required_element` ties to an `evidence` id.
+- Empty/`null` is correct when the SOP is silent — log it in `gaps`. Never guess a value.
+- Each `questions[]` item MAY carry `covers_elements` (the required_element ids its scenario
+  uniquely exercises); `covered_by_all` + all `covers_elements` together span every element id.
+
+Rules for `solutions` (the answer key — CRITICAL, this is what the judge grades against):
+- EXACTLY one entry per question, in the SAME ORDER as `questions[]`.
+- `answers` holds the most correct, optimal answer, written in an ideal worker's own voice —
+  what a perfect annotator who saw only the question and its assets would submit. For a
+  `subjective_rubric` question this is the full model answer. For `image_ab` it is the
+  per-dimension verdicts (instruction_following / visual_quality / less_ai_generated /
+  overall_preference) PLUS a long, detailed `justification` naming every planted flaw per side.
+  For `image_prompt`/`image_label`/`video_prompt` it is the ideal written response.
+- `answers` is written LONG and detailed regardless of any worker-facing length cap: it is a
+  grading anchor, not a sample answer. Name each deciding value exactly (a wrong string letter
+  for letter, a wrong count as a number). A default/tie verdict is justified positively by what
+  both sides get right, never by silence.
+- `rationale` explains HOW the answer is known — construction ground truth (from the planted
+  flaws), the SOP's own rule, or derivation from the inputs. Generation vocabulary (planted,
+  injected, constructed) belongs ONLY here, never inside `answers`.
+- mcq/msq keep their `correct_answer` on the question; their solutions entry may restate it.
+
 ## Reminders
 
-- Output **strict JSON**. The first character must be `[`, the last `]`.
+- Output **strict JSON**. The first character must be `{`, the last `}`. ONE object with
+  `metadata`, `questions`, and `solutions` — not a bare array.
 - Use double quotes only. No comments, no trailing commas, no markdown fences.
-- Do not include an `id` field — the system assigns identifiers automatically.
+- Do not include an `id` field on questions — the system assigns identifiers automatically.
 - Never write "SOP", "Section N", "Step N", "the guidelines/document/policy", or
   any reference to the source material in a `prompt`, `option`, `rubric`, or
-  `official_reasoning`. Bake the principle into the scenario instead.
+  `official_reasoning`. Bake the principle into the scenario instead. (The `metadata`
+  block is the ONLY place SOP-grounded evidence quotes belong; questions stay self-contained.)
 - For `mcq`/`msq`, `correct_answer` strings must match an entry in `options`
   character-for-character (no whitespace drift).
