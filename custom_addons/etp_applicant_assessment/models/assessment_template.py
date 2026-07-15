@@ -4,6 +4,14 @@ from odoo.exceptions import UserError, ValidationError
 from ._common import QUESTION_TYPE_SELECTION, MCQ_TYPES
 
 
+TEMPLATE_STATUS_SELECTION = [
+    ("draft", "Draft"),
+    ("public", "Public"),
+    ("archive", "Archive"),
+]
+TEMPLATE_STATUS_KEYS = {k for k, _ in TEMPLATE_STATUS_SELECTION}
+
+
 class EtpApplicantAssessmentTemplate(models.Model):
     _name = "etp.applicant.assessment.template"
     _description = "Assessment Template (job-scoped)"
@@ -11,6 +19,13 @@ class EtpApplicantAssessmentTemplate(models.Model):
 
     name = fields.Char(required=True)
     active = fields.Boolean(default=True)
+    status = fields.Selection(
+        TEMPLATE_STATUS_SELECTION,
+        default="draft", required=True, index=True,
+        help="Draft = editable, not offered to candidates. "
+             "Public = available to be assigned to candidates. "
+             "Archive = retired, no longer offered.",
+    )
     job_id = fields.Many2one(
         "hr.job", string="Job Position", ondelete="cascade",
         help="Job this template is attached to. One template per job (typical).",
@@ -110,6 +125,10 @@ class EtpApplicantAssessmentTemplate(models.Model):
         compute="_compute_max_score", store=True,
         string="Total Marks",
     )
+    assigned_count = fields.Integer(
+        compute="_compute_assigned_count",
+        string="Assigned Count",
+    )
 
     @api.depends("question_ids")
     def _compute_question_count(self):
@@ -120,6 +139,17 @@ class EtpApplicantAssessmentTemplate(models.Model):
     def _compute_max_score(self):
         for rec in self:
             rec.max_score = sum(rec.question_ids.mapped("marks"))
+
+    def _compute_assigned_count(self):
+        Assessment = self.env["etp.applicant.assessment"]
+        grouped = Assessment.read_group(
+            [("template_id", "in", self.ids)],
+            ["template_id"],
+            ["template_id"],
+        )
+        counts = {g["template_id"][0]: g["template_id_count"] for g in grouped}
+        for rec in self:
+            rec.assigned_count = counts.get(rec.id, 0)
 
     @api.constrains("pass_mark_percent")
     def _check_pass_mark(self):
@@ -224,7 +254,6 @@ class EtpApplicantAssessmentTemplateQuestion(models.Model):
                 % (self.bank_question_id.name or self.bank_question_id.id)
             )
         Bank = self.env["etp.applicant.assessment.question.bank"]
-        BankOption = self.env["etp.applicant.assessment.question.bank.option"]
         first_line = (self.prompt or "").strip().split("\n", 1)[0].strip()
         name = first_line[:80] or _("Untitled bank question")
         bank_q = Bank.create({
@@ -233,14 +262,15 @@ class EtpApplicantAssessmentTemplateQuestion(models.Model):
             "question_type": self.question_type,
             "marks": self.marks,
             "negative_marks": self.negative_marks,
+            "option_ids": [
+                (0, 0, {
+                    "sequence": opt.sequence,
+                    "label": opt.label,
+                    "is_correct": opt.is_correct,
+                })
+                for opt in self.option_ids.sorted("sequence")
+            ],
         })
-        for opt in self.option_ids.sorted("sequence"):
-            BankOption.create({
-                "bank_question_id": bank_q.id,
-                "sequence": opt.sequence,
-                "label": opt.label,
-                "is_correct": opt.is_correct,
-            })
         self.bank_question_id = bank_q.id
         return {
             "type": "ir.actions.act_window",

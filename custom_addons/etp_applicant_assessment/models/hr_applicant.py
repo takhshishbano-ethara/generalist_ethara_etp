@@ -2,8 +2,34 @@ from odoo import models, fields, api
 from odoo.exceptions import UserError
 
 
+HIRING_STATUS_SELECTION = [
+    ('pending', 'Applied — Pending Screening'),
+    ('resume_screening_in_progress', 'Resume Screening In Progress'),
+    ('resume_screening_rejected', 'Resume Screening Rejected'),
+    ('resume_screening_passed', 'Resume Screening Passed'),
+    ('pending_assessment', 'Pending Assessment'),
+    ('assessment_in_progress', 'Assessment In Progress'),
+    ('assessment_rejected', 'Assessment Rejected'),
+    ('assessment_passed', 'Assessment Passed'),
+    ('documents_requested', 'Documents Requested'),
+    ('documents_submitted', 'Documents Submitted'),
+    ('documents_rejected', 'Documents Rejected'),
+    ('document_verification_done', 'Document Verification Done'),
+    ('contract_sent', 'Contract Sent'),
+    ('contract_declined', 'Contract Declined'),
+    ('contract_signed', 'Contract Signed'),
+    ('onboard', 'Onboard'),
+]
+HIRING_STATUS_KEYS = {k for k, _ in HIRING_STATUS_SELECTION}
+
+
 class HrApplicant(models.Model):
     _inherit = "hr.applicant"
+
+    status = fields.Selection(
+        HIRING_STATUS_SELECTION,
+        string="Hiring Status", default="pending", required=True, index=True,
+    )
 
     assessment_ids = fields.One2many(
         "etp.applicant.assessment",
@@ -100,3 +126,8 @@ class HrApplicant(models.Model):
                 "default_job_id": self.job_id.id,
             },
         }
+
+    def write(self, vals):
+        if "status" in vals and "status_updated_at" not in vals:
+            vals["status_updated_at"] = fields.Datetime.now()
+        return super().write(vals)

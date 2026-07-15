@@ -23,6 +23,7 @@
                     string="Send Assessment"
                     class="btn-primary"
                     invisible="not job_id"/>
+                <field name="status" widget="statusbar"/>
             </xpath>
             <xpath expr="//sheet" position="inside">
                 <group string="Assessment" name="applicant_assessment_group"

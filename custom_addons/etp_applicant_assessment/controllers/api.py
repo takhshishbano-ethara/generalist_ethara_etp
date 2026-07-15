@@ -3,7 +3,7 @@ import logging
 import os
 
 from odoo import http
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
@@ -13,6 +13,11 @@ from odoo.addons.etp_applicant_assessment.models._common import MCQ_TYPES
 
 _logger = logging.getLogger(__name__)
 
+
+LIST_DEFAULT_LIMIT = 20
+LIST_MAX_LIMIT = 100
+
+_TEMPLATE_STATUS_KEYS = {"draft", "public", "archive"}
 
 _TEMPLATE_STR_FIELDS = ("name", "description",)
 _TEMPLATE_INT_FIELDS = ("duration_minutes", "warning_cap",)
@@ -42,6 +47,29 @@ def _to_bool(value):
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "y", "on")
     return False
+
+
+def _coerce_int(value, default=None):
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _serialize_template_row(rec, assigned_map):
+    return {
+        "id": rec.id,
+        "title": rec.name,
+        "job_id": rec.job_id.id if rec.job_id else False,
+        "job_position_name": rec.job_id.name if rec.job_id else "",
+        "question_count": rec.question_count,
+        "marks": rec.max_score,
+        "assigned_count": assigned_map.get(rec.id, 0),
+        "status": rec.status,
+        "active": rec.active,
+    }
 
 
 def _coerce_template_vals(tpl):
@@ -306,6 +334,38 @@ class ApplicantAssessmentApi(http.Controller):
             },
         )
 
+    @validate_token
+    @http.route(
+        "/api/v1/applicant-assessment/bulk-create",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({
+        "template_id": {"type": "int", "required": True},
+        "applicant_ids": {"type": "list", "required": True},
+    })
+    def bulk_create_applicant_assessments(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            template_id = jdata.get("template_id")
+            applicant_ids = jdata.get("applicant_ids") or []
+            result = request.env["etp.applicant.assessment"].sudo(
+            ).create_bulk_for_template(template_id, applicant_ids)
+        except (UserError, ValidationError) as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Bulk applicant-assessment creation failed.")
+            return return_Response(
+                message=str(e) or "Bulk creation failed.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Bulk assessment invitations processed.",
+            status=200,
+            data={"data": result},
+        )
+
     @http.route(
         "/api/v1/assessment-template/sample-json",
         methods=["GET"], type="http", auth="none", csrf=False, cors="*",
@@ -335,4 +395,146 @@ class ApplicantAssessmentApi(http.Controller):
             )
         return http.Response(
             payload, status=200, mimetype="application/json",
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/assessment-template/list",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({})
+    def list_assessment_templates(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+
+            page = max(1, _coerce_int(jdata.get("page"), 1) or 1)
+            per_page = _coerce_int(jdata.get("limit"), LIST_DEFAULT_LIMIT)
+            per_page = max(1, min(per_page or LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT))
+            offset = (page - 1) * per_page
+
+            domain = []
+            search = (jdata.get("search") or "").strip()
+            if search:
+                domain.append(("name", "ilike", search))
+
+            status = jdata.get("status")
+            if isinstance(status, str) and status.strip():
+                status = status.strip()
+                if status not in _TEMPLATE_STATUS_KEYS:
+                    return return_Response(
+                        message="Invalid status %r." % status, status=400,
+                    )
+                domain.append(("status", "=", status))
+            elif isinstance(status, list) and status:
+                for s in status:
+                    if s not in _TEMPLATE_STATUS_KEYS:
+                        return return_Response(
+                            message="Invalid status %r." % s, status=400,
+                        )
+                domain.append(("status", "in", status))
+
+            job_id = _coerce_int(jdata.get("job_id"))
+            if job_id:
+                domain.append(("job_id", "=", job_id))
+
+            include_archived = _to_bool(jdata.get("include_archived"))
+            archived_only = _to_bool(jdata.get("archived_only"))
+            if archived_only:
+                domain.append(("active", "=", False))
+            elif include_archived:
+                domain = ["|", ("active", "=", True), ("active", "=", False)] + domain
+
+            Template = request.env["etp.applicant.assessment.template"].sudo()
+            total = Template.search_count(domain)
+            total_pages = (total + per_page - 1) // per_page if total else 0
+
+            templates = Template.search(
+                domain, offset=offset, limit=per_page, order="name asc",
+            )
+
+            Assessment = request.env["etp.applicant.assessment"].sudo()
+            assigned_map = {}
+            if templates:
+                grouped = Assessment.read_group(
+                    [("template_id", "in", templates.ids)],
+                    ["template_id"],
+                    ["template_id"],
+                )
+                assigned_map = {
+                    g["template_id"][0]: g["template_id_count"] for g in grouped
+                }
+
+            records = [_serialize_template_row(t, assigned_map) for t in templates]
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to list assessment templates via API.")
+            return return_Response(
+                message="Failed to list templates.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Assessment templates fetched successfully.",
+            status=200,
+            data={
+                "records": records,
+                "pagination": {
+                    "current_page": page,
+                    "per_page": per_page,
+                    "total": total,
+                    "total_pages": total_pages,
+                },
+            },
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/assessment-template/publish",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({"id": {"type": "int", "required": True}})
+    def publish_assessment_template(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            tpl_id = _coerce_int(jdata.get("id"))
+            if not tpl_id or tpl_id <= 0:
+                return return_Response(message="id is required.", status=400)
+
+            Template = request.env["etp.applicant.assessment.template"].sudo()
+            template = Template.with_context(active_test=False).browse(tpl_id)
+            if not template.exists():
+                return return_Response(
+                    message="Template id=%d not found." % tpl_id, status=404,
+                )
+
+            if template.question_count <= 0:
+                return return_Response(
+                    message="Cannot publish a template with no questions.",
+                    status=400,
+                )
+
+            template.write({"status": "public", "active": True})
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to publish assessment template via API.")
+            return return_Response(
+                message="Failed to publish template.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Assessment template published successfully.",
+            status=200,
+            data={
+                "data": {
+                    "id": template.id,
+                    "name": template.name,
+                    "status": template.status,
+                    "active": template.active,
+                },
+            },
         )
