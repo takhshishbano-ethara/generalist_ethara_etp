@@ -127,6 +127,20 @@ class HrApplicant(models.Model):
             },
         }
 
+    def action_screen_resume(self):
+        self.ensure_one()
+        self.sudo().status = "resume_screening_in_progress"
+        return super().action_screen_resume()
+
+    def _advance_stage_after_screening(self):
+        self.ensure_one()
+        super()._advance_stage_after_screening()
+        rec = self.resume_recommendation
+        if rec == "shortlist":
+            self.sudo().status = "resume_screening_passed"
+        elif rec == "reject":
+            self.sudo().status = "resume_screening_rejected"
+
     def write(self, vals):
         if "status" in vals and "status_updated_at" not in vals:
             vals["status_updated_at"] = fields.Datetime.now()

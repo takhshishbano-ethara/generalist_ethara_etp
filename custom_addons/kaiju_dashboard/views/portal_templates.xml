@@ -127,8 +127,8 @@
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>Tasks</dt><dd><b class="js-tasks">16</b></dd></div>
-          <div class="glance-row"><dt>Held-out tests</dt><dd><b class="js-tests">9,249</b></dd></div>
-          <div class="glance-row"><dt>Languages</dt><dd><b class="js-langs">3</b></dd></div>
+          <div class="glance-row"><dt>Average Modules Modified</dt><dd><b>32</b></dd></div>
+          <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Model</dt><dd>Opus 4.8</dd></div>
           <div class="glance-row"><dt>Difficulty</dt><dd>5 Categories</dd></div>
         </dl>
@@ -330,8 +330,8 @@
         <p class="kpi-value"><span class="kpi-big js-langs">3</span></p>
       </div>
       <div class="kpi-card">
-        <p class="kpi-label">Held-out Tests</p>
-        <p class="kpi-value"><span class="kpi-big js-tests">9,249</span></p>
+        <p class="kpi-label">Average Modules Modified</p>
+        <p class="kpi-value"><span class="kpi-big">32</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Opus Mean Reward</p>
