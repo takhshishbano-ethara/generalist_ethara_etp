@@ -277,7 +277,8 @@ hr.rule {
 }
 
 .section-desc {
-  max-width: var(--max-prose);
+  max-width: none;
+  text-wrap: pretty;
   font-size: var(--s-body);
   color: var(--ink-2);
   margin-bottom: 28px;
@@ -695,6 +696,7 @@ img.rd-chart-dark  { display: none; }
   padding: 0;
   text-align: left;
   font-weight: 400;
+  text-wrap: pretty;
 }
 
 /* ============================================================

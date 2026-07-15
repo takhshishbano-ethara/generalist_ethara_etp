@@ -707,22 +707,40 @@
     });
   }
 
-  function rdLineChart(el, labels, opus, haiku, p, opts) {
+  function rdCostCombo(el, labels, opus, haiku, splitIdx, p) {
+    var plugin = {
+      id: "rdCostGroups",
+      afterDatasetsDraw: function (chart) {
+        var x = chart.scales.x, area = chart.chartArea, ctx = chart.ctx;
+        if (!x || !area) { return; }
+        var dx = (x.getPixelForValue(splitIdx - 1) + x.getPixelForValue(splitIdx)) / 2;
+        ctx.save();
+        ctx.strokeStyle = p.ink; ctx.globalAlpha = 0.25; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(dx, area.top); ctx.lineTo(dx, area.bottom); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+        ctx.font = "700 10px 'SF Mono', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.fillStyle = p.ink;
+        ctx.fillText("BY TIER", (x.getPixelForValue(0) + x.getPixelForValue(splitIdx - 1)) / 2, area.top - 6);
+        ctx.fillText("BY SURFACE", (x.getPixelForValue(splitIdx) + x.getPixelForValue(labels.length - 1)) / 2, area.top - 6);
+        ctx.restore();
+      }
+    };
     return new Chart(el, {
-      type: "line",
+      type: "bar",
       data: { labels: labels, datasets: [
-        { label: "Opus 4.8", data: opus, borderColor: rdAlpha(p.opus, 0.55), backgroundColor: rdAlpha(p.opus, 0.08), borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: rdAlpha(p.opus, 0.55), pointBorderColor: rdAlpha(p.opus, 0.55), tension: 0.3, fill: false },
-        { label: "Haiku 4.5", data: haiku, borderColor: p.haiku, backgroundColor: rdAlpha(p.haiku, 0.1), borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: p.haiku, pointBorderColor: p.haiku, tension: 0.3, fill: false }
+        { label: "Opus 4.8", data: opus, backgroundColor: rdAlpha(p.opus, 0.18), borderColor: rdAlpha(p.opus, 0.5), borderWidth: 1, borderRadius: 3, categoryPercentage: 0.72, barPercentage: 0.9 },
+        { label: "Haiku 4.5", data: haiku, backgroundColor: p.haiku, borderRadius: 3, categoryPercentage: 0.72, barPercentage: 0.9 }
       ] },
       options: {
         responsive: true, maintainAspectRatio: false,
         animation: { duration: 500 },
-        plugins: { legend: rdLegend(p), tooltip: rdTooltip(p, opts.unit) },
+        layout: { padding: { top: 18 } },
+        plugins: { legend: rdLegend(p), tooltip: rdTooltip(p, "$") },
         scales: {
-          y: { beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: opts.valTitle, color: p.ink, font: { size: 11 } } },
-          x: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 12, family: "'DM Sans', sans-serif" } } }
+          y: { beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: "Mean cost / run (USD)", color: p.ink, font: { size: 11 } } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 11, family: "'DM Sans', sans-serif" } } }
         }
-      }
+      },
+      plugins: [plugin]
     });
   }
 
@@ -740,113 +758,69 @@
     });
   }
 
-  function rdRuns(arr, keyFn) {
-    var runs = [], cur = null;
-    arr.forEach(function (d, i) {
-      var k = keyFn(d);
-      if (!cur || cur.key !== k) { cur = { key: k, tier: d.difficulty, scope: d.scope, start: i, end: i }; runs.push(cur); }
-      else { cur.end = i; }
-    });
-    return runs;
-  }
-
-  function rdHalfBand(y) {
-    var band = Math.abs(y.getPixelForTick(1) - y.getPixelForTick(0));
-    if (!band) { band = (y.bottom - y.top) / Math.max(1, (y.ticks || []).length || 1); }
-    return band / 2;
-  }
-
-  function rdPerTaskChart(el, s, p) {
+  function rdDumbbell(el, tasks, p) {
     var H = "Claude Haiku 4.5", O = "Claude Opus 4.8";
-    var labels = s.map(function (d) { return d.instance_id; });
-    var haiku = s.map(function (d) { return +((d.models[H].reward || 0) * 100).toFixed(1); });
-    var opus = s.map(function (d) { return +((d.models[O].reward || 0) * 100).toFixed(1); });
-    var scopeRuns = rdRuns(s, function (d) { return d.scope; });
-    var tierRuns = rdRuns(s, function (d) { return d.scope + "|" + d.difficulty; });
-    var BAND = { Easy: "rgba(94,230,149,0.10)", Medium: "rgba(251,191,36,0.10)", Hard: "rgba(255,143,143,0.12)" };
-    var TXT = { Easy: "#3FB768", Medium: "#B8860B", Hard: "#D2555A" };
-    var groups = {
-      id: "rdGroups",
+    var labels = tasks.map(function (d) { return d.instance_id; });
+    var haiku = tasks.map(function (d) { return +((d.models[H].reward || 0) * 100).toFixed(1); });
+    var opus = tasks.map(function (d) { return +((d.models[O].reward || 0) * 100).toFixed(1); });
+    var floating = tasks.map(function (d, i) { return [haiku[i], opus[i]]; });
+    var BANDS = [{ a: 0, b: 50, c: "rgba(255,143,143,0.13)" }, { a: 50, b: 75, c: "rgba(251,191,36,0.13)" }, { a: 75, b: 100, c: "rgba(94,230,149,0.13)" }];
+    var plugin = {
+      id: "rdDumb",
       beforeDatasetsDraw: function (chart) {
-        var y = chart.scales.y, area = chart.chartArea, ctx = chart.ctx;
-        if (!y || !area) { return; }
-        var half = rdHalfBand(y);
-        tierRuns.forEach(function (g) {
-          var top = y.getPixelForTick(g.start) - half, bot = y.getPixelForTick(g.end) + half;
-          ctx.save(); ctx.fillStyle = BAND[g.tier] || "transparent";
-          ctx.fillRect(area.left, top, area.right - area.left, bot - top); ctx.restore();
+        var x = chart.scales.x, area = chart.chartArea, ctx = chart.ctx;
+        if (!x || !area) { return; }
+        BANDS.forEach(function (b) {
+          var x1 = x.getPixelForValue(b.a), x2 = x.getPixelForValue(b.b);
+          ctx.save(); ctx.fillStyle = b.c; ctx.fillRect(x1, area.top, x2 - x1, area.bottom - area.top); ctx.restore();
         });
+        var TL = [{ m: 25, t: "HARD", c: "#D2555A" }, { m: 62.5, t: "MEDIUM", c: "#B8860B" }, { m: 87.5, t: "EASY", c: "#3FB768" }];
+        ctx.save();
+        ctx.font = "700 10px 'SF Mono', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+        TL.forEach(function (z) { ctx.fillStyle = z.c; ctx.fillText(z.t, x.getPixelForValue(z.m), area.top - 7); });
+        ctx.restore();
       },
       afterDatasetsDraw: function (chart) {
-        var y = chart.scales.y, area = chart.chartArea, ctx = chart.ctx;
-        if (!y || !area) { return; }
-        var half = rdHalfBand(y);
+        var x = chart.scales.x, ctx = chart.ctx, meta = chart.getDatasetMeta(0);
+        if (!x || !meta || !meta.data) { return; }
         ctx.save();
-        ctx.textBaseline = "top";
-        tierRuns.forEach(function (g) {
-          var midY = (y.getPixelForTick(g.start) + y.getPixelForTick(g.end)) / 2;
-          ctx.font = "700 10px 'SF Mono', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-          ctx.fillStyle = TXT[g.tier] || p.ink;
-          ctx.fillText(g.tier.toUpperCase(), area.right + 12, midY);
+        meta.data.forEach(function (bar, i) {
+          if (!bar) { return; }
+          var yy = bar.y, hx = x.getPixelForValue(haiku[i]), ox = x.getPixelForValue(opus[i]);
+          ctx.lineWidth = 1.5; ctx.strokeStyle = p.surface;
+          ctx.fillStyle = p.opus;
+          ctx.beginPath(); ctx.arc(ox, yy, 5.5, 0, 6.2832); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = p.haiku;
+          ctx.beginPath(); ctx.arc(hx, yy, 5.5, 0, 6.2832); ctx.fill(); ctx.stroke();
         });
-        scopeRuns.forEach(function (g, i) {
-          var topPix = y.getPixelForTick(g.start) - half, botPix = y.getPixelForTick(g.end) + half;
-          if (i > 0) {
-            ctx.strokeStyle = p.ink; ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.moveTo(area.left, topPix); ctx.lineTo(area.right, topPix); ctx.stroke(); ctx.globalAlpha = 1;
-          }
-          ctx.save();
-          ctx.translate(area.right + 88, (topPix + botPix) / 2);
-          ctx.rotate(Math.PI / 2);
-          ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          ctx.font = "700 12px 'SF Mono', monospace"; ctx.fillStyle = p.ink;
-          ctx.fillText(g.scope === "DynamoDB" ? "DYNAMODB" : "S3", 0, 0);
-          ctx.restore();
-        });
-        var hmeta = chart.getDatasetMeta(0);
-        if (hmeta && hmeta.data) {
-          ctx.font = "600 9px 'SF Mono', monospace"; ctx.textBaseline = "middle";
-          hmeta.data.forEach(function (bar, i) {
-            if (!bar) { return; }
-            var v = haiku[i], txt = Math.round(v) + "%", tw = ctx.measureText(txt).width;
-            if (bar.x + 5 + tw > area.right) {
-              ctx.textAlign = "right"; ctx.fillStyle = "#ffffff";
-              ctx.fillText(txt, bar.x - 4, bar.y);
-            } else {
-              ctx.textAlign = "left"; ctx.fillStyle = v === 0 ? TXT.Hard : p.ink;
-              ctx.fillText(txt, bar.x + 5, bar.y);
-            }
-          });
-        }
         ctx.restore();
       }
     };
     return new Chart(el, {
       type: "bar",
       data: { labels: labels, datasets: [
-        { label: "Haiku 4.5", data: haiku, backgroundColor: p.haiku, borderRadius: 3, minBarLength: 4, categoryPercentage: 0.82, barPercentage: 0.96 },
-        { label: "Opus 4.8", data: opus, backgroundColor: rdAlpha(p.opus, 0.18), borderColor: rdAlpha(p.opus, 0.5), borderWidth: 1, borderRadius: 3, categoryPercentage: 0.82, barPercentage: 0.96 }
+        { label: "gap", data: floating, backgroundColor: rdAlpha(p.ink, 0.28), barThickness: 3, borderRadius: 2 }
       ] },
       options: {
         indexAxis: "y", responsive: true, maintainAspectRatio: false,
-        layout: { padding: { right: 104, top: 4 } },
         animation: { duration: 500 },
+        layout: { padding: { right: 12, left: 2, top: 20 } },
         plugins: {
-          legend: rdLegend(p),
+          legend: { position: "top", align: "start", onClick: function () {}, labels: { color: p.ink, usePointStyle: true, boxWidth: 8, font: { family: "'DM Sans', sans-serif", size: 12 }, generateLabels: function () { return [{ text: "Haiku 4.5", fillStyle: p.haiku, strokeStyle: p.haiku, pointStyle: "circle" }, { text: "Opus 4.8", fillStyle: p.opus, strokeStyle: p.opus, pointStyle: "circle" }]; } } },
           tooltip: {
             backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
             callbacks: {
-              title: function (items) { var d = s[items[0].dataIndex]; return d.instance_id + "  ·  " + d.scope + "  ·  " + d.difficulty; },
-              label: function (ctx) { return " " + ctx.dataset.label + ": " + Number(ctx.parsed.x).toFixed(1) + "%"; }
+              title: function (items) { var d = tasks[items[0].dataIndex]; return d.instance_id + "  ·  " + d.difficulty; },
+              label: function (ctx) { var i = ctx.dataIndex; return ["Haiku 4.5: " + haiku[i] + "%", "Opus 4.8: " + opus[i] + "%", "gap: " + (opus[i] - haiku[i]).toFixed(1) + " pts"]; }
             }
           }
         },
         scales: {
-          x: { max: 100, beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: "Reward (%)", color: p.ink, font: { size: 11 } } },
+          x: { min: 0, max: 100, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: "Reward (%)", color: p.ink, font: { size: 11 } } },
           y: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 10, family: "'SF Mono', monospace" } } }
         }
       },
-      plugins: [groups]
+      plugins: [plugin]
     });
   }
 
@@ -857,16 +831,11 @@
     Chart.defaults.font.family = "'DM Sans', system-ui, sans-serif";
     Chart.defaults.color = p.ink;
 
-    var elPT = document.getElementById("rd-chart-pertask");
-    if (elPT) {
-      var tierOrd = { Easy: 0, Medium: 1, Hard: 2 }, scopeOrd = { S3: 0, DynamoDB: 1 };
-      var s = data.slice().sort(function (a, b) {
-        var so = (scopeOrd[a.scope] || 0) - (scopeOrd[b.scope] || 0); if (so) { return so; }
-        var to = (tierOrd[a.difficulty] || 0) - (tierOrd[b.difficulty] || 0); if (to) { return to; }
-        return (b.models["Claude Haiku 4.5"].reward || 0) - (a.models["Claude Haiku 4.5"].reward || 0);
-      });
-      rdCharts.pertask = rdPerTaskChart(elPT, s, p);
-    }
+    var elS3 = document.getElementById("rd-chart-pertask-s3");
+    var elDDB = document.getElementById("rd-chart-pertask-ddb");
+    var byH = function (a, b) { return (b.models["Claude Haiku 4.5"].reward || 0) - (a.models["Claude Haiku 4.5"].reward || 0); };
+    if (elS3) { rdCharts.dumbS3 = rdDumbbell(elS3, data.filter(function (d) { return d.scope === "S3"; }).sort(byH), p); }
+    if (elDDB) { rdCharts.dumbDDB = rdDumbbell(elDDB, data.filter(function (d) { return d.scope === "DynamoDB"; }).sort(byH), p); }
 
     var agg = rdTierAgg(data);
     var tl = agg.map(function (t) { return t.tier + " (" + t.n + ")"; });
@@ -877,12 +846,17 @@
         agg.map(function (t) { return +t.haikuReward.toFixed(1); }),
         p, { horizontal: false, valMax: 100, valTitle: "Mean reward (%)", unit: "%", cat: 0.62 });
     }
-    var elC = document.getElementById("rd-chart-cost-tier");
-    if (elC) {
-      rdCharts.costTier = rdLineChart(elC, tl,
-        agg.map(function (t) { return +t.opusCost.toFixed(3); }),
-        agg.map(function (t) { return +t.haikuCost.toFixed(3); }),
-        p, { valTitle: "Mean cost / run (USD)", unit: "$" });
+    var elCt = document.getElementById("rd-chart-cost-tier");
+    if (elCt) {
+      var scAgg = ["S3", "DynamoDB"].map(function (sc) {
+        var a = data.filter(function (d) { return d.scope === sc; });
+        var mean = function (f) { return a.length ? a.reduce(function (s, x) { return s + f(x); }, 0) / a.length : 0; };
+        return { sc: sc, n: a.length, oc: mean(function (d) { return d.models["Claude Opus 4.8"].cost_usd || 0; }), hc: mean(function (d) { return d.models["Claude Haiku 4.5"].cost_usd || 0; }) };
+      });
+      var cLab = agg.map(function (t) { return t.tier + " (" + t.n + ")"; }).concat(scAgg.map(function (s) { return s.sc + " (" + s.n + ")"; }));
+      var cOp = agg.map(function (t) { return +t.opusCost.toFixed(3); }).concat(scAgg.map(function (s) { return +s.oc.toFixed(3); }));
+      var cHk = agg.map(function (t) { return +t.haikuCost.toFixed(3); }).concat(scAgg.map(function (s) { return +s.hc.toFixed(3); }));
+      rdCharts.costTier = rdCostCombo(elCt, cLab, cOp, cHk, agg.length, p);
     }
   }
 
@@ -893,7 +867,7 @@
   }
 
   function initCharts() {
-    if (!document.getElementById("rd-chart-pertask")) return;
+    if (!document.getElementById("rd-chart-pertask-s3") && !document.getElementById("rd-chart-reward-tier")) return;
     fetch("/raiden/api/instances")
       .then(function (r) { return r.json(); })
       .then(function (data) {

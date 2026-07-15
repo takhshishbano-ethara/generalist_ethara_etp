@@ -41,12 +41,12 @@
       <!-- Raiden dark editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
            does not override the design). -->
-      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=30"/>
+      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=36"/>
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer="defer"/>
-      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=30" defer="defer"/>
+      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=36" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -266,9 +266,13 @@
     </div>
 
     <div class="charts">
-      <figure class="chart chart--hero">
-        <div class="rd-chart-canvas rd-chart-canvas--tall"><canvas id="rd-chart-pertask" aria-label="Per-task reward, Claude Opus 4.8 vs Claude Haiku 4.5"></canvas></div>
-        <figcaption>Fig. 1: Per-task reward, split by surface (S3 / DynamoDB), ordered easy → hard. Haiku 4.5 stumps as tasks harden: DynamoDB 94% → 12%, S3 75% → 28%. Opus 4.8 never dips below 88%. Difficulty bands: <i class="cap-dot cap-dot-easy"></i> easy <i class="cap-dot cap-dot-med"></i> medium <i class="cap-dot cap-dot-hard"></i> hard.</figcaption>
+      <figure class="chart">
+        <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-pertask-s3" aria-label="S3 per-task reward, Opus 4.8 vs Haiku 4.5"></canvas></div>
+        <figcaption>Fig. 1a: S3 tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell = capability gap), sorted by Haiku reward. </figcaption>
+      </figure>
+      <figure class="chart">
+        <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-pertask-ddb" aria-label="DynamoDB per-task reward, Opus 4.8 vs Haiku 4.5"></canvas></div>
+        <figcaption>Fig. 1b: DynamoDB tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell). Haiku spans 0% to 98%; Opus holds ≥94%. Longer dumbbell = more RL headroom.</figcaption>
       </figure>
     </div>
 
@@ -281,7 +285,7 @@
       </figure>
       <figure class="chart">
         <div class="rd-chart-canvas"><canvas id="rd-chart-cost-tier" aria-label="Mean agent cost per run by difficulty tier"></canvas></div>
-        <figcaption>Fig. 3: Mean agent cost per run by tier (USD). Opus 4.8 runs $1.40 to $1.72 (medium priciest); Haiku 4.5 stays near $0.70.</figcaption>
+        <figcaption>Fig. 3: Mean agent cost per run (USD), by difficulty tier and by surface. Opus 4.8 spans $1.28 to $1.72 (medium tier and S3 priciest); Haiku 4.5 stays $0.66 to $0.75.</figcaption>
       </figure>
     </div>
 
