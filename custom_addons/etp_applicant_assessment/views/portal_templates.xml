@@ -8,12 +8,18 @@
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title t-esc="page_title or 'Assessment'"/>
+                <link rel="preconnect" href="https://fonts.googleapis.com"/>
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+                <link rel="stylesheet"
+                      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=DM+Mono:wght@400;500&amp;display=swap"/>
                 <link rel="stylesheet" type="text/scss"
                       href="/web/static/lib/bootstrap/scss/bootstrap.scss"/>
+                <!-- ?v= busts the 7-day browser cache on static files; bump it
+                     whenever portal.css / portal.js change. -->
                 <link rel="stylesheet" type="text/css"
-                      href="/etp_applicant_assessment/static/src/portal/portal.css"/>
+                      href="/etp_applicant_assessment/static/src/portal/portal.css?v=20260715-dark-3"/>
                 <script type="module"
-                        src="/etp_applicant_assessment/static/src/portal/portal.js"/>
+                        src="/etp_applicant_assessment/static/src/portal/portal.js?v=20260715-dark-3"/>
             </head>
             <body class="eaa-body">
                 <div class="eaa-shell">
@@ -27,6 +33,9 @@
         <t t-call="etp_applicant_assessment.portal_layout">
             <t t-set="page_title">Invalid Link</t>
             <div class="eaa-card eaa-card--error">
+                <div class="eaa-status-icon eaa-status-icon--error">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+                </div>
                 <h2>Assessment Link Not Valid</h2>
                 <p>This assessment link is invalid or has expired. Please contact the recruiter who sent it.</p>
             </div>
@@ -37,6 +46,9 @@
         <t t-call="etp_applicant_assessment.portal_layout">
             <t t-set="page_title">Assessment Cancelled</t>
             <div class="eaa-card eaa-card--error">
+                <div class="eaa-status-icon eaa-status-icon--error">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                </div>
                 <h2>Assessment Cancelled</h2>
                 <p>This assessment has been cancelled by the recruiter.</p>
             </div>
@@ -47,16 +59,19 @@
         <t t-call="etp_applicant_assessment.portal_layout">
             <t t-set="page_title">Assessment Submitted</t>
             <div class="eaa-card eaa-card--success">
+                <div class="eaa-status-icon eaa-status-icon--success">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+                </div>
                 <h2>Thanks — Your Assessment Has Been Submitted</h2>
                 <p>Your answers were recorded. The recruiter will get back to you.</p>
                 <p t-if="assessment.state == 'submitted'">
                     Your submission is under review.
                 </p>
                 <p t-if="assessment.state == 'scored' and assessment.result == 'pass'">
-                    <strong>Result: Passed</strong>
+                    <span class="eaa-pill eaa-pill--success"><span class="eaa-pill__dot"></span>Result: Passed</span>
                 </p>
                 <p t-if="assessment.state == 'scored' and assessment.result == 'fail'">
-                    <strong>Result: Not selected</strong>
+                    <span class="eaa-pill eaa-pill--dest"><span class="eaa-pill__dot"></span>Result: Not selected</span>
                 </p>
             </div>
         </t>
@@ -66,6 +81,9 @@
         <t t-call="etp_applicant_assessment.portal_layout">
             <t t-set="page_title">Time Expired</t>
             <div class="eaa-card eaa-card--error">
+                <div class="eaa-status-icon eaa-status-icon--warn">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
                 <h2>Time Expired</h2>
                 <p>Your assessment window has ended.</p>
             </div>
@@ -76,8 +94,9 @@
         <t t-call="etp_applicant_assessment.portal_layout">
             <t t-set="page_title">Instructions</t>
             <div class="eaa-card">
-                <h1>Assessment: <t t-esc="assessment.job_id.name"/></h1>
-                <p class="eaa-muted">
+                <p class="eaa-eyebrow">Assessment</p>
+                <h1 class="eaa-title" t-esc="assessment.job_id.name"/>
+                <p class="eaa-subtitle">
                     Candidate: <t t-esc="assessment.applicant_id.partner_name"/>
                 </p>
 
@@ -174,23 +193,36 @@
                     </div>
                 </div>
 
-                <header class="eaa-topbar">
-                    <div class="eaa-topbar__title">
-                        <strong t-esc="assessment.job_id.name"/>
-                        <span class="eaa-muted">
-                            — <t t-esc="assessment.applicant_id.partner_name"/>
-                        </span>
-                    </div>
-                    <div class="eaa-topbar__meta">
-                        <div class="eaa-timer" data-role="timer">--:--</div>
-                        <div class="eaa-warnings">
-                            Warnings: <span data-role="warning-count">0</span>
-                            <span class="eaa-muted"> / <t t-esc="assessment.warning_cap"/></span>
+                <div class="eaa-testbar">
+                    <header class="eaa-topbar">
+                        <div class="eaa-topbar__title">
+                            <strong t-esc="assessment.job_id.name"/>
+                            <span class="eaa-muted">
+                                — <t t-esc="assessment.applicant_id.partner_name"/>
+                            </span>
+                            <p class="eaa-topbar__section" data-role="section-indicator"></p>
                         </div>
-                        <div class="eaa-cam" data-role="cam-status">Camera: initializing…</div>
-                        <div class="eaa-rec-pill" data-role="rec-pill" t-if="assessment.require_webcam">REC</div>
+                        <div class="eaa-topbar__meta">
+                            <span class="eaa-save" data-role="save-status">Saved</span>
+                            <div class="eaa-timer" data-role="timer">--:--</div>
+                        </div>
+                    </header>
+                    <div class="eaa-proctor-strip">
+                        <span class="eaa-proctor-strip__label">Proctored test in progress</span>
+                        <button type="button" class="btn eaa-btn--outline eaa-btn--sm d-none"
+                                data-role="fs-btn" t-if="assessment.require_fullscreen">
+                            Enter full screen
+                        </button>
+                        <div class="eaa-proctor-strip__right">
+                            <div class="eaa-cam" data-role="cam-status">Camera: initializing…</div>
+                            <div class="eaa-rec-pill" data-role="rec-pill" t-if="assessment.require_webcam">REC</div>
+                            <div class="eaa-warnings">
+                                Warnings: <span data-role="warning-count">0</span>
+                                <span class="eaa-muted"> / <t t-esc="assessment.warning_cap"/></span>
+                            </div>
+                        </div>
                     </div>
-                </header>
+                </div>
 
                 <video data-role="preview" autoplay="autoplay" muted="muted" playsinline="playsinline" class="eaa-preview"/>
 
@@ -352,11 +384,43 @@
                     </t>
                 </main>
 
-                <footer class="eaa-footer">
-                    <button type="button" class="btn btn-primary btn-lg" data-role="submit-btn">
-                        Submit Assessment
+                <div class="eaa-nav" data-role="nav">
+                    <button type="button" class="btn eaa-btn--outline" data-role="prev-btn" disabled="disabled">
+                        Previous
                     </button>
-                </footer>
+                    <button type="button" class="btn btn-primary" data-role="next-btn">Next</button>
+                </div>
+
+                <div class="eaa-review d-none" data-role="review-panel">
+                    <div class="eaa-review__head">
+                        <h2>Review &amp; submit</h2>
+                    </div>
+                    <div class="eaa-card eaa-review__card">
+                        <p class="eaa-review__summary">
+                            You answered <strong data-role="answered-count">0</strong>
+                            of <t t-esc="assessment.question_count"/> questions.
+                        </p>
+                        <div class="eaa-review__grid" data-role="review-grid"></div>
+                    </div>
+                    <div class="eaa-nav">
+                        <button type="button" class="btn eaa-btn--outline" data-role="back-btn">Back</button>
+                        <button type="button" class="btn btn-primary" data-role="submit-btn">Submit test</button>
+                    </div>
+                </div>
+
+                <div class="eaa-modal d-none" data-role="submit-modal">
+                    <div class="eaa-modal__card">
+                        <h2>Submit your test?</h2>
+                        <p class="eaa-modal__note" data-role="unanswered-note"></p>
+                        <p class="eaa-modal__text">You won't be able to change your answers after submitting.</p>
+                        <div class="eaa-modal__actions">
+                            <button type="button" class="btn eaa-btn--outline" data-role="submit-cancel">
+                                Keep working
+                            </button>
+                            <button type="button" class="btn btn-primary" data-role="submit-confirm">Submit</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </t>
     </template>

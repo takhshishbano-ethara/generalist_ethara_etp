@@ -38,6 +38,13 @@ class EtpApplicantAssessment(models.Model):
         "etp.applicant.assessment.template",
         required=True, ondelete="restrict",
     )
+    company_id = fields.Many2one(
+        "res.company",
+        related="applicant_id.company_id",
+        string="Company",
+        readonly=True,
+        help="Referenced by the invitation mail template (email_from).",
+    )
 
     access_token = fields.Char(
         default=lambda self: uuid.uuid4().hex,
@@ -316,115 +323,6 @@ class EtpApplicantAssessment(models.Model):
             rec._send_invitation_email()
         return True
 
-    @api.model
-    def create_bulk_for_template(self, template_id, applicant_ids):
-        Template = self.env["etp.applicant.assessment.template"]
-        Applicant = self.env["hr.applicant"]
-
-        try:
-            template_id = int(template_id)
-        except (TypeError, ValueError):
-            raise UserError(_("template_id must be an integer."))
-        template = Template.browse(template_id).exists()
-        if not template:
-            raise UserError(
-                _("Assessment template %d does not exist.") % template_id
-            )
-
-        if not isinstance(applicant_ids, (list, tuple)) or not applicant_ids:
-            raise UserError(_("applicant_ids must be a non-empty list."))
-
-        cleaned_ids = []
-        bad_ids = []
-        for raw in applicant_ids:
-            try:
-                cleaned_ids.append(int(raw))
-            except (TypeError, ValueError):
-                bad_ids.append(raw)
-        if bad_ids:
-            raise UserError(
-                _("applicant_ids must contain integers only; bad entries: %s")
-                % (bad_ids,)
-            )
-
-        applicants = Applicant.browse(cleaned_ids)
-        existing_ids = set(applicants.exists().ids)
-
-        created = []
-        reused = []
-        skipped = []
-        seen = set()
-
-        for applicant_id in cleaned_ids:
-            if applicant_id in seen:
-                continue
-            seen.add(applicant_id)
-
-            if applicant_id not in existing_ids:
-                skipped.append({
-                    "applicant_id": applicant_id,
-                    "reason": "applicant_not_found",
-                })
-                continue
-
-            applicant = Applicant.browse(applicant_id)
-            job = applicant.job_id
-
-            active = self.search([
-                ("applicant_id", "=", applicant_id),
-                ("template_id", "=", template.id),
-                ("state", "in", ("draft", "sent", "in_progress")),
-            ], limit=1)
-            if active:
-                reused.append({
-                    "applicant_id": applicant_id,
-                    "assessment_id": active.id,
-                    "state": active.state,
-                })
-                continue
-
-            if not job:
-                skipped.append({
-                    "applicant_id": applicant_id,
-                    "reason": "applicant_has_no_job",
-                })
-                continue
-
-            try:
-                record = self.create({
-                    "applicant_id": applicant_id,
-                    "job_id": job.id,
-                    "template_id": template.id,
-                })
-                record.action_send()
-            except Exception as exc:
-                _logger.exception(
-                    "Bulk assessment: failed for applicant %s / template %s",
-                    applicant_id, template.id,
-                )
-                skipped.append({
-                    "applicant_id": applicant_id,
-                    "reason": "create_or_send_failed",
-                    "detail": str(exc)[:200],
-                })
-                continue
-
-            created.append({
-                "applicant_id": applicant_id,
-                "assessment_id": record.id,
-                "email": applicant.email_from or "",
-                "email_sent": bool(applicant.email_from),
-            })
-
-        return {
-            "template_id": template.id,
-            "template_name": template.name,
-            "requested_count": len(cleaned_ids),
-            "created": created,
-            "reused": reused,
-            "skipped": skipped,
-        }
-
     def _send_invitation_email(self):
         template = self.env.ref(
             "etp_applicant_assessment.mail_template_applicant_assessment",
@@ -483,13 +381,6 @@ class EtpApplicantAssessment(models.Model):
             if rec.has_pending_review:
                 continue
             rec.state = "scored"
-            applicant = rec.applicant_id
-            if applicant:
-                passed = (rec.final_score or 0.0) >= (rec.pass_mark_percent or 0.0)
-                applicant.status = (
-                    "assessment_passed" if passed
-                    else "assessment_rejected"
-                )
         return True
 
     def action_cancel(self):
