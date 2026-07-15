@@ -19,6 +19,11 @@ LIST_MAX_LIMIT = 100
 
 _TEMPLATE_STATUS_KEYS = {"draft", "public", "archive"}
 
+_ASSESSMENT_STATE_KEYS = {
+    "draft", "sent", "in_progress", "submitted", "scored", "cancelled",
+}
+_ASSESSMENT_RESULT_KEYS = {"pending", "pass", "fail"}
+
 _TEMPLATE_STR_FIELDS = ("name", "description",)
 _TEMPLATE_INT_FIELDS = ("duration_minutes", "warning_cap",)
 _TEMPLATE_FLOAT_FIELDS = (
@@ -56,6 +61,175 @@ def _coerce_int(value, default=None):
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _dt(value):
+    return value.isoformat() if value else False
+
+
+def _serialize_assessment_row(rec):
+    applicant = rec.applicant_id
+    job = rec.job_id
+    template = rec.template_id
+    return {
+        "id": rec.id,
+        "state": rec.state,
+        "result": rec.result,
+        "applicant": {
+            "id": applicant.id if applicant else False,
+            "name": applicant.partner_name or "" if applicant else "",
+            "email": applicant.email_from or "" if applicant else "",
+        },
+        "job": {
+            "id": job.id if job else False,
+            "name": job.name if job else "",
+        },
+        "template": {
+            "id": template.id if template else False,
+            "name": template.name if template else "",
+        },
+        "duration_minutes": rec.duration_minutes,
+        "pass_mark_percent": rec.pass_mark_percent,
+        "question_count": rec.question_count,
+        "final_score": rec.final_score,
+        "sent_at": _dt(rec.create_date),
+        "started_at": _dt(rec.started_at),
+        "submitted_at": _dt(rec.submitted_at),
+        "deadline_at": _dt(rec.deadline_at),
+        "test_link": rec.portal_url,
+    }
+
+
+def _serialize_option(opt):
+    return {
+        "id": opt.id,
+        "sequence": opt.sequence,
+        "label": opt.label,
+        "is_correct": opt.is_correct,
+    }
+
+
+def _serialize_question(q):
+    return {
+        "id": q.id,
+        "section_id": q.section_id.id if q.section_id else False,
+        "sequence": q.sequence,
+        "prompt": q.prompt,
+        "question_type": q.question_type,
+        "marks": q.marks,
+        "negative_marks": q.negative_marks,
+        "options": [_serialize_option(o) for o in q.option_ids],
+    }
+
+
+def _serialize_section(s):
+    return {
+        "id": s.id,
+        "sequence": s.sequence,
+        "name": s.name,
+        "description": s.description or "",
+        "question_ids": s.question_ids.ids,
+    }
+
+
+def _serialize_answer(a):
+    return {
+        "id": a.id,
+        "question_id": a.question_id.id if a.question_id else False,
+        "question_type": a.question_type,
+        "selected_option_ids": a.selected_option_ids.ids,
+        "text_answer": a.text_answer or "",
+        "is_answered": a.is_answered,
+        "is_correct": a.is_correct,
+        "needs_review": a.needs_review,
+        "manual_score": a.manual_score,
+        "manual_score_set": a.manual_score_set,
+        "score": a.score,
+        "submitted_at": _dt(a.submitted_at),
+    }
+
+
+def _serialize_warning(w):
+    return {
+        "id": w.id,
+        "kind": w.kind,
+        "penalty_percent": w.penalty_percent,
+        "detector_confidence": w.detector_confidence,
+        "chunk_start_at": _dt(w.chunk_start_at),
+        "chunk_end_at": _dt(w.chunk_end_at),
+        "s3_url": w.s3_url or "",
+        "s3_key": w.s3_key or "",
+        "snapshot_url": w.snapshot_url or "",
+        "snapshot_key": w.snapshot_key or "",
+    }
+
+
+def _serialize_snapshot(s):
+    return {
+        "id": s.id,
+        "reason": s.reason,
+        "url": s.url,
+        "signed_url": s.signed_url or s.url,
+        "s3_key": s.s3_key or "",
+        "captured_at": _dt(s.captured_at),
+    }
+
+
+def _serialize_assessment_detail(rec):
+    row = _serialize_assessment_row(rec)
+    applicant = rec.applicant_id
+    template = rec.template_id
+    row["applicant"].update({
+        "mobile": (applicant.partner_phone or "") if applicant else "",
+        "status": applicant.status if applicant else "",
+        "candidate_id": (
+            applicant.candidate_id.id
+            if applicant and applicant.candidate_id else False
+        ),
+        "candidate_name": (
+            applicant.candidate_id.name
+            if applicant and applicant.candidate_id else ""
+        ),
+    })
+    row["template"].update({
+        "status": template.status if template else "",
+    })
+    row["access_token"] = rec.access_token
+    row["max_score"] = rec.max_score
+    row["objective_score"] = rec.objective_score
+    row["warning_penalty"] = rec.warning_penalty
+    row["has_pending_review"] = rec.has_pending_review
+    row["answered_count"] = rec.answered_count
+    row["warning_count"] = rec.warning_count
+    row["snapshot_count"] = rec.snapshot_count
+    row["consent_at"] = _dt(rec.consent_at)
+    row["consent_version"] = rec.consent_version or ""
+    row["media_error_count"] = rec.media_error_count
+    row["proctoring"] = {
+        "require_webcam": rec.require_webcam,
+        "require_mic": rec.require_mic,
+        "require_fullscreen": rec.require_fullscreen,
+        "block_copy_paste": rec.block_copy_paste,
+        "block_right_click": rec.block_right_click,
+        "detect_window_switch": rec.detect_window_switch,
+        "detect_no_face": rec.detect_no_face,
+        "detect_other_person": rec.detect_other_person,
+        "detect_look_away": rec.detect_look_away,
+        "detect_lip_movement": rec.detect_lip_movement,
+        "detect_mobile_phone": rec.detect_mobile_phone,
+        "shuffle_questions": rec.shuffle_questions,
+        "warning_cap": rec.warning_cap,
+    }
+    row["sections"] = [_serialize_section(s) for s in rec.section_ids]
+    row["questions"] = [_serialize_question(q) for q in rec.question_ids]
+    row["answers"] = [_serialize_answer(a) for a in rec.answer_ids]
+    row["warnings"] = [_serialize_warning(w) for w in rec.warning_ids]
+    row["snapshots"] = [_serialize_snapshot(s) for s in rec.snapshot_ids]
+    try:
+        row["media_errors"] = json.loads(rec.media_errors_json or "[]")
+    except (TypeError, ValueError):
+        row["media_errors"] = []
+    return row
 
 
 def _serialize_template_row(rec, assigned_map):
@@ -364,6 +538,158 @@ class ApplicantAssessmentApi(http.Controller):
             message="Bulk assessment invitations processed.",
             status=200,
             data={"data": result},
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/applicant-assessment/list",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({})
+    def list_applicant_assessments(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+
+            page = max(1, _coerce_int(jdata.get("page"), 1) or 1)
+            per_page = _coerce_int(jdata.get("limit"), LIST_DEFAULT_LIMIT)
+            per_page = max(1, min(per_page or LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT))
+            offset = (page - 1) * per_page
+
+            domain = []
+
+            state = jdata.get("state")
+            if isinstance(state, str) and state.strip():
+                s = state.strip()
+                if s not in _ASSESSMENT_STATE_KEYS:
+                    return return_Response(
+                        message="Invalid state %r." % s, status=400,
+                    )
+                domain.append(("state", "=", s))
+            elif isinstance(state, list) and state:
+                for s in state:
+                    if s not in _ASSESSMENT_STATE_KEYS:
+                        return return_Response(
+                            message="Invalid state %r." % s, status=400,
+                        )
+                domain.append(("state", "in", state))
+
+            result = jdata.get("result")
+            if isinstance(result, str) and result.strip():
+                r = result.strip()
+                if r not in _ASSESSMENT_RESULT_KEYS:
+                    return return_Response(
+                        message="Invalid result %r." % r, status=400,
+                    )
+                domain.append(("result", "=", r))
+            elif isinstance(result, list) and result:
+                for r in result:
+                    if r not in _ASSESSMENT_RESULT_KEYS:
+                        return return_Response(
+                            message="Invalid result %r." % r, status=400,
+                        )
+                domain.append(("result", "in", result))
+
+            job_id = _coerce_int(jdata.get("job_id"))
+            if job_id:
+                domain.append(("job_id", "=", job_id))
+
+            template_id = _coerce_int(jdata.get("template_id"))
+            if template_id:
+                domain.append(("template_id", "=", template_id))
+
+            applicant_id = _coerce_int(jdata.get("applicant_id"))
+            if applicant_id:
+                domain.append(("applicant_id", "=", applicant_id))
+
+            search = (jdata.get("search") or "").strip()
+            if search:
+                domain += [
+                    "|", "|",
+                    ("applicant_id.partner_name", "ilike", search),
+                    ("applicant_id.email_from", "ilike", search),
+                    ("template_id.name", "ilike", search),
+                ]
+
+            Assessment = request.env["etp.applicant.assessment"].sudo()
+            total = Assessment.search_count(domain)
+            total_pages = (total + per_page - 1) // per_page if total else 0
+
+            records = Assessment.search(
+                domain, offset=offset, limit=per_page,
+                order="create_date desc",
+            )
+            serialized = [_serialize_assessment_row(r) for r in records]
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to list applicant assessments via API.")
+            return return_Response(
+                message="Failed to list applicant assessments.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Applicant assessments fetched successfully.",
+            status=200,
+            data={
+                "records": serialized,
+                "pagination": {
+                    "current_page": page,
+                    "per_page": per_page,
+                    "total": total,
+                    "total_pages": total_pages,
+                },
+            },
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/applicant-assessment/detail",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({})
+    def get_applicant_assessment_detail(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            assessment_id = _coerce_int(jdata.get("id"))
+            token = jdata.get("access_token")
+
+            Assessment = request.env["etp.applicant.assessment"].sudo()
+            record = Assessment.browse()
+
+            if assessment_id and assessment_id > 0:
+                record = Assessment.browse(assessment_id).exists()
+            elif isinstance(token, str) and token.strip():
+                record = Assessment.search(
+                    [("access_token", "=", token.strip())], limit=1,
+                )
+            else:
+                return return_Response(
+                    message="Either 'id' or 'access_token' is required.",
+                    status=400,
+                )
+
+            if not record:
+                return return_Response(
+                    message="Applicant assessment not found.", status=404,
+                )
+
+            detail = _serialize_assessment_detail(record)
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to load applicant-assessment detail.")
+            return return_Response(
+                message="Failed to load applicant assessment.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Applicant assessment fetched successfully.",
+            status=200,
+            data={"data": detail},
         )
 
     @http.route(
