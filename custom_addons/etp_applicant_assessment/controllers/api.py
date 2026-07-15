@@ -462,6 +462,130 @@ def _create_template_tree(payload):
     return template
 
 
+def _serialize_template_option(opt):
+    return {
+        "id": opt.id,
+        "sequence": opt.sequence,
+        "label": opt.label or "",
+        "is_correct": bool(opt.is_correct),
+    }
+
+
+def _serialize_template_question(q):
+    return {
+        "id": q.id,
+        "sequence": q.sequence,
+        "prompt": q.prompt or "",
+        "question_type": q.question_type,
+        "marks": q.marks,
+        "negative_marks": q.negative_marks,
+        "bank_question_id": (
+            q.bank_question_id.id if q.bank_question_id else False
+        ),
+        "options": [
+            _serialize_template_option(o)
+            for o in q.option_ids.sorted(key=lambda x: (x.sequence, x.id))
+        ],
+    }
+
+
+def _serialize_template_section(s):
+    return {
+        "id": s.id,
+        "sequence": s.sequence,
+        "name": s.name or "",
+        "description": s.description or "",
+        "questions": [
+            _serialize_template_question(q)
+            for q in s.question_ids.sorted(key=lambda x: (x.sequence, x.id))
+        ],
+    }
+
+
+def _serialize_template_detail(rec):
+    return {
+        "id": rec.id,
+        "name": rec.name or "",
+        "description": rec.description or "",
+        "job_id": rec.job_id.id if rec.job_id else False,
+        "job_name": rec.job_id.name if rec.job_id else "",
+        "status": rec.status,
+        "active": bool(rec.active),
+        "duration_minutes": rec.duration_minutes,
+        "warning_cap": rec.warning_cap,
+        "pass_mark_percent": rec.pass_mark_percent,
+        "require_webcam": rec.require_webcam,
+        "require_mic": rec.require_mic,
+        "require_fullscreen": rec.require_fullscreen,
+        "block_copy_paste": rec.block_copy_paste,
+        "block_right_click": rec.block_right_click,
+        "detect_window_switch": rec.detect_window_switch,
+        "detect_no_face": rec.detect_no_face,
+        "detect_other_person": rec.detect_other_person,
+        "detect_look_away": rec.detect_look_away,
+        "detect_lip_movement": rec.detect_lip_movement,
+        "detect_mobile_phone": rec.detect_mobile_phone,
+        "penalty_other_person": rec.penalty_other_person,
+        "penalty_mobile_phone": rec.penalty_mobile_phone,
+        "penalty_lip_movement": rec.penalty_lip_movement,
+        "penalty_window_change": rec.penalty_window_change,
+        "penalty_no_face": rec.penalty_no_face,
+        "penalty_look_away": rec.penalty_look_away,
+        "shuffle_questions": rec.shuffle_questions,
+        "question_count": rec.question_count,
+        "max_score": rec.max_score,
+        "assigned_count": rec.assigned_count,
+        "sections": [
+            _serialize_template_section(s)
+            for s in rec.section_ids.sorted(key=lambda x: (x.sequence, x.id))
+        ],
+        "create_date": _dt(rec.create_date),
+        "write_date": _dt(rec.write_date),
+    }
+
+
+def _replace_template_sections(template, sections_payload):
+    Section = request.env["etp.applicant.assessment.template.section"].sudo()
+    Question = request.env["etp.applicant.assessment.template.question"].sudo()
+    template.question_ids.unlink()
+    template.section_ids.unlink()
+    for section in sections_payload:
+        section_vals = {
+            "template_id": template.id,
+            "name": section["name"].strip(),
+        }
+        if "sequence" in section and section["sequence"] is not None:
+            section_vals["sequence"] = int(section["sequence"])
+        if section.get("description"):
+            section_vals["description"] = section["description"]
+        sec_rec = Section.create(section_vals)
+        for q in section.get("questions") or []:
+            q_vals = {
+                "template_id": template.id,
+                "section_id": sec_rec.id,
+                "prompt": q["prompt"].strip(),
+                "question_type": q.get("question_type") or "mcq_single",
+                "marks": int(q.get("marks") or 1),
+                "negative_marks": int(q.get("negative_marks") or 0),
+            }
+            if q.get("_resolved_bank_id"):
+                q_vals["bank_question_id"] = q["_resolved_bank_id"]
+            if "sequence" in q and q["sequence"] is not None:
+                q_vals["sequence"] = int(q["sequence"])
+            option_cmds = []
+            for opt in q.get("options") or []:
+                opt_vals = {
+                    "label": opt["label"].strip(),
+                    "is_correct": _to_bool(opt.get("is_correct")),
+                }
+                if "sequence" in opt and opt["sequence"] is not None:
+                    opt_vals["sequence"] = int(opt["sequence"])
+                option_cmds.append((0, 0, opt_vals))
+            if option_cmds:
+                q_vals["option_ids"] = option_cmds
+            Question.create(q_vals)
+
+
 class ApplicantAssessmentApi(http.Controller):
 
     @validate_token
@@ -861,6 +985,271 @@ class ApplicantAssessmentApi(http.Controller):
                     "name": template.name,
                     "status": template.status,
                     "active": template.active,
+                },
+            },
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/assessment-template/detail",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({"id": {"type": "int", "required": True}})
+    def get_assessment_template_detail(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            tpl_id = _coerce_int(jdata.get("id"))
+            if not tpl_id or tpl_id <= 0:
+                return return_Response(
+                    message="'id' must be a positive integer.", status=400,
+                )
+
+            Template = request.env["etp.applicant.assessment.template"].sudo()
+            template = Template.with_context(active_test=False).browse(tpl_id)
+            if not template.exists():
+                return return_Response(
+                    message="Template id=%d not found." % tpl_id, status=404,
+                )
+
+            detail = _serialize_template_detail(template)
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception(
+                "Failed to fetch assessment template detail via API."
+            )
+            return return_Response(
+                message="Failed to fetch template.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Assessment template fetched successfully.",
+            status=200,
+            data={"data": detail},
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/assessment-template/update",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({"id": {"type": "int", "required": True}})
+    def update_assessment_template(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            tpl_id = _coerce_int(jdata.get("id"))
+            if not tpl_id or tpl_id <= 0:
+                return return_Response(message="id is required.", status=400)
+
+            Template = request.env["etp.applicant.assessment.template"].sudo()
+            template = Template.with_context(active_test=False).browse(tpl_id)
+            if not template.exists():
+                return return_Response(
+                    message="Template id=%d not found." % tpl_id, status=404,
+                )
+
+            if template.status != "draft":
+                return return_Response(
+                    message="Cannot update a published template.",
+                    status=400,
+                )
+
+            replace_sections = "sections" in jdata
+            if replace_sections:
+                _validate_sections_payload(jdata.get("sections") or [])
+
+            vals = _coerce_template_vals(jdata)
+            job_id = _resolve_job_id(jdata)
+            if job_id:
+                vals["job_id"] = job_id
+
+            if vals:
+                template.write(vals)
+
+            if replace_sections:
+                _replace_template_sections(
+                    template, jdata.get("sections") or [],
+                )
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to update assessment template via API.")
+            return return_Response(
+                message="Failed to update template.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Assessment template updated successfully.",
+            status=200,
+            data={"data": _serialize_template_detail(template)},
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/assessment-template/archive",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({"id": {"type": "int", "required": True}})
+    def archive_assessment_template(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            tpl_id = _coerce_int(jdata.get("id"))
+            if not tpl_id or tpl_id <= 0:
+                return return_Response(
+                    message="'id' must be a positive integer.", status=400,
+                )
+
+            archive_flag = jdata.get("archive")
+            archive = (
+                _to_bool(archive_flag) if archive_flag is not None else True
+            )
+
+            Template = request.env["etp.applicant.assessment.template"].sudo()
+            template = Template.with_context(active_test=False).browse(tpl_id)
+            if not template.exists():
+                return return_Response(
+                    message="Template id=%d not found." % tpl_id, status=404,
+                )
+
+            if archive:
+                template.write({"active": False, "status": "archive"})
+            else:
+                template.write({"active": True, "status": "draft"})
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception(
+                "Failed to update assessment template archive state."
+            )
+            return return_Response(
+                message="Failed to update archive state.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message=(
+                "Assessment template archived successfully."
+                if archive
+                else "Assessment template unarchived successfully."
+            ),
+            status=200,
+            data={
+                "data": {
+                    "id": template.id,
+                    "status": template.status,
+                    "active": template.active,
+                },
+            },
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/applicant-assessment/resend",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({"id": {"type": "int", "required": True}})
+    def resend_applicant_assessment(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            rec_id = _coerce_int(jdata.get("id"))
+            if not rec_id or rec_id <= 0:
+                return return_Response(
+                    message="'id' must be a positive integer.", status=400,
+                )
+
+            Assessment = request.env["etp.applicant.assessment"].sudo()
+            record = Assessment.browse(rec_id)
+            if not record.exists():
+                return return_Response(
+                    message="Applicant assessment id=%d not found." % rec_id,
+                    status=404,
+                )
+
+            if record.state == "scored":
+                return return_Response(
+                    message="Cannot resend an assessment in state %r."
+                    % record.state,
+                    status=400,
+                )
+
+            record.answer_ids.unlink()
+            record.warning_ids.unlink()
+            record.snapshot_ids.unlink()
+            record.write({
+                "state": "sent",
+                "started_at": False,
+                "submitted_at": False,
+            })
+            record._send_invitation_email()
+        except (UserError, ValidationError) as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to resend applicant assessment via API.")
+            return return_Response(
+                message="Failed to resend applicant assessment.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Applicant assessment resent successfully.",
+            status=200,
+            data={"data": _serialize_assessment_row(record)},
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/applicant-assessment/cancel",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({"id": {"type": "int", "required": True}})
+    def cancel_applicant_assessment(self, **kwargs):
+        try:
+            jdata = kwargs.get("jdata") or {}
+            rec_id = _coerce_int(jdata.get("id"))
+            if not rec_id or rec_id <= 0:
+                return return_Response(
+                    message="'id' must be a positive integer.", status=400,
+                )
+
+            Assessment = request.env["etp.applicant.assessment"].sudo()
+            record = Assessment.browse(rec_id)
+            if not record.exists():
+                return return_Response(
+                    message="Applicant assessment id=%d not found." % rec_id,
+                    status=404,
+                )
+
+            if record.state not in ("draft", "sent", "in_progress"):
+                return return_Response(
+                    message="Cannot cancel an assessment in state %r."
+                    % record.state,
+                    status=400,
+                )
+
+            record.write({"state": "cancelled"})
+        except (UserError, ValidationError) as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to cancel applicant assessment via API.")
+            return return_Response(
+                message="Failed to cancel applicant assessment.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Applicant assessment cancelled successfully.",
+            status=200,
+            data={
+                "data": {
+                    "id": record.id,
+                    "state": record.state,
                 },
             },
         )
