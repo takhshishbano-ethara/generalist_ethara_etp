@@ -65,6 +65,10 @@ class HrApplicant(models.Model):
     resume_manual_override_by_id = fields.Many2one(
         'res.users', string='Overridden By', ondelete='set null',
     )
+    priority_score = fields.Float(string='Priority Score', digits=(4, 2))
+    is_reapplication_blocked = fields.Boolean(string='Re-application Blocked')
+    blacklist_reason = fields.Text(string='Blacklist Reason')
+    on_hold = fields.Boolean(string='On Hold')
 
     def write(self, vals):
         if 'job_id' in vals:
@@ -151,9 +155,20 @@ class HrApplicant(models.Model):
         resume_text = self._extract_resume_text()
         if not resume_text:
             raise UserError(
-                'Could not extract text from resume_url. Check the Odoo log '
-                'for the exact reason (HTTP error, timeout, scanned PDF, or '
-                'encrypted PDF).'
+                'Could not extract text from the resume. Supported formats: '
+                'PDF (with a text layer) and DOCX. If the file is a scanned '
+                'image, an encrypted PDF, a legacy .doc, or another format '
+                '(image, HTML, ZIP archive), please ask the candidate to '
+                're-upload as a searchable PDF or DOCX. See the Odoo log '
+                'for the exact detection result.'
+            )
+
+        wrong_kind = self._detect_non_resume(resume_text)
+        if wrong_kind:
+            raise UserError(
+                'The uploaded file looks like a %s, not a resume. '
+                'Please replace it with the candidate\'s resume (CV) '
+                'in PDF or DOCX format before running screening.' % wrong_kind
             )
 
         system_prompt = (
@@ -309,15 +324,108 @@ class HrApplicant(models.Model):
             except OSError:
                 pass
 
+    _NON_RESUME_MARKERS = {
+        'Aadhaar / UIDAI card': (
+            'aadhaar', 'आधार', 'uidai',
+            'unique identification authority',
+        ),
+        'PAN card': (
+            'permanent account number', 'income tax department',
+            'भारत सरकार आयकर विभाग',
+        ),
+        'Passport': (
+            'passport no', 'republic of india passport',
+            'ministry of external affairs',
+        ),
+        'Cancelled cheque or bank document': (
+            'or bearer', 'a/c payee only', 'ifsc code',
+            'account holder',
+        ),
+        'Academic marksheet or degree certificate': (
+            'central board of secondary education',
+            'senior secondary school certificate',
+            'university of', 'has been awarded',
+            'roll no.', 'roll number',
+        ),
+        'Driving licence': (
+            'driving licence', 'transport department',
+            'motor vehicles',
+        ),
+    }
+    _RESUME_MARKERS = (
+        'experience', 'skills', 'education', 'employment',
+        'resume', 'curriculum vitae', 'objective', 'profile',
+        'summary', 'responsibilities', 'worked as', 'developed',
+        'implemented', 'managed', 'proficient', 'expertise',
+        'certifications', 'projects', 'internship', 'linkedin',
+        'github',
+    )
+
+    @classmethod
+    def _detect_non_resume(cls, text):
+        lower = (text or '').lower()
+        resume_hits = sum(1 for m in cls._RESUME_MARKERS if m in lower)
+        for kind, markers in cls._NON_RESUME_MARKERS.items():
+            wrong_hits = sum(1 for m in markers if m in lower)
+            if wrong_hits >= 2 and wrong_hits > resume_hits:
+                _logger.info(
+                    'Rejected non-resume upload: kind=%s wrong_hits=%d '
+                    'resume_hits=%d', kind, wrong_hits, resume_hits,
+                )
+                return kind
+        return None
+
     @staticmethod
-    def _pdf_bytes_to_text(pdf_bytes):
+    def _pdf_bytes_to_text(file_bytes):
+        if not file_bytes:
+            return ''
+        magic = file_bytes[:8]
+        if magic.startswith(b'%PDF'):
+            try:
+                try:
+                    from pypdf import PdfReader
+                except ImportError:
+                    from PyPDF2 import PdfReader
+                reader = PdfReader(BytesIO(file_bytes))
+                text = '\n'.join(
+                    (p.extract_text() or '') for p in reader.pages
+                )
+                if text.strip():
+                    return text[:20000]
+                _logger.info(
+                    'PDF has no extractable text layer (scanned image?); '
+                    'no OCR configured — returning empty',
+                )
+                return ''
+            except Exception as exc:
+                _logger.warning('PDF parse failed: %s', exc)
+                return ''
+        if magic.startswith(b'PK\x03\x04'):
+            try:
+                from docx import Document as _DocxDocument
+                doc = _DocxDocument(BytesIO(file_bytes))
+                paragraphs = [p.text for p in doc.paragraphs if p.text]
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            if cell.text:
+                                paragraphs.append(cell.text)
+                text = '\n'.join(paragraphs)
+                return text[:20000] if text.strip() else ''
+            except Exception as exc:
+                _logger.warning('DOCX parse failed: %s', exc)
+                return ''
+        if magic.startswith(b'\xd0\xcf\x11\xe0'):
+            _logger.warning(
+                'Legacy .doc (OLE) format detected — not supported; '
+                'ask the candidate to re-upload as PDF or DOCX',
+            )
+            return ''
         try:
-            from pypdf import PdfReader
-        except ImportError:
-            from PyPDF2 import PdfReader
-        reader = PdfReader(BytesIO(pdf_bytes))
-        text = '\n'.join((p.extract_text() or '') for p in reader.pages)
-        return text[:20000] if text.strip() else ''
+            text = file_bytes.decode('utf-8', errors='ignore')
+            return text[:20000] if text.strip() else ''
+        except Exception:
+            return ''
 
     def _resume_job_title(self):
         self.ensure_one()

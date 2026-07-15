@@ -1,45 +1,15 @@
-import functools
 import json
 import logging
 
 from odoo import fields, http
 from odoo.http import request
 
-from odoo.addons.api_auth_gateway.controllers.utility import return_Response
+from odoo.addons.api_auth_gateway.controllers.utility import (
+    return_Response,
+    validate_token,
+)
 
 _logger = logging.getLogger(__name__)
-
-
-def validate_token_only(func):
-    """Same token check as api_auth_gateway.validate_token, without the
-    endpoint-catalog authorization check. Skips role/endpoint gating so
-    the screening endpoints work regardless of whether the operator has
-    migrated the api.end.point / api.role.endpoint tables.
-    """
-    @functools.wraps(func)
-    def wrap(self, *args, **kwargs):
-        token = request.httprequest.headers.get('access-token') \
-            or request.httprequest.headers.get('access_token')
-        if not token:
-            return return_Response(
-                message='missing access token in request header',
-                status=401,
-            )
-        rec = request.env['api.access_token'].sudo().search(
-            [('access_token', '=', token)], order='id DESC', limit=1,
-        )
-        if not rec or rec.has_expired():
-            return return_Response(
-                message='token seems to have expired or invalid',
-                status=401,
-            )
-        if not rec.user_id or rec.user_id._is_public():
-            return return_Response(
-                message='Authentication required.', status=401,
-            )
-        request.update_env(user=rec.user_id.id)
-        return func(self, *args, **kwargs)
-    return wrap
 BASE = "/api/v1/screening"
 
 _REC_IN = {
@@ -152,7 +122,7 @@ class EtharaScreeningApi(http.Controller):
         BASE, type="http", auth="none", methods=["GET"],
         csrf=False, cors="*",
     )
-    @validate_token_only
+    @validate_token
     def screening_list(self, **kwargs):
         params = request.params or {}
         page, limit, offset = _paginate(params)
@@ -199,7 +169,7 @@ class EtharaScreeningApi(http.Controller):
         BASE + "/<int:aid>", type="http", auth="none", methods=["GET"],
         csrf=False, cors="*",
     )
-    @validate_token_only
+    @validate_token
     def screening_detail(self, aid, **kwargs):
         rec, err = _applicant_or_404(aid)
         if err is not None:
@@ -212,7 +182,7 @@ class EtharaScreeningApi(http.Controller):
         BASE + "/<int:aid>/run", type="http", auth="none",
         methods=["POST"], csrf=False, cors="*", readonly=False,
     )
-    @validate_token_only
+    @validate_token
     def screening_run(self, aid, **kwargs):
         rec, err = _applicant_or_404(aid)
         if err is not None:
@@ -237,7 +207,7 @@ class EtharaScreeningApi(http.Controller):
         BASE + "/<int:aid>/override", type="http", auth="none",
         methods=["POST"], csrf=False, cors="*", readonly=False,
     )
-    @validate_token_only
+    @validate_token
     def screening_override(self, aid, **kwargs):
         rec, err = _applicant_or_404(aid)
         if err is not None:

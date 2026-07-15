@@ -2,6 +2,7 @@ from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value, generate_s3_link, is_valid_email, is_valid_mobile
 from datetime import datetime, timedelta
+import json
 import logging
 import re
 
@@ -221,13 +222,34 @@ class ApiAuthController(http.Controller):
                 raise_if_not_found=False,
             )
             user_role = request.env.user.user_role
+            apply_result = None
             if (
                 jdata.get('job_id')
                 and role_candidate
                 and user_role
                 and user_role.id == role_candidate.id
             ):
-                self.apply_job_position(job_id=jdata.get('job_id'))
+                apply_resp = self.apply_job_position(job_id=jdata.get('job_id'))
+                try:
+                    body = json.loads(apply_resp.data)
+                    data_block = body.get('data') or {}
+                    apply_result = {
+                        'status': body.get('status_code'),
+                        'message': body.get('message'),
+                        'applicant_id': data_block.get('applicant_id'),
+                        'is_reapplication': data_block.get('is_reapplication', False),
+                    }
+                except Exception:
+                    _logger.exception(
+                        "Failed to parse apply_job_position response for user %s job_id %s",
+                        uid, jdata.get('job_id'),
+                    )
+                    apply_result = {
+                        'status': 500,
+                        'message': 'Failed to process job application.',
+                        'applicant_id': None,
+                        'is_reapplication': False,
+                    }
             res = {
                 "data": {
                     'uid': uid,
@@ -241,7 +263,8 @@ class ApiAuthController(http.Controller):
                     'user_type': safe_get_value(request.env.user, 'user_role.user_type', 'str'),
                     'role_department': safe_get_value(request.env.user, 'user_role.department_id.url_key', 'str'),
                     'profile_pic': "",
-                    'permissions':role_data
+                    'permissions': role_data,
+                    'apply_result': apply_result,
                 }
             }
             return return_Response(message="Success", status=200, data=res)
