@@ -41,12 +41,12 @@
       <!-- Raiden dark editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
            does not override the design). -->
-      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=43"/>
+      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=44"/>
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer="defer"/>
-      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=43" defer="defer"/>
+      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=44" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -274,32 +274,14 @@
       </figure>
     </div>
 
-    <p class="section-desc">Per-task Haiku reward as a percentage of Opus, ranked highest share to lowest: near-parity on the easiest tasks decays toward 0% on the hard tail.</p>
-
-    <div class="charts" style="grid-template-columns: 1fr">
-      <figure class="chart">
-        <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-relshare" aria-label="Haiku reward as percent of Opus, per task ranked highest to lowest"></canvas></div>
-        <figcaption>Fig. 2: Relative capability share. Haiku 4.5 captures 98% of Opus 4.8's reward on the easiest tasks but only 51% aggregated across all 20, bottoming out at 0% on the hardest.</figcaption>
-      </figure>
-    </div>
-
-    <p class="section-desc">Capability retention as progressively harder tasks are included: cumulative mean reward as a percentage of each model's peak.</p>
-
-    <div class="charts" style="grid-template-columns: 1fr">
-      <figure class="chart">
-        <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-retention" aria-label="Capability retention curve, Opus 4.8 vs Haiku 4.5"></canvas></div>
-        <figcaption>Fig. 3: Capability retention. Opus 4.8 retains ~96% of its peak across all 20 tasks; Haiku 4.5 collapses to ~50%, a clean discriminative gradient.</figcaption>
-      </figure>
-    </div>
-
     <div class="charts">
       <figure class="chart">
         <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-pertask-s3" aria-label="S3 per-task reward, Opus 4.8 vs Haiku 4.5"></canvas></div>
-        <figcaption>Fig. 4a: S3 tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell = capability gap), sorted by Haiku reward.</figcaption>
+        <figcaption>Fig. 2a: S3 tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell = capability gap), sorted by Haiku reward.</figcaption>
       </figure>
       <figure class="chart">
         <div class="rd-chart-canvas" style="height:440px"><canvas id="rd-chart-pertask-ddb" aria-label="DynamoDB per-task reward, Opus 4.8 vs Haiku 4.5"></canvas></div>
-        <figcaption>Fig. 4b: DynamoDB tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell). Haiku spans 0% to 98%; Opus holds ≥94%. Longer dumbbell = more RL headroom.</figcaption>
+        <figcaption>Fig. 2b: DynamoDB tasks. Opus 4.8 vs Haiku 4.5 per task (dumbbell). Haiku spans 0% to 98%; Opus holds ≥94%. Longer dumbbell = more RL headroom.</figcaption>
       </figure>
     </div>
 
