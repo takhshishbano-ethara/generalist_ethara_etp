@@ -68,9 +68,14 @@ function showWarningToast(kind, count, cap) {
         buildToastContent(existing.node, kind, count, cap);
         applyToastSeverity(existing.node, count, cap);
         existing.node.classList.remove("eaa-toast--pulse");
-        // force reflow to restart the pulse animation on repeat offense
-        void existing.node.offsetWidth;
-        existing.node.classList.add("eaa-toast--pulse");
+        // Restart the shake only when the situation is severe — shaking the
+        // toast on every repeated minor signal reads as screen flicker.
+        const severe = existing.node.classList.contains("eaa-toast--critical")
+            || existing.node.classList.contains("eaa-toast--final");
+        if (severe) {
+            void existing.node.offsetWidth;
+            existing.node.classList.add("eaa-toast--pulse");
+        }
         existing.timer = setTimeout(() => {
             existing.node.remove();
             activeToasts.delete(kind);
@@ -116,6 +121,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const warnEl = root.querySelector('[data-role="warning-count"]');
     const timerEl = root.querySelector('[data-role="timer"]');
     const submitBtn = root.querySelector('[data-role="submit-btn"]');
+    const saveStatusEl = root.querySelector('[data-role="save-status"]');
     const recPill = root.querySelector('[data-role="rec-pill"]');
     const consentModal = document.querySelector('[data-role="consent-modal"]');
     const consentAccept = document.querySelector('[data-role="consent-accept"]');
@@ -141,6 +147,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
         const ss = String(remaining % 60).padStart(2, "0");
         timerEl.textContent = `${mm}:${ss}`;
+        timerEl.classList.toggle("eaa-timer--low", remaining <= 60);
         if (remaining <= 0 && !state.submitted) doSubmit();
     }
     setInterval(renderTimer, 1000);
@@ -302,6 +309,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     function updateWarnings(n) {
         state.warningCount = n;
         if (warnEl) warnEl.textContent = String(n);
+        const warnWrap = warnEl ? warnEl.closest(".eaa-warnings") : null;
+        if (warnWrap) warnWrap.classList.toggle("eaa-warnings--active", n > 0);
         if (warningCap > 0 && n >= warningCap && !state.submitted) doSubmit();
     }
 
@@ -392,10 +401,25 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
+    let saveBusy = 0;
+    function setSaveStatus(kind) {
+        if (!saveStatusEl) return;
+        if (kind === "saving") {
+            saveBusy++;
+            saveStatusEl.textContent = "Saving…";
+            return;
+        }
+        saveBusy = Math.max(0, saveBusy - 1);
+        if (saveBusy === 0) {
+            saveStatusEl.textContent = kind === "saved" ? "Saved" : "Save failed";
+        }
+    }
+
     function saveAnswer(section) {
         const payload = collectAnswer(section);
         const statusEl = section.querySelector('[data-role="q-status"]');
         if (statusEl) statusEl.textContent = "Saving…";
+        setSaveStatus("saving");
         fetch(url("/answer"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -403,8 +427,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             credentials: "same-origin",
         }).then((r) => {
             if (statusEl) statusEl.textContent = r.ok ? "Saved" : "Save failed";
+            setSaveStatus(r.ok ? "saved" : "failed");
         }).catch(() => {
             if (statusEl) statusEl.textContent = "Save failed";
+            setSaveStatus("failed");
         });
     }
 
@@ -475,9 +501,129 @@ document.addEventListener("DOMContentLoaded", async () => {
         form.submit();
     }
 
-    if (submitBtn) {
-        submitBtn.addEventListener("click", () => {
-            if (confirm("Submit your assessment? You cannot change your answers after submitting.")) doSubmit();
+    // ── Section pagination + Review & submit (HRMS attempt-player flow).
+    // Pages are shown/hidden with CSS only: every question stays in the DOM,
+    // so autosave, collectAnswer() and doSubmit() behave exactly as before.
+    const pages = Array.from(root.querySelectorAll(".eaa-section"));
+    const questionsMain = root.querySelector(".eaa-questions");
+    const navEl = root.querySelector('[data-role="nav"]');
+    const prevBtn = root.querySelector('[data-role="prev-btn"]');
+    const nextBtn = root.querySelector('[data-role="next-btn"]');
+    const backBtn = root.querySelector('[data-role="back-btn"]');
+    const reviewPanel = root.querySelector('[data-role="review-panel"]');
+    const reviewGrid = root.querySelector('[data-role="review-grid"]');
+    const answeredCountEl = root.querySelector('[data-role="answered-count"]');
+    const sectionIndicator = root.querySelector('[data-role="section-indicator"]');
+    const submitModal = document.querySelector('[data-role="submit-modal"]');
+    const submitCancel = document.querySelector('[data-role="submit-cancel"]');
+    const submitConfirm = document.querySelector('[data-role="submit-confirm"]');
+    const unansweredNote = document.querySelector('[data-role="unanswered-note"]');
+    let pageIdx = 0;
+
+    function isAnswered(section) {
+        if (section.dataset.questionType === "file_upload") {
+            const uploads = section.querySelector('[data-role="uploads"]');
+            return !!(uploads && uploads.children.length);
+        }
+        if (section.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked')) {
+            return true;
+        }
+        const sel = section.querySelector("select");
+        if (sel && sel.value) return true;
+        const inp = section.querySelector('input[type="text"], input[type="url"], input[type="date"], textarea');
+        return !!(inp && inp.value.trim());
+    }
+
+    function showPage(i) {
+        if (pages.length) {
+            pageIdx = Math.max(0, Math.min(i, pages.length - 1));
+            pages.forEach((p, n) => p.classList.toggle("eaa-page--hidden", n !== pageIdx));
+        }
+        if (sectionIndicator) {
+            if (pages.length > 1) {
+                const title = pages[pageIdx].querySelector(".eaa-section__title");
+                sectionIndicator.textContent =
+                    `Section ${pageIdx + 1} of ${pages.length}` +
+                    (title ? ` · ${title.textContent}` : "");
+            } else {
+                sectionIndicator.textContent = "";
+            }
+        }
+        if (prevBtn) prevBtn.disabled = !pages.length || pageIdx === 0;
+        if (nextBtn) {
+            nextBtn.textContent =
+                (!pages.length || pageIdx === pages.length - 1) ? "Review" : "Next";
+        }
+        window.scrollTo(0, 0);
+    }
+
+    function buildReviewGrid() {
+        let answered = 0;
+        if (reviewGrid) reviewGrid.textContent = "";
+        sections.forEach((section, i) => {
+            const done = isAnswered(section);
+            if (done) answered++;
+            if (reviewGrid) {
+                const cell = document.createElement("span");
+                cell.className = "eaa-review__cell" + (done ? " eaa-review__cell--done" : "");
+                cell.textContent = String(i + 1);
+                reviewGrid.appendChild(cell);
+            }
+        });
+        if (answeredCountEl) answeredCountEl.textContent = String(answered);
+        return answered;
+    }
+
+    function enterReview() {
+        buildReviewGrid();
+        if (questionsMain) questionsMain.classList.add("d-none");
+        if (navEl) navEl.classList.add("d-none");
+        if (reviewPanel) reviewPanel.classList.remove("d-none");
+        if (sectionIndicator) sectionIndicator.textContent = "Review & submit";
+        window.scrollTo(0, 0);
+    }
+
+    function exitReview() {
+        if (reviewPanel) reviewPanel.classList.add("d-none");
+        if (questionsMain) questionsMain.classList.remove("d-none");
+        if (navEl) navEl.classList.remove("d-none");
+        showPage(pageIdx);
+    }
+
+    if (prevBtn) prevBtn.addEventListener("click", () => showPage(pageIdx - 1));
+    if (nextBtn) {
+        nextBtn.addEventListener("click", () => {
+            if (!pages.length || pageIdx >= pages.length - 1) enterReview();
+            else showPage(pageIdx + 1);
+        });
+    }
+    if (backBtn) backBtn.addEventListener("click", exitReview);
+    showPage(0);
+
+    function openSubmitModal() {
+        const answered = buildReviewGrid();
+        const unanswered = sections.length - answered;
+        if (unansweredNote) {
+            unansweredNote.textContent = unanswered > 0
+                ? `You have ${unanswered} unanswered question${unanswered === 1 ? "" : "s"}.`
+                : "";
+        }
+        if (submitModal) {
+            submitModal.classList.remove("d-none");
+        } else if (confirm("Submit your assessment? You cannot change your answers after submitting.")) {
+            doSubmit();
+        }
+    }
+    if (submitBtn) submitBtn.addEventListener("click", openSubmitModal);
+    if (submitCancel) {
+        submitCancel.addEventListener("click", () => {
+            if (submitModal) submitModal.classList.add("d-none");
+        });
+    }
+    if (submitConfirm) {
+        submitConfirm.addEventListener("click", () => {
+            if (submitModal) submitModal.classList.add("d-none");
+            doSubmit();
         });
     }
 
@@ -518,12 +664,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     if (requireFullscreen) {
+        const fsBtn = root.querySelector('[data-role="fs-btn"]');
         const enterFullscreen = () => {
             const el = document.documentElement;
             if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
         };
+        if (fsBtn) fsBtn.addEventListener("click", enterFullscreen);
         enterFullscreen();
+        // Browsers reject programmatic fullscreen without a user gesture, so
+        // surface the button whenever we are not fullscreen (HRMS behaviour).
+        setTimeout(() => {
+            if (fsBtn) fsBtn.classList.toggle("d-none", !!document.fullscreenElement);
+        }, 800);
         document.addEventListener("fullscreenchange", () => {
+            if (fsBtn) fsBtn.classList.toggle("d-none", !!document.fullscreenElement);
             if (!document.fullscreenElement) {
                 postEvent("fullscreen_exit", { at: new Date().toISOString() });
                 setTimeout(enterFullscreen, 1500);
@@ -579,6 +733,15 @@ document.addEventListener("DOMContentLoaded", async () => {
             return;
         }
 
+        // The detector reports status on every animation frame; around a
+        // decision boundary the label would flap several times a second and
+        // every width change reflows the proctor strip (visible flicker).
+        // Only relabel the pill once a state has held for a short window.
+        let pillShown = "REC";
+        let pillPending = null;
+        let pillPendingAt = 0;
+        const PILL_STABLE_MS = 400;
+
         try {
             state.detector = new WebcamDetector({
                 video: preview,
@@ -590,7 +753,21 @@ document.addEventListener("DOMContentLoaded", async () => {
                     else if (faces > 1) text = "Multiple faces";
                     else if (phone) text = "Phone seen";
                     else if (lookingAway) text = "Look at screen";
-                    recPill.textContent = text;
+                    if (text === pillShown) {
+                        pillPending = null;
+                        return;
+                    }
+                    const now = performance.now();
+                    if (pillPending !== text) {
+                        pillPending = text;
+                        pillPendingAt = now;
+                        return;
+                    }
+                    if (now - pillPendingAt >= PILL_STABLE_MS) {
+                        pillShown = text;
+                        pillPending = null;
+                        recPill.textContent = text;
+                    }
                 },
                 onSignal: (kind) => {
                     postEvent(kind, { at: new Date().toISOString() });

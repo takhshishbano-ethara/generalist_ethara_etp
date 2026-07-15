@@ -8,6 +8,9 @@
             <field name="subject">Assessment for {{ object.job_id.name }}</field>
             <field name="email_from">{{ (object.company_id.email or user.email or '') }}</field>
             <field name="email_to">{{ object.applicant_id.email_from }}</field>
+            <!-- Must stay off: with it on, Odoo ignores email_to above and asks the
+                 model for default recipients, which this model does not provide. -->
+            <field name="use_default_to" eval="False"/>
             <field name="auto_delete" eval="False"/>
             <field name="lang">{{ user.lang }}</field>
             <field name="body_html" type="html">

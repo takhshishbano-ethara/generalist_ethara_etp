@@ -50,7 +50,6 @@ class EtpApplicantAssessmentBankPicker(models.TransientModel):
             raise UserError("Select at least one question to add.")
 
         Question = self.env["etp.applicant.assessment.template.question"]
-        Option = self.env["etp.applicant.assessment.template.option"]
 
         if self.section_id:
             existing = self.section_id.question_ids
@@ -63,7 +62,7 @@ class EtpApplicantAssessmentBankPicker(models.TransientModel):
 
         for src in self.bank_question_ids:
             last_seq += step
-            new_q = Question.create({
+            Question.create({
                 "template_id": self.template_id.id,
                 "section_id": self.section_id.id if self.section_id else False,
                 "sequence": last_seq,
@@ -72,13 +71,14 @@ class EtpApplicantAssessmentBankPicker(models.TransientModel):
                 "marks": src.marks,
                 "negative_marks": src.negative_marks,
                 "bank_question_id": src.id,
+                "option_ids": [
+                    (0, 0, {
+                        "sequence": opt.sequence,
+                        "label": opt.label,
+                        "is_correct": opt.is_correct,
+                    })
+                    for opt in src.option_ids
+                ],
             })
-            for opt in src.option_ids:
-                Option.create({
-                    "question_id": new_q.id,
-                    "sequence": opt.sequence,
-                    "label": opt.label,
-                    "is_correct": opt.is_correct,
-                })
 
         return {"type": "ir.actions.act_window_close"}

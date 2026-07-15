@@ -12,6 +12,7 @@
                 <field name="max_score"/>
                 <field name="duration_minutes"/>
                 <field name="pass_mark_percent"/>
+                <field name="status"/>
                 <field name="active" widget="boolean_toggle"/>
             </list>
         </field>
@@ -30,6 +31,7 @@
                             icon="fa-plus"
                             context="{'default_template_id': id}"
                             invisible="not id"/>
+                    <field name="status" widget="statusbar" statusbar_visible="draft,public"/>
                 </header>
                 <sheet>
                     <widget name="web_ribbon" title="Archived"

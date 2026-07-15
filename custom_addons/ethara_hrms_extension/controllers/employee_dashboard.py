@@ -7,6 +7,7 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response,
     safe_get_value,
+    validate_token
 )
 from odoo.addons.api_auth_gateway.controllers.main import validate_request
 
@@ -147,6 +148,7 @@ class EtharaEmployeeDashboardController(http.Controller):
     @http.route('/api/v1/employee/dashboard', type='http', auth='none',
                 methods=['GET', 'POST'], csrf=False, cors='*')
     @validate_request({})
+    @validate_token
     def employee_dashboard(self, **kwargs):
         try:
             jdata = kwargs.get('jdata') or {}

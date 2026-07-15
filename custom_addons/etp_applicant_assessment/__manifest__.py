@@ -50,6 +50,7 @@ JSON events and thumbnails and scales linearly with S3 throughput.
         "hr_recruitment",
         "website",
         "api_auth_gateway",
+        "ethara_hrms_extension",
     ],
     "external_dependencies": {
         "python": [
