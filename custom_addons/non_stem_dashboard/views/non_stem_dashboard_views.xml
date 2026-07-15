@@ -6,7 +6,7 @@
         <field name="name">non.stem.run.form</field>
         <field name="model">non.stem.run</field>
         <field name="arch" type="xml">
-            <form string="Non Stem Dashboard Run">
+            <form string="MM Performance Run">
                 <header>
                     <button name="action_run_pipeline"
                             type="object"
@@ -74,7 +74,7 @@
         <field name="name">non.stem.run.tree</field>
         <field name="model">non.stem.run</field>
         <field name="arch" type="xml">
-            <list string="Non Stem Dashboard Runs">
+            <list string="MM Performance Runs">
                 <field name="name"/>
                 <field name="consolidated_filename"/>
                 <field name="state" widget="badge"
