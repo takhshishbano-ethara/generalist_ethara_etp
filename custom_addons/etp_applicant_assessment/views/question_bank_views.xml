@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_question_bank_list" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.question.bank.list</field>
+        <field name="model">etp.applicant.assessment.question.bank</field>
+        <field name="arch" type="xml">
+            <list string="Question Bank" decoration-muted="not active">
+                <field name="name"/>
+                <field name="question_type"/>
+                <field name="difficulty" optional="show"/>
+                <field name="tags" optional="show"/>
+                <field name="skills" optional="show"/>
+                <field name="marks"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_question_bank_form" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.question.bank.form</field>
+        <field name="model">etp.applicant.assessment.question.bank</field>
+        <field name="arch" type="xml">
+            <form string="Bank Question">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived"
+                            bg_color="text-bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="Short admin title, e.g. 'GIL - long answer'"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="question_type"/>
+                            <field name="marks"/>
+                            <field name="negative_marks"/>
+                        </group>
+                        <group>
+                            <field name="difficulty"/>
+                            <field name="tags" placeholder="e.g. algebra, geometry"/>
+                            <field name="skills" placeholder="e.g. python, sql"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="prompt" placeholder="Question prompt..." nolabel="1" colspan="2"/>
+                    </group>
+                    <div class="alert alert-info"
+                         invisible="question_type not in ('mcq_single','mcq_multi','dropdown')">
+                        Add at least two options and mark at least one as correct.
+                    </div>
+                    <separator string="Options"
+                               invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')"/>
+                    <field name="option_ids"
+                           invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')">
+                        <list editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="label"/>
+                            <field name="is_correct" widget="boolean_toggle"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_question_bank_search" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.question.bank.search</field>
+        <field name="model">etp.applicant.assessment.question.bank</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="prompt"/>
+                <field name="tags" filter_domain="[('tags','ilike',self)]"/>
+                <field name="skills" filter_domain="[('skills','ilike',self)]"/>
+                <filter string="Easy" name="difficulty_easy" domain="[('difficulty','=','easy')]"/>
+                <filter string="Medium" name="difficulty_medium" domain="[('difficulty','=','medium')]"/>
+                <filter string="Hard" name="difficulty_hard" domain="[('difficulty','=','hard')]"/>
+                <separator/>
+                <filter string="Archived" name="inactive" domain="[('active','=',False)]"/>
+                <group>
+                    <filter string="Type" name="group_type" context="{'group_by':'question_type'}"/>
+                    <filter string="Difficulty" name="group_difficulty" context="{'group_by':'difficulty'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_question_bank" model="ir.actions.act_window">
+        <field name="name">Question Bank</field>
+        <field name="res_model">etp.applicant.assessment.question.bank</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_question_bank_search"/>
+    </record>
+
+    <record id="view_bank_picker_form" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.bank.picker.form</field>
+        <field name="model">etp.applicant.assessment.bank.picker</field>
+        <field name="arch" type="xml">
+            <form string="Add Questions from Bank">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="template_id" readonly="1" options="{'no_open': True}"/>
+                            <field name="section_id" options="{'no_create': True}"/>
+                        </group>
+                        <group string="Filters (hints)">
+                            <field name="filter_type"/>
+                            <field name="filter_difficulty"/>
+                            <field name="filter_tags" placeholder="e.g. algebra"/>
+                            <field name="filter_skills" placeholder="e.g. python"/>
+                        </group>
+                    </group>
+                    <separator string="Pick questions to clone into this section"/>
+                    <field name="bank_question_ids" widget="many2many"
+                           domain="[('active','=',True)] + ([('question_type','=',filter_type)] if filter_type else []) + ([('difficulty','=',filter_difficulty)] if filter_difficulty else []) + ([('tags','ilike',filter_tags)] if filter_tags else []) + ([('skills','ilike',filter_skills)] if filter_skills else [])"
+                           options="{'no_create': True}">
+                        <list>
+                            <field name="name"/>
+                            <field name="question_type"/>
+                            <field name="difficulty"/>
+                            <field name="tags"/>
+                            <field name="skills"/>
+                            <field name="marks"/>
+                        </list>
+                    </field>
+                </sheet>
+                <footer>
+                    <button name="action_add_to_template" string="Add Selected" type="object" class="btn-primary"/>
+                    <button special="cancel" string="Cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_bank_picker" model="ir.actions.act_window">
+        <field name="name">Add from Question Bank</field>
+        <field name="res_model">etp.applicant.assessment.bank.picker</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

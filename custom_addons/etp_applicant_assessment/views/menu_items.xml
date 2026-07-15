@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_applicant_assessment_root"
+              name="Applicant Assessment"
+              web_icon="etp_applicant_assessment,static/description/icon.png"
+              sequence="80"
+              groups="etp_applicant_assessment.group_applicant_assessment_user"/>
+
+    <menuitem id="menu_applicant_assessment_assessments"
+              name="Assessments"
+              parent="menu_applicant_assessment_root"
+              action="action_applicant_assessment"
+              sequence="10"/>
+
+    <menuitem id="menu_applicant_assessment_templates"
+              name="Templates"
+              parent="menu_applicant_assessment_root"
+              action="action_assessment_template"
+              sequence="20"/>
+
+    <menuitem id="menu_applicant_assessment_question_bank"
+              name="Question Bank"
+              parent="menu_applicant_assessment_root"
+              action="action_question_bank"
+              sequence="25"/>
+
+    <menuitem id="menu_applicant_assessment_warnings"
+              name="Proctoring Warnings"
+              parent="menu_applicant_assessment_root"
+              action="action_applicant_assessment_warning"
+              sequence="30"/>
+
+</odoo>

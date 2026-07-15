@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="mail_template_applicant_assessment" model="mail.template">
+            <field name="name">Applicant Assessment: Invitation</field>
+            <field name="model_id" ref="model_etp_applicant_assessment"/>
+            <field name="subject">Assessment for {{ object.job_id.name }}</field>
+            <field name="email_from">{{ (object.company_id.email or user.email or '') }}</field>
+            <field name="email_to">{{ object.applicant_id.email_from }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="lang">{{ user.lang }}</field>
+            <field name="body_html" type="html">
+                <div style="margin:0px;padding:0px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#333333;">
+                    <p>Hello <t t-out="object.applicant_id.partner_name or 'Candidate'"/>,</p>
+                    <p>
+                        You have been invited to take an online assessment as part of your application for the position
+                        <strong><t t-out="object.job_id.name"/></strong>.
+                    </p>
+                    <p>
+                        <strong>Duration:</strong>
+                        <t t-if="object.duration_minutes">
+                            <t t-out="object.duration_minutes"/> minutes
+                        </t>
+                        <t t-else="">
+                            No time limit
+                        </t>
+                        <br/>
+                        <strong>Questions:</strong> <t t-out="object.question_count"/>
+                    </p>
+                    <p>
+                        The assessment is proctored. You will be asked to grant access to your webcam and to remain in
+                        fullscreen mode. Switching tabs, minimising the window, or leaving fullscreen will be recorded
+                        as warnings and may cause the assessment to be auto-submitted.
+                    </p>
+                    <p>
+                        <a t-att-href="object.portal_url"
+                           style="background-color:#875A7B;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:4px;display:inline-block;">
+                            Start Assessment
+                        </a>
+                    </p>
+                    <p style="color:#888888;font-size:12px;">
+                        If the button does not work, copy this link into your browser:
+                        <br/>
+                        <t t-out="object.portal_url"/>
+                    </p>
+                    <p>Good luck!</p>
+                </div>
+            </field>
+        </record>
+
+    </data>
+</odoo>

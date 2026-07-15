@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_applicant_assessment_list" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.list</field>
+        <field name="model">etp.applicant.assessment</field>
+        <field name="arch" type="xml">
+            <list string="Applicant Assessments"
+                  decoration-info="state == 'sent'"
+                  decoration-warning="state == 'in_progress'"
+                  decoration-success="result == 'pass'"
+                  decoration-danger="result == 'fail'"
+                  decoration-muted="state == 'cancelled'">
+                <field name="display_name"/>
+                <field name="applicant_id"/>
+                <field name="job_id"/>
+                <field name="template_id"/>
+                <field name="warning_count"/>
+                <field name="final_score" widget="progressbar"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'sent'"
+                       decoration-warning="state in ('in_progress','submitted')"
+                       decoration-success="state == 'scored'"
+                       decoration-muted="state == 'cancelled'"/>
+                <field name="result" widget="badge"
+                       decoration-success="result == 'pass'"
+                       decoration-danger="result == 'fail'"
+                       decoration-muted="result == 'pending'"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_applicant_assessment_form" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.form</field>
+        <field name="model">etp.applicant.assessment</field>
+        <field name="arch" type="xml">
+            <form string="Applicant Assessment">
+                <header>
+                    <button name="action_send" type="object"
+                            string="Send Invitation" class="btn-primary"
+                            invisible="state not in ('draft','sent')"/>
+                    <button name="action_open_portal_link" type="object"
+                            string="Open Portal Link"
+                            invisible="state in ('draft','cancelled')"/>
+                    <button name="action_score" type="object"
+                            string="Score Now"
+                            invisible="state != 'submitted'"/>
+                    <button name="action_cancel" type="object"
+                            string="Cancel"
+                            invisible="state in ('scored','cancelled')"/>
+                    <button name="action_reset_draft" type="object"
+                            string="Reset to Draft"
+                            invisible="state != 'cancelled'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,sent,in_progress,submitted,scored"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="display_name"/>
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group name="parties">
+                            <field name="applicant_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="job_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="template_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="access_token"/>
+                            <field name="portal_url" widget="url"/>
+                        </group>
+                        <group name="timings">
+                            <field name="started_at"/>
+                            <field name="deadline_at"/>
+                            <field name="submitted_at"/>
+                            <field name="duration_minutes"/>
+                            <field name="pass_mark_percent"/>
+                            <field name="warning_cap"/>
+                            <field name="require_webcam"/>
+                            <field name="require_mic"/>
+                            <field name="require_fullscreen"/>
+                            <field name="block_copy_paste"/>
+                            <field name="block_right_click"/>
+                            <field name="detect_window_switch"/>
+                            <field name="shuffle_questions"/>
+                        </group>
+                    </group>
+                    <group string="Result">
+                        <group>
+                            <field name="objective_score" widget="progressbar"/>
+                            <field name="warning_penalty" widget="progressbar"/>
+                            <field name="final_score" widget="progressbar"/>
+                        </group>
+                        <group>
+                            <field name="max_score"/>
+                            <field name="question_count"/>
+                            <field name="answered_count"/>
+                            <field name="warning_count"/>
+                            <field name="has_pending_review"/>
+                            <field name="result" widget="badge"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Questions" name="questions">
+                            <field name="question_ids" readonly="1">
+                                <list>
+                                    <field name="sequence"/>
+                                    <field name="section_id"/>
+                                    <field name="prompt"/>
+                                    <field name="question_type"/>
+                                    <field name="marks"/>
+                                    <field name="negative_marks"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <field name="section_id"/>
+                                            <field name="sequence"/>
+                                            <field name="question_type"/>
+                                            <field name="marks"/>
+                                            <field name="negative_marks"/>
+                                        </group>
+                                        <field name="prompt" nolabel="1"/>
+                                        <field name="option_ids"
+                                               invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','rating')">
+                                            <list>
+                                                <field name="sequence"/>
+                                                <field name="label"/>
+                                                <field name="is_correct" widget="boolean_toggle"/>
+                                            </list>
+                                        </field>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Answers" name="answers">
+                            <field name="answer_ids">
+                                <list decoration-success="is_correct"
+                                      decoration-danger="is_answered and not is_correct and question_type in ('mcq_single','mcq_multi','dropdown','true_false')"
+                                      decoration-warning="needs_review">
+                                    <field name="question_sequence"/>
+                                    <field name="question_id"/>
+                                    <field name="question_type"/>
+                                    <field name="is_answered"/>
+                                    <field name="is_correct" widget="boolean_toggle"/>
+                                    <field name="score"/>
+                                    <field name="max_score"/>
+                                    <field name="needs_review"/>
+                                    <field name="manual_score"/>
+                                    <field name="manual_score_set" widget="boolean_toggle"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <field name="question_id" readonly="1"/>
+                                            <field name="question_type" readonly="1"/>
+                                            <field name="max_score" readonly="1"/>
+                                            <field name="submitted_at" readonly="1"/>
+                                        </group>
+                                        <group>
+                                            <field name="selected_option_ids"
+                                                   widget="many2many_tags"
+                                                   invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','rating')"
+                                                   readonly="1"/>
+                                            <field name="text_answer"
+                                                   invisible="question_type not in ('text','long_text','url','date','consent')"
+                                                   readonly="1"/>
+                                            <field name="answer_attachment_ids"
+                                                   widget="many2many_binary"
+                                                   invisible="question_type != 'file_upload'"
+                                                   readonly="1"/>
+                                        </group>
+                                        <group string="Scoring">
+                                            <field name="is_correct"/>
+                                            <field name="score" readonly="1"/>
+                                            <field name="needs_review"/>
+                                            <field name="manual_score"/>
+                                            <field name="manual_score_set"/>
+                                        </group>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Warnings" name="warnings">
+                            <field name="warning_ids" readonly="1">
+                                <list decoration-danger="kind in ('other_person','mobile_phone','look_away')"
+                                      decoration-warning="kind in ('window_change','tab_switch','fullscreen_exit','copy_paste','no_face','lip_movement')">
+                                    <field name="create_date"/>
+                                    <field name="kind"/>
+                                    <field name="penalty_percent"/>
+                                    <field name="detector_confidence"/>
+                                    <field name="snapshot_url" widget="url"/>
+                                    <field name="s3_url" widget="url"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <field name="kind" readonly="1"/>
+                                            <field name="penalty_percent" readonly="1"/>
+                                            <field name="detector_confidence" readonly="1"/>
+                                        </group>
+                                        <group>
+                                            <field name="snapshot_url" widget="url" readonly="1"/>
+                                            <field name="snapshot_key" readonly="1"/>
+                                            <field name="s3_url" widget="url" readonly="1"/>
+                                            <field name="s3_key" readonly="1"/>
+                                        </group>
+                                        <field name="raw_meta_json" readonly="1" nolabel="1"/>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Proctoring Report" name="proctoring">
+                            <group>
+                                <group string="Consent (DPDP/GDPR)">
+                                    <field name="consent_at" readonly="1"/>
+                                    <field name="consent_version" readonly="1"/>
+                                </group>
+                                <group string="Evidence Totals">
+                                    <field name="snapshot_count" readonly="1"/>
+                                    <field name="warning_count" readonly="1"/>
+                                    <field name="media_error_count" readonly="1"/>
+                                </group>
+                            </group>
+                            <separator string="Snapshots"/>
+                            <field name="snapshot_ids" readonly="1" nolabel="1">
+                                <list>
+                                    <field name="captured_at"/>
+                                    <field name="reason"/>
+                                    <field name="signed_url" widget="url"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <field name="captured_at" readonly="1"/>
+                                            <field name="reason" readonly="1"/>
+                                            <field name="signed_url" widget="url" readonly="1"/>
+                                            <field name="url" readonly="1"/>
+                                            <field name="s3_key" readonly="1"/>
+                                            <field name="attachment_id" readonly="1"/>
+                                        </group>
+                                    </sheet>
+                                </form>
+                            </field>
+                            <separator string="Media Upload Errors"/>
+                            <field name="media_errors_json" readonly="1" nolabel="1" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_applicant_assessment_search" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.search</field>
+        <field name="model">etp.applicant.assessment</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="applicant_id"/>
+                <field name="job_id"/>
+                <field name="template_id"/>
+                <field name="access_token"/>
+                <filter name="filter_draft" string="Draft" domain="[('state','=','draft')]"/>
+                <filter name="filter_sent" string="Sent" domain="[('state','=','sent')]"/>
+                <filter name="filter_in_progress" string="In Progress" domain="[('state','=','in_progress')]"/>
+                <filter name="filter_submitted" string="Submitted" domain="[('state','=','submitted')]"/>
+                <filter name="filter_scored" string="Scored" domain="[('state','=','scored')]"/>
+                <separator/>
+                <filter name="filter_pass" string="Passed" domain="[('result','=','pass')]"/>
+                <filter name="filter_fail" string="Failed" domain="[('result','=','fail')]"/>
+                <separator/>
+                <filter name="filter_has_warnings" string="With Warnings" domain="[('warning_count','&gt;',0)]"/>
+                <group>
+                    <filter name="group_job" string="Job Position" context="{'group_by':'job_id'}"/>
+                    <filter name="group_template" string="Template" context="{'group_by':'template_id'}"/>
+                    <filter name="group_state" string="State" context="{'group_by':'state'}"/>
+                    <filter name="group_result" string="Result" context="{'group_by':'result'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_applicant_assessment" model="ir.actions.act_window">
+        <field name="name">Applicant Assessments</field>
+        <field name="res_model">etp.applicant.assessment</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_applicant_assessment_search"/>
+    </record>
+
+    <record id="action_applicant_assessment_warning" model="ir.actions.act_window">
+        <field name="name">Proctoring Warnings</field>
+        <field name="res_model">etp.applicant.assessment.warning</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_applicant_assessment_warning_list" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.warning.list</field>
+        <field name="model">etp.applicant.assessment.warning</field>
+        <field name="arch" type="xml">
+            <list string="Warnings">
+                <field name="create_date"/>
+                <field name="assessment_id"/>
+                <field name="kind"/>
+                <field name="penalty_percent"/>
+                <field name="detector_confidence"/>
+                <field name="s3_url" widget="url"/>
+            </list>
+        </field>
+    </record>
+
+</odoo>
