@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hr_applicant_form_applicant_assessment" model="ir.ui.view">
+        <field name="name">hr.applicant.form.applicant.assessment</field>
+        <field name="model">hr.applicant</field>
+        <field name="inherit_id" ref="hr_recruitment.hr_applicant_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button
+                    name="action_view_assessments"
+                    type="object"
+                    class="oe_stat_button"
+                    icon="fa-graduation-cap"
+                    invisible="assessment_count == 0">
+                    <field name="assessment_count" widget="statinfo" string="Assessments"/>
+                </button>
+            </xpath>
+            <xpath expr="//header" position="inside">
+                <button
+                    name="action_send_assessment"
+                    type="object"
+                    string="Send Assessment"
+                    class="btn-primary"
+                    invisible="not job_id"/>
+            </xpath>
+            <xpath expr="//sheet" position="inside">
+                <group string="Assessment" name="applicant_assessment_group"
+                       invisible="not latest_assessment_id">
+                    <field name="latest_assessment_id" readonly="1"/>
+                    <field name="latest_assessment_state" readonly="1"/>
+                    <field name="latest_assessment_result" readonly="1"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

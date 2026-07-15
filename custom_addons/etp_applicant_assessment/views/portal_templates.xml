@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <template id="portal_layout" name="Applicant Assessment Portal Layout">
+        <t t-raw="'&lt;!DOCTYPE html&gt;'"/>
+        <html t-att-lang="user_lang or 'en_US'">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title t-esc="page_title or 'Assessment'"/>
+                <link rel="stylesheet" type="text/scss"
+                      href="/web/static/lib/bootstrap/scss/bootstrap.scss"/>
+                <link rel="stylesheet" type="text/css"
+                      href="/etp_applicant_assessment/static/src/portal/portal.css"/>
+                <script type="module"
+                        src="/etp_applicant_assessment/static/src/portal/portal.js"/>
+            </head>
+            <body class="eaa-body">
+                <div class="eaa-shell">
+                    <t t-out="0"/>
+                </div>
+            </body>
+        </html>
+    </template>
+
+    <template id="portal_invalid_token" name="Applicant Assessment Invalid Token">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Invalid Link</t>
+            <div class="eaa-card eaa-card--error">
+                <h2>Assessment Link Not Valid</h2>
+                <p>This assessment link is invalid or has expired. Please contact the recruiter who sent it.</p>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_cancelled" name="Applicant Assessment Cancelled">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Assessment Cancelled</t>
+            <div class="eaa-card eaa-card--error">
+                <h2>Assessment Cancelled</h2>
+                <p>This assessment has been cancelled by the recruiter.</p>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_completed" name="Applicant Assessment Completed">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Assessment Submitted</t>
+            <div class="eaa-card eaa-card--success">
+                <h2>Thanks — Your Assessment Has Been Submitted</h2>
+                <p>Your answers were recorded. The recruiter will get back to you.</p>
+                <p t-if="assessment.state == 'submitted'">
+                    Your submission is under review.
+                </p>
+                <p t-if="assessment.state == 'scored' and assessment.result == 'pass'">
+                    <strong>Result: Passed</strong>
+                </p>
+                <p t-if="assessment.state == 'scored' and assessment.result == 'fail'">
+                    <strong>Result: Not selected</strong>
+                </p>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_expired" name="Applicant Assessment Expired">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Time Expired</t>
+            <div class="eaa-card eaa-card--error">
+                <h2>Time Expired</h2>
+                <p>Your assessment window has ended.</p>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_instructions" name="Applicant Assessment Instructions">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Instructions</t>
+            <div class="eaa-card">
+                <h1>Assessment: <t t-esc="assessment.job_id.name"/></h1>
+                <p class="eaa-muted">
+                    Candidate: <t t-esc="assessment.applicant_id.partner_name"/>
+                </p>
+
+                <div class="eaa-facts">
+                    <div class="eaa-fact">
+                        <span class="eaa-fact__label">Questions</span>
+                        <span class="eaa-fact__value" t-esc="assessment.question_count"/>
+                    </div>
+                    <div class="eaa-fact">
+                        <span class="eaa-fact__label">Total Marks</span>
+                        <span class="eaa-fact__value" t-esc="assessment.max_score"/>
+                    </div>
+                    <div class="eaa-fact" t-if="assessment.duration_minutes">
+                        <span class="eaa-fact__label">Duration</span>
+                        <span class="eaa-fact__value">
+                            <t t-esc="assessment.duration_minutes"/> min
+                        </span>
+                    </div>
+                    <div class="eaa-fact">
+                        <span class="eaa-fact__label">Pass Mark</span>
+                        <span class="eaa-fact__value">
+                            <t t-esc="int(assessment.pass_mark_percent)"/>%
+                        </span>
+                    </div>
+                </div>
+
+                <div t-if="assessment.template_id.description" class="eaa-instructions">
+                    <t t-out="assessment.template_id.description"/>
+                </div>
+
+                <div class="eaa-rules">
+                    <h3>Before you begin</h3>
+                    <ul>
+                        <li t-if="assessment.require_webcam">Your webcam must remain enabled for the entire test.</li>
+                        <li t-if="assessment.require_mic">Your microphone must remain enabled.</li>
+                        <li t-if="assessment.require_fullscreen">Stay in full-screen mode. Leaving full-screen counts as a warning.</li>
+                        <li>Do not switch tabs, minimize the window, or open other applications.</li>
+                        <li>Do not speak during the test. Do not have other people or phones in view.</li>
+                        <li>You will be warned. After <t t-esc="assessment.warning_cap"/> warnings your assessment will be submitted automatically.</li>
+                    </ul>
+                </div>
+
+                <form t-att-action="'/applicant-assessment/%s/begin' % assessment.access_token"
+                      method="post" class="eaa-form">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                    <button type="submit" class="btn btn-primary btn-lg">I Understand — Start Assessment</button>
+                </form>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_test" name="Applicant Assessment Test">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Assessment</t>
+            <div class="eaa-test"
+                 t-att-data-token="assessment.access_token"
+                 t-att-data-deadline="assessment.deadline_at and assessment.deadline_at.isoformat() or ''"
+                 t-att-data-require-webcam="'1' if assessment.require_webcam else '0'"
+                 t-att-data-require-mic="'1' if assessment.require_mic else '0'"
+                 t-att-data-require-fullscreen="'1' if assessment.require_fullscreen else '0'"
+                 t-att-data-block-copy-paste="'1' if assessment.block_copy_paste else '0'"
+                 t-att-data-block-right-click="'1' if assessment.block_right_click else '0'"
+                 t-att-data-detect-window-switch="'1' if assessment.detect_window_switch else '0'"
+                 t-att-data-detect-no-face="'1' if assessment.detect_no_face else '0'"
+                 t-att-data-detect-other-person="'1' if assessment.detect_other_person else '0'"
+                 t-att-data-detect-look-away="'1' if assessment.detect_look_away else '0'"
+                 t-att-data-detect-lip-movement="'1' if assessment.detect_lip_movement else '0'"
+                 t-att-data-detect-mobile-phone="'1' if assessment.detect_mobile_phone else '0'"
+                 t-att-data-shuffle-questions="'1' if assessment.shuffle_questions else '0'"
+                 t-att-data-warning-cap="assessment.warning_cap">
+
+                <div class="eaa-consent" data-role="consent-modal" t-if="assessment.require_webcam">
+                    <div class="eaa-consent__card">
+                        <h2>Webcam Proctoring Consent</h2>
+                        <p>
+                            This assessment is proctored by an AI running in <strong>your browser</strong>.
+                            To take it we need access to your webcam
+                            <t t-if="assessment.require_mic">and microphone</t>.
+                            The AI flags integrity signals (looking away, phones,
+                            other people, absence, speech) and captures short
+                            video snippets and thumbnails as evidence when a
+                            flag fires. Video frames are processed locally on
+                            your machine — only the flagged snippets and
+                            thumbnails leave your device.
+                        </p>
+                        <label class="eaa-consent__check">
+                            <input type="checkbox" data-role="consent-checkbox"/>
+                            I understand and consent to webcam proctoring for this assessment.
+                        </label>
+                        <button type="button" class="btn btn-primary"
+                                data-role="consent-accept" disabled="disabled">
+                            Accept and Continue
+                        </button>
+                    </div>
+                </div>
+
+                <header class="eaa-topbar">
+                    <div class="eaa-topbar__title">
+                        <strong t-esc="assessment.job_id.name"/>
+                        <span class="eaa-muted">
+                            — <t t-esc="assessment.applicant_id.partner_name"/>
+                        </span>
+                    </div>
+                    <div class="eaa-topbar__meta">
+                        <div class="eaa-timer" data-role="timer">--:--</div>
+                        <div class="eaa-warnings">
+                            Warnings: <span data-role="warning-count">0</span>
+                            <span class="eaa-muted"> / <t t-esc="assessment.warning_cap"/></span>
+                        </div>
+                        <div class="eaa-cam" data-role="cam-status">Camera: initializing…</div>
+                        <div class="eaa-rec-pill" data-role="rec-pill" t-if="assessment.require_webcam">REC</div>
+                    </div>
+                </header>
+
+                <video data-role="preview" autoplay="autoplay" muted="muted" playsinline="playsinline" class="eaa-preview"/>
+
+                <main class="eaa-questions">
+                    <t t-set="sections" t-value="assessment.section_ids"/>
+                    <t t-if="sections">
+                        <t t-foreach="sections" t-as="sec">
+                            <div class="eaa-section">
+                                <h2 class="eaa-section__title" t-esc="sec.name"/>
+                                <p class="eaa-section__desc" t-if="sec.description" t-esc="sec.description"/>
+                                <t t-foreach="sec.question_ids" t-as="q">
+                                    <section class="eaa-question" t-att-data-question-id="q.id" t-att-data-question-type="q.question_type">
+                                        <div class="eaa-question__head">
+                                            <span class="eaa-question__num">Q<t t-esc="q_index + 1"/></span>
+                                            <span class="eaa-question__marks"><t t-esc="q.marks"/> mark<t t-if="q.marks != 1">s</t></span>
+                                        </div>
+                                        <div class="eaa-question__prompt" t-esc="q.prompt"/>
+                                        <div t-if="q.question_type == 'mcq_single'" class="eaa-options">
+                                            <t t-foreach="q.option_ids" t-as="opt">
+                                                <label class="eaa-option">
+                                                    <input type="radio" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                                    <span t-esc="opt.label"/>
+                                                </label>
+                                            </t>
+                                        </div>
+                                        <div t-if="q.question_type == 'mcq_multi'" class="eaa-options">
+                                            <t t-foreach="q.option_ids" t-as="opt">
+                                                <label class="eaa-option">
+                                                    <input type="checkbox" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                                    <span t-esc="opt.label"/>
+                                                </label>
+                                            </t>
+                                        </div>
+                                        <div t-if="q.question_type == 'text'" class="eaa-textbox">
+                                            <input type="text" t-att-name="'q_%s' % q.id" class="form-control" maxlength="500"/>
+                                        </div>
+                                        <div t-if="q.question_type == 'long_text'" class="eaa-textbox">
+                                            <textarea t-att-name="'q_%s' % q.id" class="form-control" rows="6"/>
+                                        </div>
+                                        <div t-if="q.question_type == 'true_false'" class="eaa-options eaa-options--tf">
+                                            <t t-foreach="q.option_ids" t-as="opt">
+                                                <label class="eaa-option eaa-option--tf">
+                                                    <input type="radio" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                                    <span t-esc="opt.label"/>
+                                                </label>
+                                            </t>
+                                        </div>
+                                        <div t-if="q.question_type == 'dropdown'" class="eaa-dropdown">
+                                            <select t-att-name="'q_%s' % q.id" class="form-select">
+                                                <option value="">-- Select --</option>
+                                                <t t-foreach="q.option_ids" t-as="opt">
+                                                    <option t-att-value="opt.id"><t t-esc="opt.label"/></option>
+                                                </t>
+                                            </select>
+                                        </div>
+                                        <div t-if="q.question_type == 'url'" class="eaa-textbox">
+                                            <input type="url" t-att-name="'q_%s' % q.id" class="form-control" placeholder="https://..."/>
+                                        </div>
+                                        <div t-if="q.question_type == 'date'" class="eaa-textbox">
+                                            <input type="date" t-att-name="'q_%s' % q.id" class="form-control"/>
+                                        </div>
+                                        <div t-if="q.question_type == 'rating'" class="eaa-options eaa-options--rating">
+                                            <t t-foreach="q.option_ids" t-as="opt">
+                                                <label class="eaa-option eaa-option--rating">
+                                                    <input type="radio" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                                    <span t-esc="opt.label"/>
+                                                </label>
+                                            </t>
+                                        </div>
+                                        <div t-if="q.question_type == 'consent'" class="eaa-consent">
+                                            <label class="eaa-consent__label">
+                                                <input type="checkbox" data-role="consent" t-att-name="'q_%s' % q.id"/>
+                                                <span>I confirm and accept.</span>
+                                            </label>
+                                        </div>
+                                        <div t-if="q.question_type == 'file_upload'" class="eaa-file-upload">
+                                            <input type="file" data-role="answer-file" t-att-name="'q_%s' % q.id" class="form-control"/>
+                                            <div class="eaa-uploads" data-role="uploads"></div>
+                                        </div>
+                                        <div class="eaa-question__status" data-role="q-status"></div>
+                                    </section>
+                                </t>
+                            </div>
+                        </t>
+                    </t>
+                    <t t-else="">
+                        <t t-foreach="assessment.question_ids" t-as="q">
+                            <section class="eaa-question" t-att-data-question-id="q.id" t-att-data-question-type="q.question_type">
+                                <div class="eaa-question__head">
+                                    <span class="eaa-question__num">Q<t t-esc="q_index + 1"/></span>
+                                    <span class="eaa-question__marks"><t t-esc="q.marks"/> mark<t t-if="q.marks != 1">s</t></span>
+                                </div>
+                                <div class="eaa-question__prompt" t-esc="q.prompt"/>
+                                <div t-if="q.question_type == 'mcq_single'" class="eaa-options">
+                                    <t t-foreach="q.option_ids" t-as="opt">
+                                        <label class="eaa-option">
+                                            <input type="radio" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                            <span t-esc="opt.label"/>
+                                        </label>
+                                    </t>
+                                </div>
+                                <div t-if="q.question_type == 'mcq_multi'" class="eaa-options">
+                                    <t t-foreach="q.option_ids" t-as="opt">
+                                        <label class="eaa-option">
+                                            <input type="checkbox" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                            <span t-esc="opt.label"/>
+                                        </label>
+                                    </t>
+                                </div>
+                                <div t-if="q.question_type == 'text'" class="eaa-textbox">
+                                    <input type="text" t-att-name="'q_%s' % q.id" class="form-control" maxlength="500"/>
+                                </div>
+                                <div t-if="q.question_type == 'long_text'" class="eaa-textbox">
+                                    <textarea t-att-name="'q_%s' % q.id" class="form-control" rows="6"/>
+                                </div>
+                                <div t-if="q.question_type == 'true_false'" class="eaa-options eaa-options--tf">
+                                    <t t-foreach="q.option_ids" t-as="opt">
+                                        <label class="eaa-option eaa-option--tf">
+                                            <input type="radio" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                            <span t-esc="opt.label"/>
+                                        </label>
+                                    </t>
+                                </div>
+                                <div t-if="q.question_type == 'dropdown'" class="eaa-dropdown">
+                                    <select t-att-name="'q_%s' % q.id" class="form-select">
+                                        <option value="">-- Select --</option>
+                                        <t t-foreach="q.option_ids" t-as="opt">
+                                            <option t-att-value="opt.id"><t t-esc="opt.label"/></option>
+                                        </t>
+                                    </select>
+                                </div>
+                                <div t-if="q.question_type == 'url'" class="eaa-textbox">
+                                    <input type="url" t-att-name="'q_%s' % q.id" class="form-control" placeholder="https://..."/>
+                                </div>
+                                <div t-if="q.question_type == 'date'" class="eaa-textbox">
+                                    <input type="date" t-att-name="'q_%s' % q.id" class="form-control"/>
+                                </div>
+                                <div t-if="q.question_type == 'rating'" class="eaa-options eaa-options--rating">
+                                    <t t-foreach="q.option_ids" t-as="opt">
+                                        <label class="eaa-option eaa-option--rating">
+                                            <input type="radio" t-att-name="'q_%s' % q.id" t-att-value="opt.id"/>
+                                            <span t-esc="opt.label"/>
+                                        </label>
+                                    </t>
+                                </div>
+                                <div t-if="q.question_type == 'consent'" class="eaa-consent">
+                                    <label class="eaa-consent__label">
+                                        <input type="checkbox" data-role="consent" t-att-name="'q_%s' % q.id"/>
+                                        <span>I confirm and accept.</span>
+                                    </label>
+                                </div>
+                                <div t-if="q.question_type == 'file_upload'" class="eaa-file-upload">
+                                    <input type="file" data-role="answer-file" t-att-name="'q_%s' % q.id" class="form-control"/>
+                                    <div class="eaa-uploads" data-role="uploads"></div>
+                                </div>
+                                <div class="eaa-question__status" data-role="q-status"></div>
+                            </section>
+                        </t>
+                    </t>
+                </main>
+
+                <footer class="eaa-footer">
+                    <button type="button" class="btn btn-primary btn-lg" data-role="submit-btn">
+                        Submit Assessment
+                    </button>
+                </footer>
+            </div>
+        </t>
+    </template>
+
+</odoo>

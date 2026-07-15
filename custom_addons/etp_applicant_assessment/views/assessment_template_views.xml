@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_assessment_template_list" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.template.list</field>
+        <field name="model">etp.applicant.assessment.template</field>
+        <field name="arch" type="xml">
+            <list string="Assessment Templates">
+                <field name="name"/>
+                <field name="job_id"/>
+                <field name="question_count"/>
+                <field name="max_score"/>
+                <field name="duration_minutes"/>
+                <field name="pass_mark_percent"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_assessment_template_form" model="ir.ui.view">
+        <field name="name">etp.applicant.assessment.template.form</field>
+        <field name="model">etp.applicant.assessment.template</field>
+        <field name="arch" type="xml">
+            <form string="Assessment Template">
+                <header>
+                    <button name="%(etp_applicant_assessment.action_bank_picker)d"
+                            type="action"
+                            string="Add from Bank"
+                            class="btn-primary"
+                            icon="fa-plus"
+                            context="{'default_template_id': id}"
+                            invisible="not id"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="Archived"
+                            bg_color="text-bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Backend Engineer Test"/></h1>
+                    </div>
+                    <group>
+                        <group name="basics">
+                            <field name="job_id" options="{'no_create': True}"/>
+                            <field name="duration_minutes"/>
+                            <field name="pass_mark_percent"/>
+                            <field name="warning_cap"/>
+                            <field name="shuffle_questions"/>
+                        </group>
+                        <group name="rollups">
+                            <field name="question_count"/>
+                            <field name="max_score"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Sections" name="sections">
+                            <p class="text-muted">
+                                Group questions into sections. Sections render as titled blocks in the order below. Questions with no section fall into a generic "Questions" bucket at the end.
+                            </p>
+                            <field name="section_ids">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="description"/>
+                                    <field name="question_count"/>
+                                    <field name="total_marks"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <field name="sequence"/>
+                                            <field name="name" placeholder="e.g. Aptitude"/>
+                                            <field name="description" placeholder="Short blurb shown above the questions."/>
+                                        </group>
+                                        <separator string="Questions in this section"/>
+                                        <div class="mb-2">
+                                            <button name="%(etp_applicant_assessment.action_bank_picker)d"
+                                                    type="action"
+                                                    string="Add from Bank"
+                                                    class="btn btn-secondary"
+                                                    icon="fa-plus"
+                                                    context="{'default_template_id': parent.id, 'default_section_id': id}"/>
+                                        </div>
+                                        <field name="question_ids" context="{'default_template_id': parent.id, 'default_section_id': id}">
+                                            <list decoration-danger="question_type in ('mcq_single','mcq_multi','dropdown') and option_count &lt; 2">
+                                                <field name="sequence" widget="handle"/>
+                                                <field name="prompt"/>
+                                                <field name="question_type"/>
+                                                <field name="marks"/>
+                                                <field name="negative_marks"/>
+                                                <field name="option_count" string="Options"/>
+                                            </list>
+                                            <form>
+                                                <sheet>
+                                                    <div class="alert alert-info" invisible="not bank_question_id">
+                                                        Sourced from bank question:
+                                                        <field name="bank_question_id" readonly="1" nolabel="1"
+                                                               options="{'no_create': True, 'no_open': False}"/>
+                                                    </div>
+                                                    <div class="mb-2" invisible="bank_question_id">
+                                                        <button name="action_promote_to_bank" type="object"
+                                                                string="Save as Bank Question"
+                                                                class="btn-secondary"
+                                                                icon="fa-database"
+                                                                confirm="Create a reusable bank entry from this question?"/>
+                                                    </div>
+                                                    <group>
+                                                        <field name="sequence"/>
+                                                        <field name="question_type"/>
+                                                        <field name="marks"/>
+                                                        <field name="negative_marks"/>
+                                                    </group>
+                                                    <group>
+                                                        <field name="prompt"
+                                                               placeholder="Question prompt..."
+                                                               nolabel="1" colspan="2"/>
+                                                    </group>
+                                                    <div class="alert alert-info"
+                                                         invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')">
+                                                        Add at least two options and mark at least one as correct.
+                                                    </div>
+                                                    <separator string="Options"
+                                                               invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')"/>
+                                                    <field name="option_ids"
+                                                           invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')">
+                                                        <list editable="bottom">
+                                                            <field name="sequence" widget="handle"/>
+                                                            <field name="label"/>
+                                                            <field name="is_correct" widget="boolean_toggle"/>
+                                                        </list>
+                                                    </field>
+                                                </sheet>
+                                            </form>
+                                        </field>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Questions" name="questions">
+                            <p class="text-muted">
+                                All questions in this template. Assign each to a section, or leave blank to fall into the default bucket. Click a row to open the question editor.
+                            </p>
+                            <field name="question_ids">
+                                <list decoration-danger="question_type in ('mcq_single','mcq_multi','dropdown') and option_count &lt; 2">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="section_id" options="{'no_create': True}"/>
+                                    <field name="prompt"/>
+                                    <field name="question_type"/>
+                                    <field name="marks"/>
+                                    <field name="negative_marks"/>
+                                    <field name="option_count" string="Options"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <div class="alert alert-info" invisible="not bank_question_id">
+                                            Sourced from bank question:
+                                            <field name="bank_question_id" readonly="1" nolabel="1"
+                                                   options="{'no_create': True, 'no_open': False}"/>
+                                        </div>
+                                        <div class="mb-2" invisible="bank_question_id">
+                                            <button name="action_promote_to_bank" type="object"
+                                                    string="Save as Bank Question"
+                                                    class="btn-secondary"
+                                                    icon="fa-database"
+                                                    confirm="Create a reusable bank entry from this question?"/>
+                                        </div>
+                                        <group>
+                                            <field name="section_id" options="{'no_create': True}"
+                                                   domain="[('template_id','=',parent.id)]"/>
+                                            <field name="sequence"/>
+                                            <field name="question_type"/>
+                                            <field name="marks"/>
+                                            <field name="negative_marks"/>
+                                        </group>
+                                        <group>
+                                            <field name="prompt"
+                                                   placeholder="Question prompt..."
+                                                   nolabel="1" colspan="2"/>
+                                        </group>
+                                        <div class="alert alert-info"
+                                             invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')">
+                                            Add at least two options and mark at least one as correct.
+                                        </div>
+                                        <separator string="Options"
+                                                   invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')"/>
+                                        <field name="option_ids"
+                                               invisible="question_type not in ('mcq_single','mcq_multi','dropdown','true_false','matching','ordering','rating')">
+                                            <list editable="bottom">
+                                                <field name="sequence" widget="handle"/>
+                                                <field name="label"/>
+                                                <field name="is_correct" widget="boolean_toggle"/>
+                                            </list>
+                                        </field>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Candidate Instructions" name="instructions">
+                            <field name="description" nolabel="1"
+                                   placeholder="Shown to the candidate before they begin..."/>
+                        </page>
+                        <page string="Proctoring" name="proctoring">
+                            <group>
+                                <group string="Requirements">
+                                    <field name="require_webcam"/>
+                                    <field name="require_mic"/>
+                                    <field name="require_fullscreen"/>
+                                    <field name="block_copy_paste"/>
+                                    <field name="block_right_click"/>
+                                    <field name="detect_window_switch"/>
+                                </group>
+                                <group string="Penalties (%)">
+                                    <field name="penalty_other_person"/>
+                                    <field name="penalty_mobile_phone"/>
+                                    <field name="penalty_lip_movement"/>
+                                    <field name="penalty_look_away"/>
+                                    <field name="penalty_window_change"/>
+                                    <field name="penalty_no_face"/>
+                                </group>
+                                <group string="AI Detection Signals" colspan="2"
+                                       invisible="not require_webcam">
+                                    <field name="detect_no_face"/>
+                                    <field name="detect_other_person"/>
+                                    <field name="detect_look_away"/>
+                                    <field name="detect_lip_movement"/>
+                                    <field name="detect_mobile_phone"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_assessment_template" model="ir.actions.act_window">
+        <field name="name">Assessment Templates</field>
+        <field name="res_model">etp.applicant.assessment.template</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

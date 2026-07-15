@@ -1,0 +1,129 @@
+{
+  "template": {
+    "name": "Senior Backend Engineer - Screening Assessment",
+    "active": true,
+
+    "job_id": null,
+    "job_name": "Senior Backend Engineer",
+
+    "description": "<p>Welcome to the Ethara technical screening.</p><ul><li>You have 60 minutes to complete the test.</li><li>The webcam must remain on for the entire duration.</li><li>Do not switch tabs, minimise the window, or copy / paste content.</li><li>The test will auto-submit after 5 proctoring warnings.</li></ul>",
+
+    "duration_minutes": 60,
+    "pass_mark_percent": 65.0,
+    "warning_cap": 5,
+    "shuffle_questions": true,
+
+    "require_webcam": true,
+    "require_mic": false,
+    "require_fullscreen": true,
+    "block_copy_paste": true,
+    "block_right_click": true,
+    "detect_window_switch": true,
+
+    "detect_no_face": true,
+    "detect_other_person": true,
+    "detect_look_away": true,
+    "detect_lip_movement": true,
+    "detect_mobile_phone": true,
+
+    "penalty_no_face": 5.0,
+    "penalty_other_person": 10.0,
+    "penalty_look_away": 3.0,
+    "penalty_lip_movement": 2.0,
+    "penalty_mobile_phone": 10.0,
+    "penalty_window_change": 5.0,
+
+    "sections": [
+      {
+        "sequence": 10,
+        "name": "Python Fundamentals",
+        "description": "Core language features and idioms.",
+        "questions": [
+          {
+            "sequence": 10,
+            "prompt": "Which of the following is a mutable data type in Python?",
+            "question_type": "mcq_single",
+            "marks": 2,
+            "negative_marks": 0,
+            "options": [
+              {"sequence": 10, "label": "tuple", "is_correct": false},
+              {"sequence": 20, "label": "list", "is_correct": true},
+              {"sequence": 30, "label": "str", "is_correct": false},
+              {"sequence": 40, "label": "frozenset", "is_correct": false}
+            ]
+          },
+          {
+            "sequence": 20,
+            "prompt": "Select all built-in exception classes in the standard Python library.",
+            "question_type": "mcq_multi",
+            "marks": 3,
+            "negative_marks": 1,
+            "options": [
+              {"sequence": 10, "label": "ValueError", "is_correct": true},
+              {"sequence": 20, "label": "TypeError", "is_correct": true},
+              {"sequence": 30, "label": "SegfaultError", "is_correct": false},
+              {"sequence": 40, "label": "KeyError", "is_correct": true}
+            ]
+          },
+          {
+            "sequence": 30,
+            "prompt": "What is the output of `len('hello')`? Answer with just the number.",
+            "question_type": "text",
+            "marks": 1,
+            "negative_marks": 0
+          },
+          {
+            "sequence": 40,
+            "prompt": "Explain the Python GIL and describe one situation where it becomes a bottleneck.",
+            "question_type": "long_text",
+            "marks": 5,
+            "negative_marks": 0
+          }
+        ]
+      },
+      {
+        "sequence": 20,
+        "name": "System Design",
+        "description": "Distributed systems and architecture reasoning.",
+        "questions": [
+          {
+            "sequence": 10,
+            "prompt": "Which mechanism is best for asynchronous inter-service communication in a microservices deployment?",
+            "question_type": "mcq_single",
+            "marks": 2,
+            "negative_marks": 0,
+            "options": [
+              {"sequence": 10, "label": "Synchronous REST call", "is_correct": false},
+              {"sequence": 20, "label": "Shared database table", "is_correct": false},
+              {"sequence": 30, "label": "Message queue / broker", "is_correct": true},
+              {"sequence": 40, "label": "Cron job polling", "is_correct": false}
+            ]
+          },
+          {
+            "sequence": 20,
+            "prompt": "Describe how you would design a rate-limiter for a public API serving 10,000 requests per second across multiple regions.",
+            "question_type": "long_text",
+            "marks": 6,
+            "negative_marks": 0
+          }
+        ]
+      },
+      {
+        "sequence": 30,
+        "name": "Pulled from Question Bank",
+        "description": "Questions cloned from the shared bank. Overrides (marks, prompt, options) are optional.",
+        "questions": [
+          {
+            "sequence": 10,
+            "bank_question_id": 1
+          },
+          {
+            "sequence": 20,
+            "bank_question_name": "GIL - long answer",
+            "marks": 5
+          }
+        ]
+      }
+    ]
+  }
+}
