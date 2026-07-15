@@ -929,6 +929,65 @@
     });
   }
 
+  function rdEfficiency(el, data, p) {
+    var O = "Claude Opus 4.8", H = "Claude Haiku 4.5";
+    function eff(key) {
+      return data.map(function (d) {
+        var m = d.models[key], c = (m.cost_usd || 0), r = (m.reward || 0);
+        return c > 0 ? r / c : 0;
+      }).sort(function (a, b) { return b - a; }).map(function (v) { return +v.toFixed(3); });
+    }
+    var opus = eff(O), haiku = eff(H);
+    var labels = opus.map(function (v, i) { return i + 1; });
+    function decay(s) { return (s.length && s[0]) ? Math.round((s[s.length - 1] / s[0] - 1) * 100) : 0; }
+    var badgeLines = ["Opus efficiency: " + decay(opus) + "%", "Haiku efficiency: " + decay(haiku) + "%"];
+    var badge = {
+      id: "rdEffBadge",
+      afterDraw: function (chart) {
+        var area = chart.chartArea, ctx = chart.ctx;
+        ctx.save(); ctx.font = "600 12px 'DM Sans', sans-serif";
+        var tw = 0; badgeLines.forEach(function (t) { tw = Math.max(tw, ctx.measureText(t).width); });
+        var padX = 12, padY = 8, lh = 18, bw = tw + padX * 2, bh = lh * badgeLines.length + padY * 2;
+        var bx = area.right - bw - 14, by = area.top + 14, rr = 8;
+        ctx.beginPath();
+        ctx.moveTo(bx + rr, by);
+        ctx.arcTo(bx + bw, by, bx + bw, by + bh, rr); ctx.arcTo(bx + bw, by + bh, bx, by + bh, rr);
+        ctx.arcTo(bx, by + bh, bx, by, rr); ctx.arcTo(bx, by, bx + bw, by, rr); ctx.closePath();
+        ctx.fillStyle = p.surface; ctx.strokeStyle = p.grid; ctx.lineWidth = 1; ctx.fill(); ctx.stroke();
+        ctx.textBaseline = "middle"; ctx.textAlign = "left";
+        badgeLines.forEach(function (t, i) { ctx.fillStyle = i === 0 ? p.opus : p.haiku; ctx.fillText(t, bx + padX, by + padY + lh * i + lh / 2); });
+        ctx.restore();
+      }
+    };
+    return new Chart(el, {
+      type: "line",
+      data: { labels: labels, datasets: [
+        { label: "Opus 4.8", data: opus, borderColor: p.opus, backgroundColor: "transparent", borderWidth: 2.5, pointRadius: 2.4, pointBackgroundColor: p.opus, tension: 0.2, fill: false, clip: false },
+        { label: "Haiku 4.5", data: haiku, borderColor: p.haiku, backgroundColor: "transparent", borderWidth: 2.5, pointRadius: 2.4, pointBackgroundColor: p.haiku, tension: 0.2, fill: false, clip: false }
+      ] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 600 },
+        layout: { padding: { top: 8, right: 46 } },
+        plugins: {
+          legend: rdLegend(p),
+          tooltip: {
+            backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
+            callbacks: {
+              title: function (items) { return "Rank " + items[0].label; },
+              label: function (ctx) { return " " + ctx.dataset.label + ": " + Number(ctx.raw).toFixed(2) + " reward/USD"; }
+            }
+          }
+        },
+        scales: {
+          y: { min: 0, max: 2.25, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 }, stepSize: 0.25, callback: function (v) { return Number(v).toFixed(2); } }, title: { display: true, text: "Reward per USD", color: p.ink, font: { size: 11 } } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 11, family: "'DM Sans', sans-serif" } }, title: { display: true, text: "Task rank (by cost-efficiency, best to worst)", color: p.ink, font: { size: 11 } } }
+        }
+      },
+      plugins: [badge]
+    });
+  }
+
   function rdRenderCharts() {
     if (typeof Chart === "undefined" || !rdChartData) return;
     var p = rdPalette();
@@ -947,6 +1006,9 @@
 
     var elShare = document.getElementById("rd-chart-relshare");
     if (elShare) { rdCharts.relshare = rdRelShare(elShare, data, p); }
+
+    var elEff = document.getElementById("rd-chart-efficiency");
+    if (elEff) { rdCharts.efficiency = rdEfficiency(elEff, data, p); }
   }
 
   function rdReRenderCharts() {
@@ -956,7 +1018,7 @@
   }
 
   function initCharts() {
-    if (!document.getElementById("rd-chart-pertask-s3") && !document.getElementById("rd-chart-retention") && !document.getElementById("rd-chart-relshare")) return;
+    if (!document.getElementById("rd-chart-pertask-s3") && !document.getElementById("rd-chart-retention") && !document.getElementById("rd-chart-relshare") && !document.getElementById("rd-chart-efficiency")) return;
     fetch("/raiden/api/instances")
       .then(function (r) { return r.json(); })
       .then(function (data) {
