@@ -34,13 +34,15 @@
         "reward": 1.0,
         "reward_pct": "100.00%",
         "tier": "easy",
-        "tests_passed": 75
+        "tests_passed": 75,
+        "cost_usd": 1.6566
       },
       "Claude Haiku 4.5": {
         "reward": 0.9467,
         "reward_pct": "94.67%",
         "tier": "easy",
-        "tests_passed": 71
+        "tests_passed": 71,
+        "cost_usd": 0.915
       }
     }
   },
@@ -77,13 +79,15 @@
         "reward": 0.9892,
         "reward_pct": "98.92%",
         "tier": "easy",
-        "tests_passed": 83
+        "tests_passed": 83,
+        "cost_usd": 1.8939
       },
       "Claude Haiku 4.5": {
         "reward": 0.6129,
         "reward_pct": "61.29%",
         "tier": "medium",
-        "tests_passed": 51
+        "tests_passed": 51,
+        "cost_usd": 0.6478
       }
     }
   },
@@ -120,13 +124,15 @@
         "reward": 0.9298,
         "reward_pct": "92.98%",
         "tier": "easy",
-        "tests_passed": 53
+        "tests_passed": 53,
+        "cost_usd": 1.5391
       },
       "Claude Haiku 4.5": {
         "reward": 0.7544,
         "reward_pct": "75.44%",
         "tier": "easy",
-        "tests_passed": 43
+        "tests_passed": 43,
+        "cost_usd": 0.8517
       }
     }
   },
@@ -166,13 +172,15 @@
         "reward": 0.9623,
         "reward_pct": "96.23%",
         "tier": "easy",
-        "tests_passed": 102
+        "tests_passed": 102,
+        "cost_usd": 1.2796
       },
       "Claude Haiku 4.5": {
         "reward": 0.1415,
         "reward_pct": "14.15%",
         "tier": "hard",
-        "tests_passed": 15
+        "tests_passed": 15,
+        "cost_usd": 0.6679
       }
     }
   },
@@ -210,13 +218,15 @@
         "reward": 1.0,
         "reward_pct": "100.00%",
         "tier": "easy",
-        "tests_passed": 84
+        "tests_passed": 84,
+        "cost_usd": 1.0904
       },
       "Claude Haiku 4.5": {
         "reward": 0.9762,
         "reward_pct": "97.62%",
         "tier": "easy",
-        "tests_passed": 82
+        "tests_passed": 82,
+        "cost_usd": 0.606
       }
     }
   },
@@ -253,13 +263,15 @@
         "reward": 0.9315,
         "reward_pct": "93.15%",
         "tier": "easy",
-        "tests_passed": 68
+        "tests_passed": 68,
+        "cost_usd": 2.3992
       },
       "Claude Haiku 4.5": {
         "reward": 0.3151,
         "reward_pct": "31.51%",
         "tier": "hard",
-        "tests_passed": 23
+        "tests_passed": 23,
+        "cost_usd": 0.4902
       }
     }
   },
@@ -296,13 +308,15 @@
         "reward": 0.9298,
         "reward_pct": "92.98%",
         "tier": "easy",
-        "tests_passed": 53
+        "tests_passed": 53,
+        "cost_usd": 1.3894
       },
       "Claude Haiku 4.5": {
         "reward": 0.4912,
         "reward_pct": "49.12%",
         "tier": "hard",
-        "tests_passed": 28
+        "tests_passed": 28,
+        "cost_usd": 0.5141
       }
     }
   },
@@ -343,13 +357,15 @@
         "reward": 1.0,
         "reward_pct": "100.00%",
         "tier": "easy",
-        "tests_passed": 120
+        "tests_passed": 120,
+        "cost_usd": 1.1946
       },
       "Claude Haiku 4.5": {
         "reward": 0.1083,
         "reward_pct": "10.83%",
         "tier": "hard",
-        "tests_passed": 13
+        "tests_passed": 13,
+        "cost_usd": 0.838
       }
     }
   },
@@ -388,13 +404,15 @@
         "reward": 1.0,
         "reward_pct": "100.00%",
         "tier": "easy",
-        "tests_passed": 98
+        "tests_passed": 98,
+        "cost_usd": 1.1147
       },
       "Claude Haiku 4.5": {
         "reward": 0.9592,
         "reward_pct": "95.92%",
         "tier": "easy",
-        "tests_passed": 94
+        "tests_passed": 94,
+        "cost_usd": 0.6089
       }
     }
   },
@@ -433,13 +451,15 @@
         "reward": 1.0,
         "reward_pct": "100.00%",
         "tier": "easy",
-        "tests_passed": 77
+        "tests_passed": 77,
+        "cost_usd": 1.7157
       },
       "Claude Haiku 4.5": {
         "reward": 0.974,
         "reward_pct": "97.40%",
         "tier": "easy",
-        "tests_passed": 75
+        "tests_passed": 75,
+        "cost_usd": 0.8481
       }
     }
   },
@@ -478,13 +498,15 @@
         "reward": 0.9265,
         "reward_pct": "92.65%",
         "tier": "easy",
-        "tests_passed": 63
+        "tests_passed": 63,
+        "cost_usd": 1.5379
       },
       "Claude Haiku 4.5": {
         "reward": 0.2059,
         "reward_pct": "20.59%",
         "tier": "hard",
-        "tests_passed": 14
+        "tests_passed": 14,
+        "cost_usd": 0.5316
       }
     }
   },
@@ -521,13 +543,15 @@
         "reward": 0.8864,
         "reward_pct": "88.64%",
         "tier": "easy",
-        "tests_passed": 39
+        "tests_passed": 39,
+        "cost_usd": 1.4998
       },
       "Claude Haiku 4.5": {
         "reward": 0.5682,
         "reward_pct": "56.82%",
         "tier": "medium",
-        "tests_passed": 25
+        "tests_passed": 25,
+        "cost_usd": 0.9633
       }
     }
   },
@@ -565,13 +589,15 @@
         "reward": 0.974,
         "reward_pct": "97.40%",
         "tier": "easy",
-        "tests_passed": 75
+        "tests_passed": 75,
+        "cost_usd": 0.857
       },
       "Claude Haiku 4.5": {
         "reward": 0.1558,
         "reward_pct": "15.58%",
         "tier": "hard",
-        "tests_passed": 12
+        "tests_passed": 12,
+        "cost_usd": 0.6057
       }
     }
   },
@@ -612,13 +638,15 @@
         "reward": 0.9455,
         "reward_pct": "94.55%",
         "tier": "easy",
-        "tests_passed": 104
+        "tests_passed": 104,
+        "cost_usd": 1.294
       },
       "Claude Haiku 4.5": {
         "reward": 0.8455,
         "reward_pct": "84.55%",
         "tier": "easy",
-        "tests_passed": 93
+        "tests_passed": 93,
+        "cost_usd": 0.6447
       }
     }
   },
@@ -655,13 +683,15 @@
         "reward": 0.8923,
         "reward_pct": "89.23%",
         "tier": "easy",
-        "tests_passed": 58
+        "tests_passed": 58,
+        "cost_usd": 1.5752
       },
       "Claude Haiku 4.5": {
         "reward": 0.2,
         "reward_pct": "20.00%",
         "tier": "hard",
-        "tests_passed": 13
+        "tests_passed": 13,
+        "cost_usd": 0.6971
       }
     }
   },
@@ -698,13 +728,15 @@
         "reward": 0.9038,
         "reward_pct": "90.38%",
         "tier": "easy",
-        "tests_passed": 47
+        "tests_passed": 47,
+        "cost_usd": 1.5408
       },
       "Claude Haiku 4.5": {
         "reward": 0.5192,
         "reward_pct": "51.92%",
         "tier": "medium",
-        "tests_passed": 27
+        "tests_passed": 27,
+        "cost_usd": 0.2562
       }
     }
   },
@@ -743,13 +775,15 @@
         "reward": 0.9574,
         "reward_pct": "95.74%",
         "tier": "easy",
-        "tests_passed": 90
+        "tests_passed": 90,
+        "cost_usd": 1.3322
       },
       "Claude Haiku 4.5": {
         "reward": 0.1915,
         "reward_pct": "19.15%",
         "tier": "hard",
-        "tests_passed": 18
+        "tests_passed": 18,
+        "cost_usd": 1.082
       }
     }
   },
@@ -789,13 +823,15 @@
         "reward": 1.0,
         "reward_pct": "100.00%",
         "tier": "easy",
-        "tests_passed": 110
+        "tests_passed": 110,
+        "cost_usd": 1.2335
       },
       "Claude Haiku 4.5": {
         "reward": 0.0,
         "reward_pct": "0.00%",
         "tier": "hard",
-        "tests_passed": 0
+        "tests_passed": 0,
+        "cost_usd": 0.4977
       }
     }
   },
@@ -832,13 +868,15 @@
         "reward": 0.9808,
         "reward_pct": "98.08%",
         "tier": "easy",
-        "tests_passed": 51
+        "tests_passed": 51,
+        "cost_usd": 1.9607
       },
       "Claude Haiku 4.5": {
         "reward": 0.6346,
         "reward_pct": "63.46%",
         "tier": "medium",
-        "tests_passed": 33
+        "tests_passed": 33,
+        "cost_usd": 0.8003
       }
     }
   },
@@ -875,13 +913,15 @@
         "reward": 0.9054,
         "reward_pct": "90.54%",
         "tier": "easy",
-        "tests_passed": 67
+        "tests_passed": 67,
+        "cost_usd": 1.6264
       },
       "Claude Haiku 4.5": {
         "reward": 0.1757,
         "reward_pct": "17.57%",
         "tier": "hard",
-        "tests_passed": 13
+        "tests_passed": 13,
+        "cost_usd": 0.8067
       }
     }
   }

@@ -2,15 +2,14 @@
   "use strict";
 
   // ============================================================
-  // §1 - THEME TOGGLE
-  // Persists to localStorage (`raiden:theme`). Reacts to OS
-  // preference changes only when user hasn't made explicit choice.
+  // §1 - THEME
+  // Follows the OS color-scheme (prefers-color-scheme), live-updating on
+  // system theme change. The toggle is a temporary session-only override.
   // The template inline script already sets `data-theme` on :root
   // before this runs, so no flash occurs.
   // ============================================================
   const root = document.documentElement;
   const toggleBtn = document.getElementById('rd-theme-toggle');
-  const THEME_KEY = 'raiden:theme';
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
 
   const currentTheme = () => {
@@ -34,16 +33,13 @@
     toggleBtn.addEventListener('click', () => {
       const next = currentTheme() === 'dark' ? 'light' : 'dark';
       root.setAttribute('data-theme', next);
-      try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* noop */ }
       syncButtonLabel();
     });
   }
 
-  // If user has NOT made an explicit choice, follow OS changes live.
+  // System preference is authoritative: follow OS changes live.
   const osChangeHandler = () => {
-    try {
-      if (localStorage.getItem(THEME_KEY)) return; // user overrode - ignore OS
-    } catch (e) { /* noop */ }
+    root.setAttribute('data-theme', prefersDark.matches ? 'dark' : 'light');
     syncButtonLabel();
   };
   if (prefersDark.addEventListener) {
@@ -339,12 +335,11 @@
 
   function evalPassCell(passStr) {
     var pct = evalParsePass(passStr);
-    var color = evalBarColor(pct);
     return (
       '<div class="rd-eval-pass-cell">' +
-        '<span class="rd-eval-pass-pct" style="color:' + color + '">' + (passStr || "0.00%") + '</span>' +
+        '<span class="rd-eval-pass-pct">' + (passStr || "0.00%") + '</span>' +
         '<div class="rd-eval-pass-bar">' +
-          '<div class="rd-eval-pass-fill" style="width:' + pct + '%;background:' + color + '"></div>' +
+          '<div class="rd-eval-pass-fill" style="width:' + pct + '%"></div>' +
         '</div>' +
       '</div>'
     );
@@ -636,12 +631,294 @@
   }
 
   // ============================================================
+  // §12 - CHARTS (Chart.js, data-driven, theme-aware)
+  // 3 charts from /raiden/api/instances. Opus = magenta (--accent),
+  // Haiku = blue (--accent-secondary). Re-renders on data-theme change.
+  // ============================================================
+  var rdCharts = {};
+  var rdChartData = null;
+
+  function rdCssVar(name, fallback) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
+  function rdPalette() {
+    return {
+      opus: rdCssVar("--accent", "#EE00EE"),
+      haiku: rdCssVar("--accent-secondary", "#7A99D1"),
+      ink: rdCssVar("--ink", "#0B0E14"),
+      muted: rdCssVar("--muted", "#8a8fa5"),
+      grid: rdCssVar("--border", "rgba(0,0,0,0.10)"),
+      surface: rdCssVar("--bg-2", "#ffffff")
+    };
+  }
+
+  function rdTierAgg(data) {
+    var b = { Easy: [], Medium: [], Hard: [] };
+    data.forEach(function (d) { if (b[d.difficulty]) b[d.difficulty].push(d); });
+    function mean(a, f) { return a.length ? a.reduce(function (s, x) { return s + f(x); }, 0) / a.length : 0; }
+    return ["Easy", "Medium", "Hard"].map(function (t) {
+      var a = b[t];
+      return {
+        tier: t, n: a.length,
+        opusReward: mean(a, function (d) { return (d.models["Claude Opus 4.8"].reward || 0) * 100; }),
+        haikuReward: mean(a, function (d) { return (d.models["Claude Haiku 4.5"].reward || 0) * 100; }),
+        opusCost: mean(a, function (d) { return d.models["Claude Opus 4.8"].cost_usd || 0; }),
+        haikuCost: mean(a, function (d) { return d.models["Claude Haiku 4.5"].cost_usd || 0; })
+      };
+    });
+  }
+
+  function rdLegend(p) {
+    return { position: "top", align: "start", labels: { color: p.ink, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: "rectRounded", font: { family: "'DM Sans', sans-serif", size: 12 } } };
+  }
+
+  function rdTooltip(p, unit) {
+    return {
+      backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
+      callbacks: { label: function (ctx) {
+        var v = ctx.raw;
+        return " " + ctx.dataset.label + ": " + (unit === "$" ? "$" + Number(v).toFixed(3) : Number(v).toFixed(1) + "%");
+      } }
+    };
+  }
+
+  function rdAxes(p, valMax, valTitle, horizontal) {
+    var val = { grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: valTitle ? { display: true, text: valTitle, color: p.ink, font: { size: 11 } } : { display: false } };
+    if (valMax) { val.max = valMax; val.beginAtZero = true; }
+    var cat = { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: horizontal ? 10 : 12, family: horizontal ? "'SF Mono', monospace" : "'DM Sans', sans-serif" } } };
+    return horizontal ? { x: val, y: cat } : { y: val, x: cat };
+  }
+
+  function rdBar(el, labels, opus, haiku, p, opts) {
+    return new Chart(el, {
+      type: "bar",
+      data: { labels: labels, datasets: [
+        { label: "Opus 4.8", data: opus, backgroundColor: rdAlpha(p.opus, 0.18), borderColor: rdAlpha(p.opus, 0.5), borderWidth: 1, borderRadius: 3, categoryPercentage: opts.cat, barPercentage: 0.92 },
+        { label: "Haiku 4.5", data: haiku, backgroundColor: p.haiku, borderRadius: 3, categoryPercentage: opts.cat, barPercentage: 0.92 }
+      ] },
+      options: {
+        indexAxis: opts.horizontal ? "y" : "x", responsive: true, maintainAspectRatio: false,
+        animation: { duration: 500 },
+        plugins: { legend: rdLegend(p), tooltip: rdTooltip(p, opts.unit) },
+        scales: rdAxes(p, opts.valMax, opts.valTitle, opts.horizontal)
+      }
+    });
+  }
+
+  function rdLineChart(el, labels, opus, haiku, p, opts) {
+    return new Chart(el, {
+      type: "line",
+      data: { labels: labels, datasets: [
+        { label: "Opus 4.8", data: opus, borderColor: rdAlpha(p.opus, 0.55), backgroundColor: rdAlpha(p.opus, 0.08), borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: rdAlpha(p.opus, 0.55), pointBorderColor: rdAlpha(p.opus, 0.55), tension: 0.3, fill: false },
+        { label: "Haiku 4.5", data: haiku, borderColor: p.haiku, backgroundColor: rdAlpha(p.haiku, 0.1), borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: p.haiku, pointBorderColor: p.haiku, tension: 0.3, fill: false }
+      ] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 500 },
+        plugins: { legend: rdLegend(p), tooltip: rdTooltip(p, opts.unit) },
+        scales: {
+          y: { beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: opts.valTitle, color: p.ink, font: { size: 11 } } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 12, family: "'DM Sans', sans-serif" } } }
+        }
+      }
+    });
+  }
+
+  function rdAlpha(c, a) {
+    c = (c || "").trim();
+    if (c.charAt(0) === "#") {
+      var h = c.slice(1);
+      if (h.length === 3) { h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2); }
+      var n = parseInt(h, 16);
+      return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+    }
+    return c.replace(/rgba?\(([^)]+)\)/, function (m, inner) {
+      var q = inner.split(",").slice(0, 3).map(function (x) { return x.trim(); });
+      return "rgba(" + q.join(",") + "," + a + ")";
+    });
+  }
+
+  function rdRuns(arr, keyFn) {
+    var runs = [], cur = null;
+    arr.forEach(function (d, i) {
+      var k = keyFn(d);
+      if (!cur || cur.key !== k) { cur = { key: k, tier: d.difficulty, scope: d.scope, start: i, end: i }; runs.push(cur); }
+      else { cur.end = i; }
+    });
+    return runs;
+  }
+
+  function rdHalfBand(y) {
+    var band = Math.abs(y.getPixelForTick(1) - y.getPixelForTick(0));
+    if (!band) { band = (y.bottom - y.top) / Math.max(1, (y.ticks || []).length || 1); }
+    return band / 2;
+  }
+
+  function rdPerTaskChart(el, s, p) {
+    var H = "Claude Haiku 4.5", O = "Claude Opus 4.8";
+    var labels = s.map(function (d) { return d.instance_id; });
+    var haiku = s.map(function (d) { return +((d.models[H].reward || 0) * 100).toFixed(1); });
+    var opus = s.map(function (d) { return +((d.models[O].reward || 0) * 100).toFixed(1); });
+    var scopeRuns = rdRuns(s, function (d) { return d.scope; });
+    var tierRuns = rdRuns(s, function (d) { return d.scope + "|" + d.difficulty; });
+    var BAND = { Easy: "rgba(94,230,149,0.10)", Medium: "rgba(251,191,36,0.10)", Hard: "rgba(255,143,143,0.12)" };
+    var TXT = { Easy: "#3FB768", Medium: "#B8860B", Hard: "#D2555A" };
+    var groups = {
+      id: "rdGroups",
+      beforeDatasetsDraw: function (chart) {
+        var y = chart.scales.y, area = chart.chartArea, ctx = chart.ctx;
+        if (!y || !area) { return; }
+        var half = rdHalfBand(y);
+        tierRuns.forEach(function (g) {
+          var top = y.getPixelForTick(g.start) - half, bot = y.getPixelForTick(g.end) + half;
+          ctx.save(); ctx.fillStyle = BAND[g.tier] || "transparent";
+          ctx.fillRect(area.left, top, area.right - area.left, bot - top); ctx.restore();
+        });
+      },
+      afterDatasetsDraw: function (chart) {
+        var y = chart.scales.y, area = chart.chartArea, ctx = chart.ctx;
+        if (!y || !area) { return; }
+        var half = rdHalfBand(y);
+        ctx.save();
+        ctx.textBaseline = "top";
+        tierRuns.forEach(function (g) {
+          var midY = (y.getPixelForTick(g.start) + y.getPixelForTick(g.end)) / 2;
+          ctx.font = "700 10px 'SF Mono', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+          ctx.fillStyle = TXT[g.tier] || p.ink;
+          ctx.fillText(g.tier.toUpperCase(), area.right + 12, midY);
+        });
+        scopeRuns.forEach(function (g, i) {
+          var topPix = y.getPixelForTick(g.start) - half, botPix = y.getPixelForTick(g.end) + half;
+          if (i > 0) {
+            ctx.strokeStyle = p.ink; ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(area.left, topPix); ctx.lineTo(area.right, topPix); ctx.stroke(); ctx.globalAlpha = 1;
+          }
+          ctx.save();
+          ctx.translate(area.right + 88, (topPix + botPix) / 2);
+          ctx.rotate(Math.PI / 2);
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.font = "700 12px 'SF Mono', monospace"; ctx.fillStyle = p.ink;
+          ctx.fillText(g.scope === "DynamoDB" ? "DYNAMODB" : "S3", 0, 0);
+          ctx.restore();
+        });
+        var hmeta = chart.getDatasetMeta(0);
+        if (hmeta && hmeta.data) {
+          ctx.font = "600 9px 'SF Mono', monospace"; ctx.textBaseline = "middle";
+          hmeta.data.forEach(function (bar, i) {
+            if (!bar) { return; }
+            var v = haiku[i], txt = Math.round(v) + "%", tw = ctx.measureText(txt).width;
+            if (bar.x + 5 + tw > area.right) {
+              ctx.textAlign = "right"; ctx.fillStyle = "#ffffff";
+              ctx.fillText(txt, bar.x - 4, bar.y);
+            } else {
+              ctx.textAlign = "left"; ctx.fillStyle = v === 0 ? TXT.Hard : p.ink;
+              ctx.fillText(txt, bar.x + 5, bar.y);
+            }
+          });
+        }
+        ctx.restore();
+      }
+    };
+    return new Chart(el, {
+      type: "bar",
+      data: { labels: labels, datasets: [
+        { label: "Haiku 4.5", data: haiku, backgroundColor: p.haiku, borderRadius: 3, minBarLength: 4, categoryPercentage: 0.82, barPercentage: 0.96 },
+        { label: "Opus 4.8", data: opus, backgroundColor: rdAlpha(p.opus, 0.18), borderColor: rdAlpha(p.opus, 0.5), borderWidth: 1, borderRadius: 3, categoryPercentage: 0.82, barPercentage: 0.96 }
+      ] },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        layout: { padding: { right: 104, top: 4 } },
+        animation: { duration: 500 },
+        plugins: {
+          legend: rdLegend(p),
+          tooltip: {
+            backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
+            callbacks: {
+              title: function (items) { var d = s[items[0].dataIndex]; return d.instance_id + "  ·  " + d.scope + "  ·  " + d.difficulty; },
+              label: function (ctx) { return " " + ctx.dataset.label + ": " + Number(ctx.parsed.x).toFixed(1) + "%"; }
+            }
+          }
+        },
+        scales: {
+          x: { max: 100, beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: "Reward (%)", color: p.ink, font: { size: 11 } } },
+          y: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 10, family: "'SF Mono', monospace" } } }
+        }
+      },
+      plugins: [groups]
+    });
+  }
+
+  function rdRenderCharts() {
+    if (typeof Chart === "undefined" || !rdChartData) return;
+    var p = rdPalette();
+    var data = rdChartData;
+    Chart.defaults.font.family = "'DM Sans', system-ui, sans-serif";
+    Chart.defaults.color = p.ink;
+
+    var elPT = document.getElementById("rd-chart-pertask");
+    if (elPT) {
+      var tierOrd = { Easy: 0, Medium: 1, Hard: 2 }, scopeOrd = { S3: 0, DynamoDB: 1 };
+      var s = data.slice().sort(function (a, b) {
+        var so = (scopeOrd[a.scope] || 0) - (scopeOrd[b.scope] || 0); if (so) { return so; }
+        var to = (tierOrd[a.difficulty] || 0) - (tierOrd[b.difficulty] || 0); if (to) { return to; }
+        return (b.models["Claude Haiku 4.5"].reward || 0) - (a.models["Claude Haiku 4.5"].reward || 0);
+      });
+      rdCharts.pertask = rdPerTaskChart(elPT, s, p);
+    }
+
+    var agg = rdTierAgg(data);
+    var tl = agg.map(function (t) { return t.tier + " (" + t.n + ")"; });
+    var elR = document.getElementById("rd-chart-reward-tier");
+    if (elR) {
+      rdCharts.rewardTier = rdBar(elR, tl,
+        agg.map(function (t) { return +t.opusReward.toFixed(1); }),
+        agg.map(function (t) { return +t.haikuReward.toFixed(1); }),
+        p, { horizontal: false, valMax: 100, valTitle: "Mean reward (%)", unit: "%", cat: 0.62 });
+    }
+    var elC = document.getElementById("rd-chart-cost-tier");
+    if (elC) {
+      rdCharts.costTier = rdLineChart(elC, tl,
+        agg.map(function (t) { return +t.opusCost.toFixed(3); }),
+        agg.map(function (t) { return +t.haikuCost.toFixed(3); }),
+        p, { valTitle: "Mean cost / run (USD)", unit: "$" });
+    }
+  }
+
+  function rdReRenderCharts() {
+    Object.keys(rdCharts).forEach(function (k) { if (rdCharts[k]) { rdCharts[k].destroy(); } });
+    rdCharts = {};
+    rdRenderCharts();
+  }
+
+  function initCharts() {
+    if (!document.getElementById("rd-chart-pertask")) return;
+    fetch("/raiden/api/instances")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        rdChartData = data;
+        if (typeof Chart === "undefined") {
+          window.addEventListener("load", rdRenderCharts, { once: true });
+        } else {
+          rdRenderCharts();
+        }
+      })
+      .catch(function () {});
+    if (window.MutationObserver) {
+      new MutationObserver(function () { if (rdChartData) rdReRenderCharts(); })
+        .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    }
+  }
+
+  // ============================================================
   // §11 - INIT + DOMContentLoaded
   // ============================================================
   function init() {
     initScrollAnimations();
     initLightbox();
     initEvalViewer();
+    initCharts();
   }
 
   if (document.readyState === "loading") {
