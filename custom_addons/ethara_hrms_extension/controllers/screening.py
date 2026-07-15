@@ -157,7 +157,10 @@ class EtharaScreeningApi(http.Controller):
         page, limit, offset = _paginate(params)
 
         Applicant = request.env["hr.applicant"].sudo()
-        domain = [("resume_url", "!=", False)]
+        domain = [
+            ("resume_url", "!=", False),
+            ("job_id", "!=", False),
+        ]
 
         search = (params.get("search") or "").strip()
         if search:
