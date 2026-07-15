@@ -690,6 +690,7 @@
                                 <t t-if="label_boxes">
                                     <div class="etp-field">
                                         <label class="form-label">Label each numbered box</label>
+                                        <div class="etp-label-list">
                                         <t t-foreach="label_boxes" t-as="box_num">
                                             <div class="etp-label-row mb-2">
                                                 <label class="form-label"
@@ -702,6 +703,7 @@
                                                        t-att-value="label_answers.get(str(box_num)) or ''"/>
                                             </div>
                                         </t>
+                                        </div>
                                     </div>
                                 </t>
                                 <t t-else="">
