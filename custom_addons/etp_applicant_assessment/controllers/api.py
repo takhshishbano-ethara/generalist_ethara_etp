@@ -1,8 +1,10 @@
+import io
 import json
 import logging
 import os
+from datetime import date, datetime
 
-from odoo import http
+from odoo import fields, http
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 
@@ -10,6 +12,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token, validate_request, return_Response,
 )
 from odoo.addons.etp_applicant_assessment.models._common import MCQ_TYPES
+from ..services import s3_service
 
 _logger = logging.getLogger(__name__)
 
@@ -24,12 +27,13 @@ _ASSESSMENT_STATE_KEYS = {
 }
 _ASSESSMENT_RESULT_KEYS = {"pending", "pass", "fail"}
 
-_TEMPLATE_STR_FIELDS = ("name", "description",)
-_TEMPLATE_INT_FIELDS = ("duration_minutes", "warning_cap",)
+_TEMPLATE_STR_FIELDS = ("name", "description", "instructions", "consent_text",)
+_TEMPLATE_INT_FIELDS = ("duration_minutes", "warning_cap", "attempts_allowed",)
 _TEMPLATE_FLOAT_FIELDS = (
     "pass_mark_percent",
     "penalty_other_person", "penalty_mobile_phone", "penalty_lip_movement",
     "penalty_window_change", "penalty_no_face", "penalty_look_away",
+    "negative_factor",
 )
 _TEMPLATE_BOOL_FIELDS = (
     "active",
@@ -38,6 +42,16 @@ _TEMPLATE_BOOL_FIELDS = (
     "detect_no_face", "detect_other_person", "detect_look_away",
     "detect_lip_movement", "detect_mobile_phone",
     "shuffle_questions",
+    "enable_negative_marking", "show_score_to_candidate",
+    "randomize_section_order", "shuffle_mcq_options", "sync_to_google_sheet",
+)
+_TEMPLATE_DATE_FIELDS = ("available_from", "available_until",)
+
+# Applicant-assessment export (xlsx -> S3) tuning.
+EXPORT_MAX_ROWS = 10000
+EXPORT_URL_EXPIRES = 24 * 60 * 60  # presigned download link TTL, seconds
+_XLSX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 from odoo.addons.etp_applicant_assessment.models._common import (
     VALID_QUESTION_TYPE_KEYS as _VALID_QUESTION_TYPES,
@@ -65,6 +79,29 @@ def _coerce_int(value, default=None):
 
 def _dt(value):
     return value.isoformat() if value else False
+
+
+def _coerce_date(value):
+    """Accept a YYYY-MM-DD (or ISO datetime) string / date and return a
+    date object, or False to clear the field."""
+    if value in (None, "", False):
+        return False
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return False
+        cleaned = cleaned.split("T")[0].split(" ")[0]
+        try:
+            return datetime.strptime(cleaned, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValidationError(
+                "Date %r must be in YYYY-MM-DD format." % value
+            )
+    raise ValidationError("Invalid date value %r." % (value,))
 
 
 def _serialize_assessment_row(rec):
@@ -266,6 +303,9 @@ def _coerce_template_vals(tpl):
     for key in _TEMPLATE_BOOL_FIELDS:
         if key in tpl:
             vals[key] = _to_bool(tpl[key])
+    for key in _TEMPLATE_DATE_FIELDS:
+        if key in tpl:
+            vals[key] = _coerce_date(tpl[key])
     return vals
 
 
@@ -532,6 +572,17 @@ def _serialize_template_detail(rec):
         "penalty_no_face": rec.penalty_no_face,
         "penalty_look_away": rec.penalty_look_away,
         "shuffle_questions": rec.shuffle_questions,
+        "instructions": rec.instructions or "",
+        "consent_text": rec.consent_text or "",
+        "attempts_allowed": rec.attempts_allowed,
+        "negative_factor": rec.negative_factor,
+        "available_from": _dt(rec.available_from),
+        "available_until": _dt(rec.available_until),
+        "enable_negative_marking": rec.enable_negative_marking,
+        "show_score_to_candidate": rec.show_score_to_candidate,
+        "randomize_section_order": rec.randomize_section_order,
+        "shuffle_mcq_options": rec.shuffle_mcq_options,
+        "sync_to_google_sheet": rec.sync_to_google_sheet,
         "question_count": rec.question_count,
         "max_score": rec.max_score,
         "assigned_count": rec.assigned_count,
@@ -584,6 +635,129 @@ def _replace_template_sections(template, sections_payload):
             if option_cmds:
                 q_vals["option_ids"] = option_cmds
             Question.create(q_vals)
+
+
+def _build_applicant_assessment_domain(jdata):
+    """Shared search domain for the applicant-assessment list, KPI and
+    export endpoints. Raises ValidationError on invalid filter values."""
+    domain = []
+
+    state = jdata.get("state")
+    if isinstance(state, str) and state.strip():
+        s = state.strip()
+        if s not in _ASSESSMENT_STATE_KEYS:
+            raise ValidationError("Invalid state %r." % s)
+        domain.append(("state", "=", s))
+    elif isinstance(state, list) and state:
+        for s in state:
+            if s not in _ASSESSMENT_STATE_KEYS:
+                raise ValidationError("Invalid state %r." % s)
+        domain.append(("state", "in", state))
+
+    result = jdata.get("result")
+    if isinstance(result, str) and result.strip():
+        r = result.strip()
+        if r not in _ASSESSMENT_RESULT_KEYS:
+            raise ValidationError("Invalid result %r." % r)
+        domain.append(("result", "=", r))
+    elif isinstance(result, list) and result:
+        for r in result:
+            if r not in _ASSESSMENT_RESULT_KEYS:
+                raise ValidationError("Invalid result %r." % r)
+        domain.append(("result", "in", result))
+
+    job_id = _coerce_int(jdata.get("job_id"))
+    if job_id:
+        domain.append(("job_id", "=", job_id))
+
+    template_id = _coerce_int(jdata.get("template_id"))
+    if template_id:
+        domain.append(("template_id", "=", template_id))
+
+    applicant_id = _coerce_int(jdata.get("applicant_id"))
+    if applicant_id:
+        domain.append(("applicant_id", "=", applicant_id))
+
+    search = (jdata.get("search") or "").strip()
+    if search:
+        domain += [
+            "|", "|",
+            ("applicant_id.partner_name", "ilike", search),
+            ("applicant_id.email_from", "ilike", search),
+            ("template_id.name", "ilike", search),
+        ]
+
+    return domain
+
+
+def _build_assessment_export_xlsx(records):
+    """Render applicant-assessment rows (same shape as the list API) into an
+    in-memory .xlsx workbook and return its bytes."""
+    import xlsxwriter
+
+    buffer = io.BytesIO()
+    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True})
+    worksheet = workbook.add_worksheet("Applicant Assessments")
+
+    header_fmt = workbook.add_format({
+        "bold": True, "font_color": "#FFFFFF", "bg_color": "#1F2937",
+        "border": 1, "align": "center", "valign": "vcenter",
+    })
+    cell_fmt = workbook.add_format({"border": 1, "valign": "vcenter"})
+
+    columns = [
+        ("ID", 8),
+        ("Applicant Name", 24),
+        ("Applicant Email", 28),
+        ("Job", 22),
+        ("Template", 26),
+        ("State", 12),
+        ("Result", 10),
+        ("Duration (min)", 14),
+        ("Pass Mark (%)", 14),
+        ("Questions", 10),
+        ("Final Score (%)", 15),
+        ("Sent At", 22),
+        ("Started At", 22),
+        ("Submitted At", 22),
+        ("Deadline At", 22),
+        ("Test Link", 45),
+    ]
+    for col, (title, width) in enumerate(columns):
+        worksheet.write(0, col, title, header_fmt)
+        worksheet.set_column(col, col, width)
+    worksheet.freeze_panes(1, 0)
+
+    for row_idx, rec in enumerate(records, start=1):
+        row = _serialize_assessment_row(rec)
+        applicant = row.get("applicant") or {}
+        job = row.get("job") or {}
+        template = row.get("template") or {}
+        values = [
+            row.get("id") or "",
+            applicant.get("name") or "",
+            applicant.get("email") or "",
+            job.get("name") or "",
+            template.get("name") or "",
+            row.get("state") or "",
+            row.get("result") or "",
+            row.get("duration_minutes"),
+            row.get("pass_mark_percent"),
+            row.get("question_count"),
+            row.get("final_score"),
+            row.get("sent_at") or "",
+            row.get("started_at") or "",
+            row.get("submitted_at") or "",
+            row.get("deadline_at") or "",
+            row.get("test_link") or "",
+        ]
+        for col, value in enumerate(values):
+            worksheet.write(row_idx, col, "" if value is None else value,
+                            cell_fmt)
+
+    workbook.close()
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 class ApplicantAssessmentApi(http.Controller):
@@ -679,60 +853,7 @@ class ApplicantAssessmentApi(http.Controller):
             per_page = max(1, min(per_page or LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT))
             offset = (page - 1) * per_page
 
-            domain = []
-
-            state = jdata.get("state")
-            if isinstance(state, str) and state.strip():
-                s = state.strip()
-                if s not in _ASSESSMENT_STATE_KEYS:
-                    return return_Response(
-                        message="Invalid state %r." % s, status=400,
-                    )
-                domain.append(("state", "=", s))
-            elif isinstance(state, list) and state:
-                for s in state:
-                    if s not in _ASSESSMENT_STATE_KEYS:
-                        return return_Response(
-                            message="Invalid state %r." % s, status=400,
-                        )
-                domain.append(("state", "in", state))
-
-            result = jdata.get("result")
-            if isinstance(result, str) and result.strip():
-                r = result.strip()
-                if r not in _ASSESSMENT_RESULT_KEYS:
-                    return return_Response(
-                        message="Invalid result %r." % r, status=400,
-                    )
-                domain.append(("result", "=", r))
-            elif isinstance(result, list) and result:
-                for r in result:
-                    if r not in _ASSESSMENT_RESULT_KEYS:
-                        return return_Response(
-                            message="Invalid result %r." % r, status=400,
-                        )
-                domain.append(("result", "in", result))
-
-            job_id = _coerce_int(jdata.get("job_id"))
-            if job_id:
-                domain.append(("job_id", "=", job_id))
-
-            template_id = _coerce_int(jdata.get("template_id"))
-            if template_id:
-                domain.append(("template_id", "=", template_id))
-
-            applicant_id = _coerce_int(jdata.get("applicant_id"))
-            if applicant_id:
-                domain.append(("applicant_id", "=", applicant_id))
-
-            search = (jdata.get("search") or "").strip()
-            if search:
-                domain += [
-                    "|", "|",
-                    ("applicant_id.partner_name", "ilike", search),
-                    ("applicant_id.email_from", "ilike", search),
-                    ("template_id.name", "ilike", search),
-                ]
+            domain = _build_applicant_assessment_domain(jdata)
 
             Assessment = request.env["etp.applicant.assessment"].sudo()
             total = Assessment.search_count(domain)
@@ -1250,6 +1371,154 @@ class ApplicantAssessmentApi(http.Controller):
                 "data": {
                     "id": record.id,
                     "state": record.state,
+                },
+            },
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/applicant-assessment/kpi",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({})
+    def applicant_assessment_kpi(self, **kwargs):
+        """Performance-report KPIs for applicant assessments. Accepts the same
+        filters as /applicant-assessment/list (template_id, job_id, state,
+        result, applicant_id, search) so the report can be scoped to a single
+        template picked from /assessment-template/list."""
+        try:
+            jdata = kwargs.get("jdata") or {}
+            domain = _build_applicant_assessment_domain(jdata)
+
+            Assessment = request.env["etp.applicant.assessment"].sudo()
+
+            state_groups = Assessment.read_group(domain, ["state"], ["state"])
+            state_counts = {
+                g["state"]: g["state_count"] for g in state_groups
+            }
+
+            scored_domain = domain + [("state", "=", "scored")]
+            result_groups = Assessment.read_group(
+                scored_domain, ["result"], ["result"],
+            )
+            result_counts = {
+                g["result"]: g["result_count"] for g in result_groups
+            }
+
+            draft = state_counts.get("draft", 0)
+            sent = state_counts.get("sent", 0)
+            in_progress = state_counts.get("in_progress", 0)
+            submitted = state_counts.get("submitted", 0)
+            scored = state_counts.get("scored", 0)
+            cancelled = state_counts.get("cancelled", 0)
+
+            passed = result_counts.get("pass", 0)
+            failed = result_counts.get("fail", 0)
+
+            # "Total sent" = everything ever dispatched to a candidate
+            # (all records that left draft, cancellations included).
+            total_sent = sent + in_progress + submitted + scored + cancelled
+            total = total_sent + draft
+
+            kpi = {
+                "total_sent": total_sent,
+                "in_progress": in_progress,
+                "submitted": submitted,
+                "scored": scored,
+                "passed": passed,
+                "failed": failed,
+                # supporting breakdown
+                "sent": sent,
+                "draft": draft,
+                "cancelled": cancelled,
+                "total": total,
+                "pass_rate": (
+                    round(passed / scored * 100.0, 2) if scored else 0.0
+                ),
+            }
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to compute applicant-assessment KPIs.")
+            return return_Response(
+                message="Failed to compute KPIs.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Applicant assessment KPIs fetched successfully.",
+            status=200,
+            data={"data": kpi},
+        )
+
+    @validate_token
+    @http.route(
+        "/api/v1/applicant-assessment/export",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_request({})
+    def export_applicant_assessments(self, **kwargs):
+        """Export the applicant-assessment list (honouring the same filters) to
+        an .xlsx file on S3 and return a short-lived download URL."""
+        try:
+            jdata = kwargs.get("jdata") or {}
+            domain = _build_applicant_assessment_domain(jdata)
+
+            env = request.env
+            if not s3_service.is_configured(env):
+                return return_Response(
+                    message="S3 storage is not configured; cannot export.",
+                    status=400,
+                )
+
+            Assessment = env["etp.applicant.assessment"].sudo()
+            total = Assessment.search_count(domain)
+            records = Assessment.search(
+                domain, order="create_date desc", limit=EXPORT_MAX_ROWS,
+            )
+            truncated = total > len(records)
+            if truncated:
+                _logger.warning(
+                    "Applicant-assessment export capped at %d of %d rows.",
+                    len(records), total,
+                )
+
+            xlsx_bytes = _build_assessment_export_xlsx(records)
+
+            stamp = fields.Datetime.now().strftime("%Y%m%d-%H%M%S")
+            url, s3_key = s3_service.upload_bytes(
+                env,
+                xlsx_bytes,
+                key_hint="exports/applicant-assessment-%s" % stamp,
+                content_type=_XLSX_CONTENT_TYPE,
+                extension="xlsx",
+            )
+            download_url = s3_service.presigned_get_url(
+                env, s3_key, expires=EXPORT_URL_EXPIRES,
+            ) or url
+        except ValidationError as ve:
+            return return_Response(message=str(ve), status=400)
+        except Exception as e:
+            _logger.exception("Failed to export applicant assessments.")
+            return return_Response(
+                message="Failed to export applicant assessments.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(
+            message="Applicant assessments exported successfully.",
+            status=200,
+            data={
+                "data": {
+                    "download_url": download_url,
+                    "s3_url": url,
+                    "s3_key": s3_key,
+                    "record_count": len(records),
+                    "total_matched": total,
+                    "truncated": truncated,
+                    "expires_in": EXPORT_URL_EXPIRES,
                 },
             },
         )

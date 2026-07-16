@@ -108,6 +108,54 @@ class EtpApplicantAssessmentTemplate(models.Model):
              "Section order stays deterministic (by section sequence).",
     )
 
+    # --- Candidate-facing extras (accepted by the create/update API) ---
+    instructions = fields.Text(
+        string="Pre-start Instructions",
+        help="Plain-text instructions shown to the candidate before Start. "
+             "Complements the rich 'description' field.",
+    )
+    consent_text = fields.Text(
+        string="Consent / Declaration Text",
+        help="Consent / declaration the candidate must accept before starting.",
+    )
+    attempts_allowed = fields.Integer(
+        string="Attempts Allowed", default=1,
+        help="How many times a candidate may take this assessment. "
+             "0 = unlimited.",
+    )
+    negative_factor = fields.Float(
+        string="Negative Factor (x marks)", default=0.0,
+        help="Global fraction of a question's marks deducted for a wrong "
+             "answer when 'Enable Negative Marking' is on.",
+    )
+    available_from = fields.Date(
+        string="Available From",
+        help="Candidates cannot start the assessment before this date.",
+    )
+    available_until = fields.Date(
+        string="Available Until",
+        help="Candidates cannot start the assessment after this date.",
+    )
+    enable_negative_marking = fields.Boolean(
+        string="Enable Negative Marking (global)", default=False,
+    )
+    show_score_to_candidate = fields.Boolean(
+        string="Show Score to Candidate", default=False,
+        help="Reveal the final score to the candidate after submission.",
+    )
+    randomize_section_order = fields.Boolean(
+        string="Randomize Section Order", default=False,
+        help="Shuffle the order of sections per candidate.",
+    )
+    shuffle_mcq_options = fields.Boolean(
+        string="Shuffle MCQ Options", default=False,
+        help="Shuffle the order of options within each MCQ per candidate.",
+    )
+    sync_to_google_sheet = fields.Boolean(
+        string="Sync Responses to Google Sheet", default=False,
+        help="Mirror candidate responses to a connected Google Sheet.",
+    )
+
     section_ids = fields.One2many(
         "etp.applicant.assessment.template.section",
         "template_id",
