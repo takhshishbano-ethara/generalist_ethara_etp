@@ -17,26 +17,40 @@
       <head>
         <meta charset="UTF-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>Milo-Bench — Reproducible AI Benchmarks</title>
+        <title>milo-bench-samples — Reproducible AI Benchmarks</title>
         <meta name="description" content="Milo-Bench measures milestone-scale engineering competence across whole codebases, across eight languages, scored on a continuous scale."/>
         <!-- Inline theme sync BEFORE stylesheet loads (no FOUC).
            Order of precedence:
-             1. localStorage 'mb-theme' if set to 'light' or 'dark'
-             2. matchMedia prefers-color-scheme: dark
-             3. Fallback: light -->
+             System preference is authoritative (raiden parity): read
+             prefers-color-scheme before stylesheet tokens resolve so there
+             is no flash. The in-page toggle is a session-only override. -->
+        <script>
+        (function () {
+          try {
+            var sysDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.setAttribute('data-theme', sysDark ? 'dark' : 'light');
+          } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        })();
+        </script>
+        <!-- Previous localStorage-first theme selector (kept for rollback):
         <script>
         (function () {
           try {
             var stored = null;
             try { stored = window.localStorage.getItem('mb-theme'); } catch (e) {}
             var theme = (stored === 'light' || stored === 'dark') ? stored
-                      : (window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
             document.documentElement.setAttribute('data-theme', theme);
           } catch (e) {
             document.documentElement.setAttribute('data-theme', 'light');
           }
         })();
-      </script>
+        </script>
+        -->
+        <!-- Favicon: no explicit link — falls back to /favicon.ico, i.e. the
+             Ethara company/website favicon (raiden parity; company, not project). -->
         <!-- Google Fonts: DM Sans + Roboto (raiden parity) -->
         <link rel="preconnect" href="https://fonts.googleapis.com"/>
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
@@ -51,6 +65,8 @@
       </head>
       <body>
         <a class="skip-link" href="#mb-main">Skip to content</a>
+        <!-- Scroll progress rail (fills as the page scrolls) -->
+        <div class="scroll-progress" aria-hidden="true"></div>
         <!-- Theme toggle (fixed, top-right; keep id and icon markup used by CSS) -->
         <button id="mb-theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle color theme">
           <svg class="mb-theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
@@ -65,7 +81,7 @@
         <div id="mb-portal">
           <!-- ================= MASTHEAD ================= -->
           <header class="masthead">
-            <div class="wordmark">Milo-Bench</div>
+            <div class="wordmark">milo-bench-samples</div>
             <div class="badge">Long-horizon software evolution</div>
             <p class="thesis">Measuring long-horizon software-engineering competence at the granularity of milestones.</p>
             <div class="byline">by 
@@ -419,8 +435,7 @@
           </main>
           <footer class="mb-footer">
             <div class="mb-footer-inner">
-              <span class="mb-footer-brand">Milo-Bench</span>
-              <span class="mb-footer-note">© Ethara AI · Milo-Bench is a curated 30-task sample released for evaluation.</span></div>
+              <span class="mb-footer-note">Ethara.ai · milo-bench-samples</span></div>
           </footer></div>
       </body>
     </html>

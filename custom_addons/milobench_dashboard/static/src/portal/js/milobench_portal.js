@@ -54,22 +54,58 @@
         };
     }
 
+    // System preference is authoritative and live-updating (raiden parity).
+    // The inline <head> script already set data-theme from prefers-color-scheme
+    // before styles resolved (no flash); here we sync the button and follow OS
+    // changes live. The click toggle is a session-only override (not persisted).
     function initTheme() {
+        const root = document.documentElement;
         const btn = $("#mb-theme-toggle");
-        if (!btn) return;
-        const apply = (t) => {
-            document.documentElement.setAttribute("data-theme", t);
-            btn.setAttribute("aria-pressed", t === "light" ? "true" : "false");
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+        const currentTheme = () => {
+            const explicit = root.getAttribute("data-theme");
+            return explicit === "light" || explicit === "dark" ? explicit : "light";
         };
-        const initial = localStorage.getItem(THEME_KEY) || document.documentElement.getAttribute("data-theme") || "dark";
-        apply(initial);
-        btn.addEventListener("click", () => {
-            const cur = document.documentElement.getAttribute("data-theme");
-            const next = cur === "light" ? "dark" : "light";
-            localStorage.setItem(THEME_KEY, next);
-            apply(next);
-        });
+        const syncButton = () => {
+            if (!btn) return;
+            btn.setAttribute("aria-pressed", currentTheme() === "light" ? "true" : "false");
+        };
+        syncButton();
+        if (btn) {
+            btn.addEventListener("click", () => {
+                root.setAttribute("data-theme", currentTheme() === "light" ? "dark" : "light");
+                syncButton();
+            });
+        }
+        // Follow OS changes live; system preference stays authoritative.
+        const osChange = () => {
+            root.setAttribute("data-theme", prefersDark.matches ? "dark" : "light");
+            syncButton();
+        };
+        if (prefersDark.addEventListener) {
+            prefersDark.addEventListener("change", osChange);
+        } else if (prefersDark.addListener) {
+            prefersDark.addListener(osChange); // Safari < 14
+        }
     }
+
+    // Previous localStorage-first theme selector (kept for rollback):
+    // function initTheme() {
+    //     const btn = $("#mb-theme-toggle");
+    //     if (!btn) return;
+    //     const apply = (t) => {
+    //         document.documentElement.setAttribute("data-theme", t);
+    //         btn.setAttribute("aria-pressed", t === "light" ? "true" : "false");
+    //     };
+    //     const initial = localStorage.getItem(THEME_KEY) || document.documentElement.getAttribute("data-theme") || "dark";
+    //     apply(initial);
+    //     btn.addEventListener("click", () => {
+    //         const cur = document.documentElement.getAttribute("data-theme");
+    //         const next = cur === "light" ? "dark" : "light";
+    //         localStorage.setItem(THEME_KEY, next);
+    //         apply(next);
+    //     });
+    // }
 
     function initReveal() {
         document.documentElement.classList.add("mb-js");
@@ -93,8 +129,96 @@
         } else {
             revealAll();
         }
-        if (window.gsap && window.ScrollTrigger) {
-            window.gsap.registerPlugin(window.ScrollTrigger);
+        // Redundant: initAnimations() registers ScrollTrigger itself, and
+        // initReveal does not use it. Kept commented for rollback.
+        // if (window.gsap && window.ScrollTrigger) {
+        //     window.gsap.registerPlugin(window.ScrollTrigger);
+        // }
+    }
+
+    // Scroll progress rail: writes width into .scroll-progress on each rAF
+    // while scrolling. Passive listeners, no layout thrash (raiden parity).
+    function initScrollProgress() {
+        const bar = document.querySelector(".scroll-progress");
+        if (!bar) return;
+        let ticking = false;
+        const update = () => {
+            const h = document.documentElement.scrollHeight - window.innerHeight;
+            const pct = h > 0 ? (window.scrollY / h) * 100 : 0;
+            bar.style.width = pct + "%";
+            ticking = false;
+        };
+        const onScroll = () => {
+            if (!ticking) {
+                window.requestAnimationFrame(update);
+                ticking = true;
+            }
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll, { passive: true });
+        update();
+    }
+
+    // Masthead on-load animation (raiden parity): wordmark + badge rise,
+    // thesis reveals word-by-word. Progressive enhancement — if GSAP is
+    // absent or motion is reduced, the masthead simply renders statically.
+    function initAnimations() {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+        // Split the thesis line into per-word wrappers for the staggered rise.
+        const thesisEl = document.querySelector(".thesis");
+        if (thesisEl && !thesisEl.querySelector(".thesis-word")) {
+            const words = thesisEl.textContent.trim().split(/\s+/);
+            thesisEl.innerHTML = words
+                .map((w) => `<span class="thesis-word"><span class="thesis-word-inner">${w}</span></span>`)
+                .join(" ");
+        }
+
+        const run = () => {
+            if (typeof window.gsap === "undefined") return;
+            const gsap = window.gsap;
+            const EASE_OUT = "cubic-bezier(0.28, 0.11, 0.32, 1)";
+            gsap.defaults({ ease: EASE_OUT, duration: 0.64 });
+            gsap.from(".wordmark", { y: 24, opacity: 0, duration: 0.9, delay: 0.05, ease: EASE_OUT });
+            gsap.from(".badge", { y: 16, opacity: 0, duration: 0.7, delay: 0.18, ease: EASE_OUT });
+            gsap.from(".thesis-word-inner", {
+                yPercent: 110, opacity: 0, duration: 0.9, stagger: 0.04, ease: EASE_OUT, delay: 0.3,
+            });
+
+            // Section child-stagger on scroll (raiden parity): each section's
+            // direct children (label, heading, body, content) rise + fade in
+            // sequence as the section enters view. GSAP owns the reveal here,
+            // so add .mb-visible first to neutralize the CSS [data-animate]
+            // gate (else the container's opacity:0 would double-hide children).
+            // Guarded on ScrollTrigger — if it is absent, sections keep the
+            // existing initReveal() CSS fade and nothing is hidden.
+            if (window.ScrollTrigger) {
+                gsap.registerPlugin(window.ScrollTrigger);
+                document.querySelectorAll("main > .section").forEach((section) => {
+                    section.classList.add("mb-visible");
+                    const children = section.querySelectorAll(":scope > *");
+                    gsap.from(children, {
+                        y: 28,
+                        opacity: 0,
+                        stagger: 0.08,
+                        duration: 0.64,
+                        ease: EASE_OUT,
+                        scrollTrigger: {
+                            trigger: section,
+                            start: "top 85%",
+                            toggleActions: "play none none none",
+                        },
+                    });
+                });
+                window.addEventListener("resize", () => window.ScrollTrigger.refresh(), { passive: true });
+            }
+        };
+
+        // GSAP is deferred; run now if ready, else once it loads.
+        if (typeof window.gsap !== "undefined") {
+            run();
+        } else {
+            window.addEventListener("load", run, { once: true });
         }
     }
 
@@ -806,6 +930,11 @@
                 clearInterval(poll);
                 try { mbRenderCharts(); }
                 catch (e) { console.error('milobench: chart render failed', e); }
+                // Charts render async (after initAnimations built the triggers)
+                // and grow the page. Recompute ScrollTrigger start positions so
+                // section reveals fire at correct offsets instead of stale ones
+                // (a stale start past max-scroll can leave children opacity:0).
+                if (window.ScrollTrigger) { window.ScrollTrigger.refresh(); }
                 var mo = new MutationObserver(function (muts) {
                     for (var i = 0; i < muts.length; i += 1) {
                         if (muts[i].attributeName === 'data-theme') { mbReRenderCharts(); break; }
@@ -824,6 +953,8 @@
     async function init() {
         initTheme();
         initReveal();
+        initScrollProgress();
+        initAnimations();
         await loadData();
         mbInitCharts();
         renderKpi();
@@ -835,6 +966,11 @@
         populateLangFilter();
         attachViewerHandlers();
         applyFilters();
+        // The synchronous renders above (KPIs, matrix tables, lang grid) changed
+        // page height after initAnimations() created the ScrollTriggers. Refresh
+        // once so GSAP's from() section reveals use correct scroll positions.
+        // (mbInitCharts refreshes again when the async chart render lands.)
+        if (window.ScrollTrigger) { window.ScrollTrigger.refresh(); }
     }
 
     if (document.readyState === "loading") {

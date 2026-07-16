@@ -93,7 +93,7 @@
 
   /* scale */
   --s-wordmark: clamp(26px, 2.4vw, 34px);
-  --s-thesis:   clamp(24px, 2.4vw, 34px);
+  --s-thesis:   clamp(28px, 3.2vw, 44px); /* masthead h1 line — matches raiden */
   --s-reveal:   clamp(32px, 4.2vw, 56px);
   --s-h2:       28px;
   --s-h3:       20px;
@@ -466,15 +466,17 @@ hr.rule {
   font-size: var(--s-wordmark);
   font-weight: 600;
   letter-spacing: 0;
+  text-transform: uppercase;
   color: var(--ink);
   line-height: 1.1;
 }
+/* Accent bar under the title only (reverted from the full-width version). */
 .wordmark::after {
   content: "";
   position: absolute;
   left: 0;
   bottom: -1px;
-  width: 220px;
+  width: 370px;
   height: 2px;
   background: #A020A0;
 }
@@ -497,8 +499,7 @@ hr.rule {
 
 .thesis {
   font-family: var(--font-display);
-  font-size: var(--s-reveal);
-  /* font-size: 44px; */
+  font-size: var(--s-thesis); /* was --s-reveal (56px); matches raiden h1 (44px max) */
   line-height: 1.15;
   letter-spacing: var(--ls-tight);
   color: var(--ink);
@@ -506,6 +507,9 @@ hr.rule {
   margin-top: 36px;
 }
 .thesis em { color: var(--accent); font-style: italic; font-weight: 500; }
+/* Masthead thesis word-reveal wrappers (GSAP staggers .thesis-word-inner on load) */
+.thesis-word { display: inline-block; overflow: hidden; vertical-align: top; }
+.thesis-word-inner { display: inline-block; }
 
 .byline {
   margin-top: 18px;
@@ -1620,6 +1624,22 @@ hr.rule {
 }
 
 /* ============================================================
+   SCROLL PROGRESS RAIL (fills with scroll — raiden parity)
+   ============================================================ */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+  z-index: 90;
+  pointer-events: none;
+  /* vestigial: JS animates width, not transform. Kept for rollback. */
+  /* transform-origin: 0 0; */
+}
+
+/* ============================================================
    THEME TOGGLE
    ============================================================ */
 #mb-theme-toggle {
@@ -1650,18 +1670,21 @@ hr.rule {
 #mb-theme-toggle:active { transform: scale(0.95); }
 #mb-theme-toggle svg { width: 18px; height: 18px; display: block; }
 
-/* Icon visibility - LIGHT default shows moon (offer dark) */
-.mb-theme-icon-dark  { display: block; }
-.mb-theme-icon-light { display: none; }
+/* Icon visibility — scoped under #mb-theme-toggle so these beat the
+   `#mb-theme-toggle svg { display: block }` rule above (which is id-level
+   specificity; unscoped .mb-theme-icon-* class rules lost to it and both
+   icons showed). One icon per theme: LIGHT shows moon, DARK shows sun. */
+#mb-theme-toggle .mb-theme-icon-dark  { display: block; }
+#mb-theme-toggle .mb-theme-icon-light { display: none; }
 
 /* DARK explicit shows sun (offer light) */
-:root[data-theme="dark"] .mb-theme-icon-dark  { display: none; }
-:root[data-theme="dark"] .mb-theme-icon-light { display: block; }
+:root[data-theme="dark"] #mb-theme-toggle .mb-theme-icon-dark  { display: none; }
+:root[data-theme="dark"] #mb-theme-toggle .mb-theme-icon-light { display: block; }
 
 /* OS-dark fallback (no explicit light pick) mirrors DARK icons */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .mb-theme-icon-dark  { display: none; }
-  :root:not([data-theme="light"]) .mb-theme-icon-light { display: block; }
+  :root:not([data-theme="light"]) #mb-theme-toggle .mb-theme-icon-dark  { display: none; }
+  :root:not([data-theme="light"]) #mb-theme-toggle .mb-theme-icon-light { display: block; }
 }
 
 /* ============================================================
