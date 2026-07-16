@@ -28,7 +28,7 @@
                         pipe <code>|</code>. Multi-dimension questions use the
                         indexed columns <code>dim1_label / dim1_options /
                         dim1_correct</code> … <code>dimN_*</code>. Images use
-                        <code>img1_url / img1_slot / img1_label</code> … — URLs are
+                        <code>img1_url / img1_slot / img1_label</code> … - URLs are
                         used directly, and offloaded to S3 when configured.
                     </div>
                 </sheet>

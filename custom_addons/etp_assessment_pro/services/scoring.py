@@ -1,15 +1,4 @@
 # -*- coding: utf-8 -*-
-"""Subjective LLM scoring for etp_assessment (Vertex AI Gemini).
-
-ONE Vertex call per candidate (SOP v6). Every needs_llm response of a candidate
-is assembled into a single submission and graded in one request; the grader
-returns one rich per-field result object. The platform stores the raw 0-100
-score as the immutable truth and derives pass/fail live from the Settings
-threshold (see EtpAssessmentResponse._compute_subjective_marks), so a threshold
-change re-decides results without re-scoring.
-
-This module owns the scoring pipeline; vertex.py stays the API transport.
-"""
 import json
 import logging
 import re
@@ -44,8 +33,6 @@ DEFAULT_SCORING_PROMPT = (
 
 
 def _get_scoring_prompt(env):
-    """Resolve the grader prompt: Settings override, then bundled scoring.md,
-    then the inline default."""
     p = (env["ir.config_parameter"].sudo().get_param(
         "etp_assessment_pro.scoring_system_prompt", "") or "").strip()
     if p:
@@ -55,8 +42,6 @@ def _get_scoring_prompt(env):
 
 
 def _max_attempts(env):
-    """How many times to try scoring a candidate before giving up and marking
-    the unresolved responses as a surfaced 'error' (never a silent fail)."""
     raw = env["ir.config_parameter"].sudo().get_param(
         "etp_assessment_pro.llm_max_attempts", "3")
     try:
@@ -67,9 +52,6 @@ def _max_attempts(env):
 
 
 def _scoring_batch_size(env):
-    """Max answers sent in ONE Vertex call. A candidate with more subjective
-    answers than this is split into sub-batches so no request overflows the
-    token budget. Tunable via etp_assessment_pro.scoring_batch_size."""
     raw = env["ir.config_parameter"].sudo().get_param(
         "etp_assessment_pro.scoring_batch_size", "8")
     try:
@@ -86,8 +68,6 @@ def _chunks(records, size):
 
 
 def _rubric_block(question):
-    """subjective_rubric: the supplied grading block (checklist/constraints/
-    pass_condition) as a structured dict for the grader to load unchanged."""
     raw = (question.subjective_rubric_json or "").strip()
     if not raw or raw in ("[]", "{}"):
         return {}
@@ -109,8 +89,6 @@ def _rubric_block(question):
 
 
 def _answer_key_dict(question):
-    """Parse the stored answer-key JSON to a dict; a bare string becomes the
-    scoring_guide."""
     raw = (question.subjective_rubric_json or "").strip()
     key = {}
     if raw and raw not in ("[]", "{}"):
@@ -126,10 +104,6 @@ def _answer_key_dict(question):
 
 
 def _image_prompt_key(question):
-    """image_prompt: ideal_prompt / mandatory_elements / penalty_rules /
-    scoring_guide. Rubric: does the candidate's WRITTEN prompt capture the
-    required visual elements, style, composition and specificity of ideal_prompt
-    (vague or generic prompts are penalised)."""
     key = _answer_key_dict(question)
     return {
         "ideal_prompt": key.get("ideal_prompt", ""),
@@ -140,10 +114,6 @@ def _image_prompt_key(question):
 
 
 def _image_label_key(question):
-    """image_label: ideal_labels / mandatory_elements / penalty_rules /
-    scoring_guide. Rubric: accuracy and completeness of the elements/defects the
-    candidate identifies (missing mandatory items AND hallucinated or false
-    labels are penalised)."""
     key = _answer_key_dict(question)
     return {
         "ideal_labels": key.get("ideal_labels", ""),
@@ -154,10 +124,6 @@ def _image_label_key(question):
 
 
 def _image_prompt_rubric(key):
-    """image_prompt rubric (v6): each mandatory visual element becomes one
-    checklist point and each penalty rule one binary constraint; the pass
-    condition is the scoring_guide when supplied, else the default prompt-fidelity
-    bar. ideal_prompt stays on the item separately as the reference anchor."""
     elements = key.get("mandatory_elements") or []
     penalties = key.get("penalty_rules") or []
     guide = (key.get("scoring_guide") or "").strip()
@@ -176,8 +142,6 @@ def _image_prompt_rubric(key):
 
 
 def _image_label_detections(question):
-    """The detected boxes ([{number,label,description,box_px}]) from the
-    image_label 'single' source image, or [] when none are stored/parseable."""
     for img in question.image_ids:
         if img.slot != "single":
             continue
@@ -194,11 +158,6 @@ def _image_label_detections(question):
 
 
 def _image_label_rubric(question):
-    """image_label per-box rubric (v6) synthesised from the detected boxes on the
-    'single' source image: each detected box is one checklist point the candidate
-    must correctly identify, guarded by two standing constraints against
-    hallucinated and skipped labels. Returns {} when no detections exist so the
-    caller can fall back to the ideal_labels answer key."""
     dets = _image_label_detections(question)
     checklist = []
     for d in dets:
@@ -225,9 +184,6 @@ def _image_label_rubric(question):
 
 
 def _image_label_behavioural_key(question):
-    """The DOM behavioural key ([{number,element,functionality}]) from the
-    image_label 'single' source image, or [] when none is stored/parseable. This
-    is the deterministic, DOM-derived answer key drafted at capture time."""
     for img in question.image_ids:
         if img.slot != "single":
             continue
@@ -244,8 +200,6 @@ def _image_label_behavioural_key(question):
 
 
 def _image_label_application(question):
-    """The app/site a DENSE image_label screenshot depicts, from the 'single'
-    source image, or "" when none was recorded."""
     for img in question.image_ids:
         if img.slot == "single" and img.label_application:
             return img.label_application
@@ -253,12 +207,6 @@ def _image_label_application(question):
 
 
 def _image_label_behavioural_rubric(question):
-    """image_label per-box rubric (Phase 4) synthesised from the DOM behavioural
-    key: each box is one checklist point grading the ACTION the element performs
-    ("Box N (element): functionality"), NOT its nominal name. Two standing
-    constraints force the grader to score the described behaviour and reject
-    hallucinated actions. Returns {} when no behavioural key exists so the caller
-    falls back to the detections-based rubric."""
     key = _image_label_behavioural_key(question)
     checklist = []
     for e in key:
@@ -290,10 +238,6 @@ def _image_label_behavioural_rubric(question):
 
 
 def _image_label_coverage_expected(question):
-    """The coverage gate ground truth for an image_label question: "no" when the
-    DOM capture deliberately left an interactive element unboxed (an element is
-    missing a box), "yes" when the capture boxed everything, or "" when no
-    coverage gate was recorded. Read from the 'single' source image."""
     for img in question.image_ids:
         if img.slot == "single" and img.coverage_expected:
             return img.coverage_expected
@@ -301,9 +245,6 @@ def _image_label_coverage_expected(question):
 
 
 def _label_omitted_element(question):
-    """The recorded deliberately-omitted element (dict) backing a coverage:No
-    gate, or {} when none/unparseable. Used to tell the grader WHICH interactive
-    element is missing its box so the coverage judgment is checkable."""
     for img in question.image_ids:
         if img.slot != "single":
             continue
@@ -320,11 +261,6 @@ def _label_omitted_element(question):
 
 
 def _apply_coverage_gate(item, question):
-    """Fold the image_label coverage gate ground truth onto a built scoring
-    ``item`` (in place, when a rubric exists): expose coverage_expected and, when
-    it is "no", add one constraint naming the deliberately-omitted element so the
-    grader can check the candidate's completeness judgment. No-op when no coverage
-    gate was recorded, so existing image_label items are unchanged."""
     expected = _image_label_coverage_expected(question)
     if not expected:
         return item
@@ -353,8 +289,6 @@ def _apply_coverage_gate(item, question):
 
 
 def _label_total_boxes(question):
-    """Total gradable boxes for an image_label question: the behavioural key
-    length when a DOM capture exists, else the detections count."""
     key = _image_label_behavioural_key(question)
     if key:
         return len([e for e in key if isinstance(e, dict)])
@@ -363,8 +297,6 @@ def _label_total_boxes(question):
 
 
 def _label_attempted_boxes(resp):
-    """How many boxes the candidate actually attempted: non-empty values in the
-    {number: label} JSON answer, or 1 for a non-JSON free-text answer."""
     raw = (resp.justification or "").strip()
     if not raw:
         return 0
@@ -378,7 +310,6 @@ def _label_attempted_boxes(resp):
 
 
 def _num_sort_key(k):
-    """Sort image_label box keys numerically, with non-numeric keys last."""
     try:
         return (0, int(k))
     except (TypeError, ValueError):
@@ -386,9 +317,6 @@ def _num_sort_key(k):
 
 
 def _format_label_answer(justification):
-    """Render the image_label candidate answer JSON {str(number): label} as
-    readable 'Box <n>: <label>' lines for the grader. Falls back to the raw text
-    when it is not the expected JSON object."""
     raw = (justification or "").strip()
     if not raw:
         return ""
@@ -428,9 +356,6 @@ def _dim_abbr(dimension_name):
 
 
 def _image_ab_axes(resp):
-    """image_ab: every axis the question carries, by real label + option text
-    (GENERIC over dimensions, no hardcoded IF/VQ/LAI/OC). Returns (axes,
-    consistency_precheck)."""
     q = resp.question_id
     axes = []
     tasker_ratings = {}
@@ -466,10 +391,8 @@ def _ab_materialized_keys(question):
 
 
 def _ab_key_drift(resp):
-    """Phase-3 score-time guard: for an image_ab whose question carries a
-    flaw-injection plan, the stored is_correct verdicts MUST still equal the
-    construction_keys. Returns the drift list; empty when there is no drift OR no
-    plan, so pre-Phase-3 (NULL flaw_plan_json) questions are unaffected."""
+    """Invariant: a flaw-injected image_ab's stored is_correct verdicts must stay
+    in sync with its flaw_plan_json construction_keys."""
     q = resp.question_id
     if q.question_type != "image_ab":
         return []
@@ -480,9 +403,6 @@ def _ab_key_drift(resp):
 
 
 def _store_ab_key_drift(resp, drift):
-    """Store a raw-0 result with an integrity flag when a flaw-injected image_ab's
-    stored key drifted from its construction_keys. Never silently passes; goes
-    through the same single-write immutable _store_scored path as a gate."""
     _logger.error("KEY DRIFT q=%s resp=%s: %s",
                   resp.question_id.id, resp.id, "; ".join(drift))
     it = {
@@ -504,13 +424,6 @@ def _store_ab_key_drift(resp, drift):
 
 
 def _score_ab_verdicts(resp):
-    """image_ab DETERMINISTIC verdict lane (NO LLM). Reuses _image_ab_axes() to
-    surface the official (keyed) vs candidate choice per dimension, then scores
-    each keyed AB dimension by exact match (1.0) else 0.0 and returns the mean
-    across the keyed dimensions (0..1). A dimension the candidate left unanswered
-    scores 0 for that dimension. Returns 0.0 when the question carries no keyed
-    dimension. This is the ground-truth verdict score whether the answer key came
-    from a model or (Phase 3) from flaw-injection."""
     axes, _precheck = _image_ab_axes(resp)
     total = matched = 0
     for ax in axes:
@@ -525,8 +438,6 @@ def _score_ab_verdicts(resp):
 
 
 def _ab_scores_audit(verdict_score, justification_score, blend):
-    """The image_ab sub-score audit block recorded in llm_result_json (never a
-    stored mutable field, audit only)."""
     return {
         "verdict_score": round(verdict_score, 4),
         "justification_score": (round(justification_score, 4)
@@ -538,10 +449,6 @@ def _ab_scores_audit(verdict_score, justification_score, blend):
 
 
 def _store_ab_verdict_only(resp):
-    """image_ab with NO LLM justification: compose and store the deterministic
-    verdict score as the immutable llm_raw_100 (verdict lane only, NO Vertex
-    call), through the SAME _store_scored path so the Phase-1 ceilings and the
-    single-write immutability still apply.     llm_raw_100 = verdict_score * 100."""
     drift = _ab_key_drift(resp)
     if drift:
         _store_ab_key_drift(resp, drift)
@@ -568,13 +475,6 @@ def _store_ab_verdict_only(resp):
 
 
 def _blend_ab_justification(resp, it):
-    """image_ab WITH an LLM-scored justification: blend the deterministic verdict
-    lane (AB_VERDICT_WEIGHT) with the grader's 0..1 justification score
-    (AB_JUSTIFICATION_WEIGHT) into it['score'] BEFORE _store_scored, recording the
-    sub-scores + blend arithmetic in the audit trail and a reasoning line. The
-    grader's integrity signals (verdict_consistency / flags) ride along untouched
-    so the Phase-1 ceilings still apply to the blended score.
-    llm_raw_100 = (0.75*verdict_score + 0.25*justification_score) * 100."""
     verdict_score = _score_ab_verdicts(resp)
     try:
         justification_score = float(it.get("score"))
@@ -601,13 +501,6 @@ _COVERAGE_CAP = 40.0
 
 
 def _apply_image_label_coverage(resp, it):
-    """Compose the image_label final from coverage (deterministic: attempted /
-    total boxes) and correctness (the grader's 0..1 accuracy), recording both as
-    sub-scores in the llm_result_json audit only. Applies the coverage ceiling:
-    when the candidate attempts fewer than half the boxes, raw is capped at 40
-    however accurate those few answers are. No-ops when the box count is unknown
-    (total 0), leaving the grader's score untouched. Integrity ceilings in
-    _store_scored still apply on top of the composed score."""
     q = resp.question_id
     total = _label_total_boxes(q)
     if total <= 0:
@@ -641,10 +534,6 @@ def _apply_image_label_coverage(resp, it):
 
 
 def _attach_verification(item, q):
-    """Fold the image_ab construction verification record + injected flaws onto a
-    scoring item, so the v10 judge reads confirmed ground truth in Step 0 before
-    it decomposes golden claims. Best-effort: silent when the question carries no
-    verification/flaw data (non-image types, un-verified drafts)."""
     try:
         rec = json.loads(q.verification_json or "{}")
     except (ValueError, TypeError):
@@ -660,7 +549,6 @@ def _attach_verification(item, q):
         pass
     verification = {}
     if isinstance(rec, dict) and rec:
-        # keep the confirmed/failed/unverifiable summary + per-check verdicts
         for k in ("checks", "summary", "confirmed", "needs_review",
                   "assets_verified"):
             if k in rec:
@@ -672,9 +560,7 @@ def _attach_verification(item, q):
 
 
 def _build_item(resp):
-    """Build ONE SOP submission item for a needs_llm response. The schema is
-    aligned 1:1 with prompts/scoring.md GRADING BY TYPE so prompt and code never
-    drift. Carries consistency flags for image_ab so the grader can read them."""
+    """Item schema must stay in sync with prompts/scoring.md GRADING BY TYPE."""
     q = resp.question_id
     qtype = q.question_type or ""
     item = {
@@ -687,9 +573,6 @@ def _build_item(resp):
         "prompt": q.prompt or "",
         "description": q.description or "",
     }
-    # SOP-Coverage inputs (research schema 1.5): the elements this question
-    # exercises + the project's required-element catalogue, so a v10 judge can
-    # grade coverage against the SOP's real requirements instead of nothing.
     try:
         ce = json.loads(q.covers_elements_json or "[]")
         if isinstance(ce, list) and ce:
@@ -702,11 +585,8 @@ def _build_item(resp):
             cba = json.loads(gen.covered_by_all_json or "[]")
             if isinstance(cba, list) and cba:
                 item["covered_by_all"] = cba
-    except Exception:  # noqa: BLE001 - coverage is best-effort context
+    except Exception:  # noqa: BLE001
         pass
-    # Golden answer + rationale (research solutions): the v10 judge decomposes
-    # THIS into golden claims BEFORE reading the worker answer. This is the
-    # answer key the scorer knows beforehand.
     if q.solution_json:
         try:
             item["golden_answer"] = json.loads(q.solution_json)
@@ -714,15 +594,10 @@ def _build_item(resp):
             item["golden_answer"] = q.solution_json
     if q.solution_rationale:
         item["golden_rationale"] = q.solution_rationale
-    # Verification record + injected flaws (image_ab construction ground truth),
-    # so the judge reads the confirmed-flaw record in Step 0 before grading.
     _attach_verification(item, q)
     if qtype == "subjective_rubric":
         rubric = _rubric_block(q)
         item["rubric"] = rubric
-        # A supplied rubric is graded unchanged; an empty one signals the grader
-        # to author its own from the prompt (the former subjective_justification
-        # behaviour, now folded into this single type).
         item["rubric_source_hint"] = "supplied" if rubric else "generated"
         item["candidate_justification"] = resp.justification or ""
     elif qtype == "image_ab":
@@ -758,8 +633,6 @@ def _build_item(resp):
 
 
 def _parse_results(text):
-    """Parse the grader output into a list of per-field result dicts. Accepts a
-    bare array, or a submission object with a 'results' array (SOP shape)."""
     text = (text or "").strip()
     text = re.sub(r"^```(?:json)?", "", text).strip()
     text = re.sub(r"```$", "", text).strip()
@@ -787,11 +660,6 @@ def _parse_results(text):
 
 
 def _salvage_truncated_results(text):
-    """Recover whole per-item result entries from a scoring response that was cut
-    off mid-JSON (v10 is verbose; a big batch can hit the token ceiling). Each
-    ``results[]`` entry is a self-contained object, so we grab every complete
-    brace-balanced object that carries an ``item_id`` and return them as a list.
-    Returns None when nothing usable is recovered (caller then raises)."""
     entries = []
     depth = 0
     start = None
@@ -830,7 +698,6 @@ def _salvage_truncated_results(text):
 
 
 def _coerce_100(value):
-    """Normalize a grader score to a 0-100 float (a 0-1 fraction is scaled)."""
     try:
         v = float(value)
     except (TypeError, ValueError):
@@ -860,8 +727,8 @@ def _int_or_none(value):
 
 
 def _num_or_none(value):
-    """A 0-100 component score as a float, or None/False when the grader omitted
-    it (so the write leaves the column untouched rather than zeroing it)."""
+    """Returns False (not None) when omitted, so the write leaves the column
+    untouched rather than zeroing it."""
     if value is None or isinstance(value, bool):
         return False
     try:
@@ -871,15 +738,7 @@ def _num_or_none(value):
 
 
 def _apply_ceilings(raw100, it):
-    """Enforce constants.SCORE_CEILINGS on the grader's raw 0-100 score. A
-    ceiling only LOWERS the score, and only when its trigger signal is present
-    in the judge result; a missing signal skips that ceiling (never crashes).
-    Returns (possibly_lowered_raw100, [(reason, ceiling), ...] actually applied).
-
-    Signals derived from the v6 result: verdict_consistency == 'contradiction';
-    checklist_zero_count >= 2 (optional integer the grader may emit); a
-    fabrication_count >= 1 OR a fabricated/hallucinated flag.
-    """
+    """Trigger keys must stay in sync with constants.SCORE_CEILINGS."""
     triggered = []
     verdict = str(it.get("verdict_consistency") or "").strip().lower()
     if verdict == "contradiction":
@@ -903,19 +762,14 @@ def _apply_ceilings(raw100, it):
 
 
 def _recompute_v10(it):
-    """v10 arithmetic recompute check (the load-bearing platform control the
-    scoring contract mandates). Recompute key_closeness, sop_coverage and the
-    weighted score from the judge's OWN structured verdicts (golden_claims,
-    elements, clarity) and compare to the numbers it emitted. Returns
-    (recomputed_score_or_None, disagreement_note_or_None). A language-model judge
-    cannot reliably do its own arithmetic, so this recompute is the real
-    enforcement. Best-effort: returns (None, None) for a gated/legacy v6 item
-    that carries no v10 structured verdicts."""
+    """The judge's own arithmetic is not trusted: the score is re-derived here
+    from its structured verdicts. Weights must stay in sync with the v10 contract
+    in prompts/scoring.md."""
     claims = it.get("golden_claims")
     elements = it.get("elements")
     clarity = it.get("clarity")
     if not isinstance(claims, list) or not claims:
-        return None, None  # gated or v6 item, nothing to recompute
+        return None, None
 
     def _credit(v):
         return {"hit": 100.0, "partial": 50.0, "miss": 0.0}.get(
@@ -939,7 +793,6 @@ def _recompute_v10(it):
     else:
         return None, None
 
-    # SOP coverage from element verdicts
     shown = sum(1 for e in (elements or [])
                 if isinstance(e, dict)
                 and str(e.get("verdict") or "").lower() == "shown")
@@ -951,7 +804,6 @@ def _recompute_v10(it):
     clarity_val = {"clear": 100.0, "mixed": 50.0,
                    "unclear": 0.0}.get(str(clarity or "").lower())
 
-    # weighted score with redistribution when a component is absent
     comps, weights = [], []
     comps.append(key_closeness); weights.append(0.60)
     if sop_coverage is not None:
@@ -979,14 +831,10 @@ def _recompute_v10(it):
 
 
 def _store_scored(resp, it):
-    """Write the immutable raw score + the SOP v6 audit trail. Pass/fail and the
-    earned mark are NOT written here; they are computed live from llm_raw_100 and
-    the Settings threshold by _compute_subjective_marks."""
+    """Never write pass/fail or the earned mark here: both are derived live from
+    llm_raw_100 and the Settings threshold by _compute_subjective_marks, so a
+    threshold change re-decides results without re-scoring."""
     raw100 = _coerce_100(it.get("score"))
-    # v10 recompute check: re-derive the score from the judge's own structured
-    # verdicts. When it disagrees with the emitted number by more than a rounding
-    # margin, the recomputed value is authoritative (the judge's arithmetic is
-    # not trusted) and the entry is flagged for review.
     recomputed, recompute_note = _recompute_v10(it)
     if recomputed is not None:
         raw100 = recomputed
@@ -1004,8 +852,6 @@ def _store_scored(resp, it):
     gate = str(it.get("gate") or "none")
     feedback = str(it.get("feedback") or it.get("reasoning") or "")
     flags = it.get("flags")
-    # Advisory only, never changes the score: a wrong_item or injection gate
-    # raises integrity_alert; empty_answer (an honest blank) stays clean.
     if gate in ("wrong_item", "injection_attempt"):
         flags = list(flags) if isinstance(flags, list) else []
         if "integrity_alert" not in flags:
@@ -1035,8 +881,6 @@ def _store_scored(resp, it):
         if isinstance(flags, list) else False,
         "llm_result_json": json.dumps(it, ensure_ascii=False),
         "llm_attempts": (resp.llm_attempts or 0) + 1,
-        # Research subjective-judge v10 component audit (promoted for querying;
-        # each is present only when the grader emitted it, else left untouched).
         "llm_key_closeness": _num_or_none(it.get("key_closeness")),
         "llm_sop_coverage": _num_or_none(it.get("sop_coverage")),
         "llm_clarity": str(it.get("clarity") or "") or False,
@@ -1050,16 +894,10 @@ def _store_scored(resp, it):
 
 
 def _gradable_text(resp):
-    """The single free-text field every gradable type carries (image_label
-    stores it as a JSON {number: label} map, still just text to screen)."""
     return resp.justification or ""
 
 
 def _store_gated(resp, gate_info):
-    """A pre-LLM integrity gate fired: compose a raw-0 v6 result and store it
-    through the SAME _store_scored path the grader uses, so the immutable
-    llm_raw_100 = 0 is written exactly once and the Vertex call is skipped for
-    this response. Gate name + flags land in the llm_result_json audit trail."""
     gate = gate_info.get("gate") or "gated"
     flags = gate_info.get("flags") or []
     text = _gradable_text(resp)
@@ -1086,10 +924,9 @@ def _store_gated(resp, gate_info):
 
 
 def _store_error(env, resp, reason):
-    """The grader did not return a usable result for this response. Retry up to
-    the attempt cap (state 'failed' = the cron retries); once exhausted, resolve
-    as a SURFACED 'error' (NOT a silent scored-0) so the admin can tell a real
-    failure from a genuine low score."""
+    """State 'failed' means the cron retries; an exhausted response must resolve
+    to a surfaced 'error', never a silent scored-0 (indistinguishable from a
+    genuine low score)."""
     attempts = (resp.llm_attempts or 0) + 1
     if attempts >= _max_attempts(env):
         resp.write({
@@ -1108,13 +945,6 @@ def _store_error(env, resp, reason):
 
 
 def score_evaluator(env, evaluator):
-    """Score one candidate's needs_llm responses in ONE call (SOP v6).
-
-    All gradable answers (subjective_rubric, image_ab,
-    image_prompt, image_label) go into a single submission, sub-batched only if
-    the candidate has more answers than the batch size. Returns the count of
-    responses scored.
-    """
     todo = evaluator.response_ids.filtered(
         lambda r: r.needs_llm and r.llm_state in (
             "not_needed", "pending", "queued", "failed"))
@@ -1144,10 +974,6 @@ def score_evaluator(env, evaluator):
 
 
 def _score_submission(env, responses):
-    """Grade one submission (a candidate's answers, or a sub-batch) in a single
-    Vertex call and store the rich result per response. Answers that trip a
-    pre-LLM integrity gate (blank or injection) are resolved to raw 0 locally
-    and excluded from the Vertex call; the rest are graded exactly as before."""
     gradable = []
     scored = 0
     for resp in responses:

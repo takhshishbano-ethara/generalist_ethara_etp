@@ -39,6 +39,18 @@ class EtpAssessmentPrompt(models.Model):
         "etp.assessment.pro.prompt.resource", "prompt_id",
         string="SOP / Resource Files",
     )
+    reference_resource_ids = fields.One2many(
+        "etp.assessment.pro.prompt.resource", "prompt_id",
+        domain=[("category", "=", "reference")],
+        string="Reference Files",
+    )
+    # Must stay computed: a sibling domain One2many cannot see the rows
+    # _add_resource() appends to resource_ids until the record is saved.
+    sop_resource_ids = fields.Many2many(
+        "etp.assessment.pro.prompt.resource",
+        compute="_compute_sop_resource_ids",
+        string="SOP File(s)",
+    )
     resource_count = fields.Integer(compute="_compute_resource_count")
 
     question_ids = fields.One2many(
@@ -96,11 +108,6 @@ class EtpAssessmentPrompt(models.Model):
         string="Tags (raw LLM output)", readonly=True, copy=False,
         help="Raw JSON array returned by the tag-extraction call, kept for "
              "debugging; the canonicalized tags live in tag_ids.")
-    # --- research schema (seed-prompt-v2 / schema 1.5) grounded metadata ------
-    # Adopted from research's SOP-intake: the generation call now returns ONE
-    # object {metadata, questions}; the metadata block (evidence quotes, faceted
-    # mapping, plain tags, skills registry, required_elements, question_spec) is
-    # stored here so scoring can thread required_elements/covered_by_all through.
     metadata_json = fields.Text(
         string="SOP Metadata (research schema)", readonly=True, copy=False,
         help="The full grounded metadata object research's seed prompt emits: "
@@ -118,9 +125,6 @@ class EtpAssessmentPrompt(models.Model):
         string="Covered By All (JSON)", readonly=True, copy=False,
         help="Required-element ids every question exercises (the coverage "
              "baseline unioned with each question's covers_elements).")
-    # Historic project profile (research schema 1.5) — every artifact Growth's SOP
-    # yields is persisted here so a project's grounding survives for generation,
-    # ranking and audit. All readonly/copy=False: they describe THIS SOP intake.
     sop_title = fields.Char(
         string="SOP Title", readonly=True, copy=False,
         help="The project title the SOP intake recovered (metadata.sop_title).")
@@ -133,7 +137,7 @@ class EtpAssessmentPrompt(models.Model):
              "reconciled into tag_ids so it drives the weighted-Jaccard ranking.")
     skills_json = fields.Text(
         string="Skills Registry (JSON)", readonly=True, copy=False,
-        help="[{id,name,weight 1-5,evidence}] — the SOP's skills and their "
+        help="[{id,name,weight 1-5,evidence}] - the SOP's skills and their "
              "centrality weight, kept for ranking and reporting.")
     evidence_json = fields.Text(
         string="Evidence (JSON)", readonly=True, copy=False,
@@ -165,35 +169,34 @@ class EtpAssessmentPrompt(models.Model):
         help="How many OTHER generators share enough weighted tags with this "
              "one to count as similar (shared-tag weight over the configured "
              "threshold). Drives the 'Similar' smart button.")
-    # sanitize=False needed so the numeric inline style (width:NN% on the
-    # alignment bar) survives; safe for the same reason as dashboard.py: this
-    # markup is admin-only, readonly, built from numbers only, with every
-    # dynamic string (project name, tag label, category, prefix class) escaped
-    # via markupsafe below.
+    # sanitize=False keeps the width:NN% inline style; every dynamic string in
+    # _compute_similar_html MUST stay escape()d.
     similar_html = fields.Html(
         string="Similar Projects", sanitize=False, readonly=True,
         compute="_compute_similar_html",
         help="A ranked, presentation-only view of _similar_prompts(): how "
              "closely this SOP aligns with previous generators by weighted "
              "tag overlap, with an alignment % bar and the shared tags.")
-    # Do not remove: dropping this field drops its DB column (user data). Kept as
-    # a read-only legacy shadow of the sample_questions_file upload below.
+    # Do not remove: dropping the field drops its DB column (user data).
     sample_questions = fields.Text(
         string="Sample Questions (legacy text)",
         help="Deprecated: replaced by the Sample Questions file upload.")
     sample_questions_file = fields.Binary(
         string="Sample Questions File", attachment=True,
         help="Upload a sample-questions file (PDF/DOCX/MD/image) to match the "
-             "format — optional. Sent natively to the model so images inside the "
+             "format - optional. Sent natively to the model so images inside the "
              "file are read too. Leave empty to follow the format inside the SOP.")
     sample_questions_filename = fields.Char(string="Sample Questions Filename")
     sop_question_count = fields.Integer(
         string="Questions to Generate", default=0,
         help="0 = let the model decide from the SOP; otherwise a target count.")
-    # Do not remove: dropping this field drops its DB column (user data), and the
-    # 19.0.1.103.0 post-migrate reads it to seed allowed_question_type_ids. Kept
-    # as a legacy shadow, still honoured by _allowed_question_types() for rows an
-    # integration writes directly. Sunset in a later major.
+    question_count_mode = fields.Selection(
+        [("auto", "Auto - model decides"), ("fixed", "Set a number")],
+        string="Questions to generate",
+        compute="_compute_question_count_mode",
+        inverse="_inverse_question_count_mode")
+    # Do not remove: dropping the field drops its DB column (user data), and the
+    # 19.0.1.103.0 post-migrate reads it to seed allowed_question_type_ids.
     force_question_type = fields.Selection(
         QUESTION_TYPE_SELECTION, string="Force Question Type (legacy)",
         help="Deprecated: replaced by the Generate Only These Types allow-list.")
@@ -205,12 +208,10 @@ class EtpAssessmentPrompt(models.Model):
         help="Allow-list: the generator may author ONLY these question types, "
              "choosing the best fit per item. Leave empty to let the model "
              "choose freely per the SOP.")
-    # Transient one-click "Select all" toggle: an onchange loads every question
-    # type then resets it, so it acts as a momentary button that works on an
-    # unsaved record (an onchange runs client-side — no save-first like a button).
     select_all_types = fields.Boolean(
         string="Select all types", copy=False,
         help="Tick to load every question type at once; it resets immediately.")
+    types_all_selected = fields.Boolean(compute="_compute_types_all_selected")
     quick_upload_file = fields.Binary(string="Upload SOP / Doc")
     quick_upload_filename = fields.Char()
     upload_sop_file = fields.Binary(string="Upload SOP")
@@ -219,6 +220,10 @@ class EtpAssessmentPrompt(models.Model):
     upload_vendor_filename = fields.Char()
     upload_client_file = fields.Binary(string="Upload Client Doc")
     upload_client_filename = fields.Char()
+    upload_reference_file = fields.Binary(string="Upload Reference")
+    upload_reference_filename = fields.Char()
+    upload_sample_file = fields.Binary(string="Upload Sample Questions")
+    upload_sample_filename = fields.Char()
     has_sop_resource = fields.Boolean(
         string="Has SOP", compute="_compute_has_sop_resource",
         help="True once at least one SOP document is attached. Drives the "
@@ -267,6 +272,22 @@ class EtpAssessmentPrompt(models.Model):
         self.upload_client_file = False
         self.upload_client_filename = False
 
+    @api.onchange("upload_reference_file")
+    def _onchange_upload_reference(self):
+        self._add_resource(
+            self.upload_reference_file, self.upload_reference_filename, "reference",
+        )
+        self.upload_reference_file = False
+        self.upload_reference_filename = False
+
+    @api.onchange("upload_sample_file")
+    def _onchange_upload_sample(self):
+        self._add_resource(
+            self.upload_sample_file, self.upload_sample_filename, "sample",
+        )
+        self.upload_sample_file = False
+        self.upload_sample_filename = False
+
     @api.depends("resource_ids", "resource_ids.category")
     def _compute_has_sop_resource(self):
         for rec in self:
@@ -312,17 +333,9 @@ class EtpAssessmentPrompt(models.Model):
         return "\n\n".join(parts)
 
     def _allowed_question_types(self):
-        """Ordered, deduped allow-list of the question types this generator may
-        author; () means unconstrained (the model picks per the SOP).
-
-        Sorts the linked vocabulary rows by (sequence, id) so the generation
-        directive is stable across runs regardless of M2M read order, then maps
-        to their taxonomy `code`. Falls back to the legacy scalar
-        force_question_type when nothing is linked, so a value written by an
-        older integration still forces its type."""
         self.ensure_one()
-        # Sort explicitly rather than trust the M2M read order: an M2M just
-        # written in the same transaction can read back in link/creation order.
+        # Sort explicitly: an M2M written in the same transaction reads back in
+        # link order, which would make the generation directive unstable.
         codes = list(dict.fromkeys(
             self.allowed_question_type_ids
                 .sorted(lambda t: (t.sequence, t.id)).mapped("code")))
@@ -330,14 +343,7 @@ class EtpAssessmentPrompt(models.Model):
             codes = [self.force_question_type]
         return tuple(codes)
 
-    # ---- allow-list / count guardrails ------------------------------------
     def _raise_count_to_type_floor(self):
-        """Silently keep Questions to Generate >= the number of selected types,
-        so each selected type can appear at least once. The count field visibly
-        updates and a persistent helper explains it (a modal on every bump would
-        nag when types are added one by one). A count of 0 ("let the model
-        decide") is exempt. Idempotent: bumping to n where n >= n converges, so
-        re-running it from a dependent onchange can't loop."""
         self.ensure_one()
         n = len(self.allowed_question_type_ids)
         if self.sop_question_count and self.sop_question_count < n:
@@ -345,25 +351,52 @@ class EtpAssessmentPrompt(models.Model):
 
     @api.onchange("allowed_question_type_ids", "sop_question_count")
     def _onchange_min_questions_for_types(self):
-        """Keep the count and the selection consistent live. Re-runs whenever
-        either changes, so it can't get stuck when the user edits the types."""
         self._raise_count_to_type_floor()
 
     @api.onchange("select_all_types")
     def _onchange_select_all_types(self):
-        """One-click select-all: load every active question type, then reset the
-        transient toggle so it behaves like a momentary button."""
         if self.select_all_types:
             self.allowed_question_type_ids = self.env[
                 "etp.assessment.pro.question.type"].search([])
             self.select_all_types = False
             self._raise_count_to_type_floor()
 
+    @api.depends("resource_ids", "resource_ids.category")
+    def _compute_sop_resource_ids(self):
+        for rec in self:
+            rec.sop_resource_ids = rec.resource_ids.filtered(
+                lambda r: r.category == "sop")
+
+    @api.depends("allowed_question_type_ids")
+    def _compute_types_all_selected(self):
+        total = self.env["etp.assessment.pro.question.type"].search_count([])
+        for rec in self:
+            rec.types_all_selected = bool(
+                total and len(rec.allowed_question_type_ids) >= total)
+
+    @api.depends("sop_question_count")
+    def _compute_question_count_mode(self):
+        for rec in self:
+            rec.question_count_mode = "fixed" if rec.sop_question_count else "auto"
+
+    def _inverse_question_count_mode(self):
+        for rec in self:
+            rec._apply_question_count_mode()
+
+    @api.onchange("question_count_mode")
+    def _onchange_question_count_mode(self):
+        # The inverse only fires on write(), never on in-form NewId assignment.
+        self._apply_question_count_mode()
+
+    def _apply_question_count_mode(self):
+        for rec in self:
+            if rec.question_count_mode == "auto":
+                rec.sop_question_count = 0
+            elif not rec.sop_question_count:
+                rec.sop_question_count = len(rec.allowed_question_type_ids) or 5
+
     @api.constrains("sop_question_count", "allowed_question_type_ids")
     def _check_question_count(self):
-        """Backstop for writes that skip onchange (RPC, CSV import): the count
-        must be a valid non-negative integer and, when types are pinned, at least
-        one per selected type."""
         for rec in self:
             if rec.sop_question_count < 0:
                 raise ValidationError(
@@ -377,10 +410,6 @@ class EtpAssessmentPrompt(models.Model):
                     % (rec.sop_question_count, n, n))
 
     def action_generate_from_sop(self):
-        """One-click SKILL-FREE generation: queue the SOP for the background cron,
-        which sends the document natively (images included) to the best
-        multimodal model and creates draft questions per the format in the SOP.
-        Off-request for the same 'cursor already closed' reason as extraction."""
         self.ensure_one()
         if not self.resource_ids and not (self.source_text or "").strip():
             raise UserError(
@@ -392,7 +421,7 @@ class EtpAssessmentPrompt(models.Model):
             "tag": "display_notification",
             "params": {
                 "title": "Question Generation Queued",
-                "message": "Reading your SOP in the background — draft questions "
+                "message": "Reading your SOP in the background - draft questions "
                            "appear here within a minute or two; refresh to see "
                            "them.",
                 "type": "success", "sticky": False,
@@ -401,11 +430,8 @@ class EtpAssessmentPrompt(models.Model):
 
     @api.model
     def _cron_generate_from_sop(self):
-        """Background drainer for SOP-direct generation. COMMITS before the slow
-        multimodal call (avoids the idle-in-transaction 'cursor already closed'
-        crash) under a SESSION-level advisory lock so no two workers send the
-        same SOP to Vertex; a prompt left 'generating' by a died worker is
-        reclaimed next tick."""
+        """Must commit before the slow Vertex call: managed Postgres reaps the
+        idle-in-transaction connection ('cursor already closed')."""
         from ..services import vertex
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_QUESTION_GEN,))
@@ -428,19 +454,14 @@ class EtpAssessmentPrompt(models.Model):
                         self.env, prompt,
                         count=prompt.sop_question_count or 0,
                         allowed_types=prompt._allowed_question_types())
-                    # Persist the drafts in their OWN commit before the contended
-                    # final state write. The drafts touch only the child table, so
-                    # this commit never races the prompt row; a serialization race
-                    # on the state write below can then be rolled back and retried
-                    # WITHOUT losing the drafts (or re-running the Vertex call).
+                    # Commit the drafts before the contended state write, so a
+                    # serialization retry there cannot lose them or re-run Vertex.
                     self.env.cr.commit()
                     self._finalize_sop_gen_state(prompt, len(draft_ids))
                     _logger.info(
                         "etp_assessment SOP gen cron: prompt %s -> %d draft(s)",
                         prompt.id, len(draft_ids))
                 except vertex.VertexQuotaError:
-                    # 429 is transient: re-queue so the next tick retries when
-                    # quota recovers, rather than hard-failing the generation.
                     self.env.cr.rollback()
                     _logger.warning(
                         "SOP generation for prompt %s hit Vertex quota (429); "
@@ -460,17 +481,10 @@ class EtpAssessmentPrompt(models.Model):
                 "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_QUESTION_GEN,))
 
     def _finalize_sop_gen_state(self, prompt, draft_count):
-        """Write the terminal SOP-gen state resiliently against a serialization
-        race with the tag-extraction cron, which writes the SAME prompt row
-        (tag_extract_state) under a DIFFERENT advisory lock so the two crons can
-        run at once. Under Odoo's REPEATABLE READ isolation the second writer of a
-        row gets a SerializationFailure (SQLSTATE 40001); because the drafts are
-        already committed, we roll the failed state write back, re-read the row and
-        retry a bounded number of times. Re-queuing is deliberately NOT used here:
-        the drainer cannot tell 'needs generation' from 'needs finalization', so it
-        would re-run the expensive Vertex call and duplicate the drafts. Any
-        non-40001 error (or exhausted retries) propagates to the caller so genuine
-        generation failures still surface as 'failed'."""
+        """Retry on 40001 only: the tag-extract cron writes the same row under a
+        different advisory lock. Never re-queue here — the drainer cannot tell
+        'needs generation' from 'needs finalization', so it would re-run Vertex
+        and duplicate the already-committed drafts."""
         import time
         import psycopg2
         from psycopg2 import errorcodes, errors as pg_errors
@@ -502,15 +516,8 @@ class EtpAssessmentPrompt(models.Model):
                 time.sleep(0.1 * (attempt + 1))
 
     def _finalize_tag_extract_state(self, prompt, tags, raw):
-        """Write the terminal tag-extraction state resiliently against a
-        serialization race with the SOP-generation cron, which writes the SAME
-        prompt row (sop_gen_state/state) under a DIFFERENT advisory lock so the
-        two crons can run at once. Under Odoo's REPEATABLE READ isolation the
-        second writer of a row gets a SerializationFailure (SQLSTATE 40001);
-        because the tags are already committed, we roll the failed state write
-        back, re-read the row and retry a bounded number of times. Any non-40001
-        error (or exhausted retries) propagates to the caller so genuine tag
-        failures still surface as 'failed'. Mirrors _finalize_sop_gen_state."""
+        """Retry on 40001 only: the SOP-gen cron writes the same row under a
+        different advisory lock. Mirrors _finalize_sop_gen_state."""
         import time
         import psycopg2
         from psycopg2 import errorcodes, errors as pg_errors
@@ -542,14 +549,6 @@ class EtpAssessmentPrompt(models.Model):
                 time.sleep(0.1 * (attempt + 1))
 
     def _run_tag_extract_inline(self):
-        """Extract THIS SOP's semantic tags SYNCHRONOUSLY and store them, with no
-        cron: run the Vertex extract call now and write tag_ids + tags_json +
-        tag_extract_state='done' directly, so tags appear the moment the button
-        returns. Records a terminal 'failed' state and raises a friendly UserError
-        on a Vertex quota (429) or any extraction error, so a run is NEVER left
-        stuck in 'queued'. Returns the resulting tag recordset. Reuses
-        vertex.extract_tags_from_sop + tag._get_or_create (the same building
-        blocks the retired cron used)."""
         self.ensure_one()
         from ..services import vertex
         self.write({"tag_extract_state": "generating", "tag_extract_error": False})
@@ -574,9 +573,6 @@ class EtpAssessmentPrompt(models.Model):
         return tags
 
     def action_approve_all_drafts(self):
-        """Approve every pending draft question of this generator into the bank in
-        one click. The Drafts table otherwise only offers per-row / per-selection
-        approval, so a large batch is dozens of clicks."""
         self.ensure_one()
         drafts = self.question_ids.filtered(lambda r: r.state == "draft")
         if not drafts:
@@ -585,10 +581,6 @@ class EtpAssessmentPrompt(models.Model):
         return True
 
     def action_extract_tags(self):
-        """Extract this SOP's semantic tags NOW (synchronously) and store them, so
-        the tags appear immediately on the generator. MANUAL-ONLY: there is no tag
-        cron anymore, so the button runs the extraction inline instead of merely
-        queuing it (nothing is left waiting on a cron that no longer exists)."""
         self.ensure_one()
         if not self.resource_ids and not (self.source_text or "").strip():
             raise UserError(
@@ -607,10 +599,8 @@ class EtpAssessmentPrompt(models.Model):
 
     @api.model
     def _cron_extract_tags(self):
-        """Background drainer for semantic-tag extraction. COMMITS before the
-        slow multimodal call under a SESSION-level advisory lock so no two
-        workers send the same SOP to Vertex; a prompt left 'generating' by a
-        died worker is reclaimed next tick. Mirrors _cron_generate_from_sop."""
+        """Must commit before the slow Vertex call ('cursor already closed').
+        Mirrors _cron_generate_from_sop."""
         from ..services import vertex
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_TAG_EXTRACT,))
@@ -632,20 +622,14 @@ class EtpAssessmentPrompt(models.Model):
                     names, raw = vertex.extract_tags_from_sop(self.env, prompt)
                     tags = self.env["etp.assessment.pro.tag"]._get_or_create(
                         names)
-                    # Persist the tag records in their OWN commit before the
-                    # contended final state write. The tags touch only the tag
-                    # table, so this commit never races the prompt row; a
-                    # serialization race on the state write below can then be
-                    # rolled back and retried WITHOUT losing the tags (or
-                    # re-running the Vertex call).
+                    # Commit the tags before the contended state write, so a
+                    # serialization retry there cannot lose them or re-run Vertex.
                     self.env.cr.commit()
                     self._finalize_tag_extract_state(prompt, tags, raw)
                     _logger.info(
                         "etp_assessment tag extract cron: prompt %s -> %d tag(s)",
                         prompt.id, len(tags))
                 except vertex.VertexQuotaError:
-                    # 429 is transient: re-queue for the next tick instead of
-                    # marking the tag extraction permanently failed.
                     self.env.cr.rollback()
                     _logger.warning(
                         "Tag extraction for prompt %s hit Vertex quota (429); "
@@ -686,25 +670,12 @@ class EtpAssessmentPrompt(models.Model):
         return TAG_SIMILAR_MIN_SCORE_DEFAULT
 
     def _similar_prompts(self, limit=5, min_score=None):
-        """Rank OTHER generators by weighted-Jaccard tag overlap with this one.
-
-        score = (weight of SHARED tags) / (weight of the UNION of both tag sets),
-        each tag weighted by its prefix (_tag_prefix_weight). Returns a list of
-        ``{"prompt", "score", "shared", "shared_weight"}`` dicts, best score
-        first. The candidate set is found with ONE self-join on the tag M2M rel
-        table (only generators sharing >=1 tag), then union weights are summed in
-        Python. Column/table names come from the field descriptor, never
-        hardcoded, so the SQL cannot drift from Odoo's auto-named relation.
-        """
         self.ensure_one()
         my_tags = self.tag_ids
         if not my_tags:
             return []
-        # Onchange/new records carry a virtual NewId that psycopg2 can't adapt
-        # into the raw self-join below ("can't adapt type 'NewId'"). Fall back to
-        # the persisted origin so a SAVED record being edited still ranks against
-        # its committed tag links, and bail for a brand-new unsaved generator
-        # (no DB row to join against yet — similarity needs a save first).
+        # psycopg2 cannot adapt a NewId into the raw self-join below; fall back
+        # to the persisted origin, and bail when there is no DB row yet.
         rec_id = self.id if isinstance(self.id, int) else self._origin.id
         if not isinstance(rec_id, int) or not rec_id:
             return []
@@ -785,12 +756,6 @@ class EtpAssessmentPrompt(models.Model):
 
     @api.depends("tag_ids")
     def _compute_similar_html(self):
-        """Present _similar_prompts() as a ranked alignment panel. Reuses that
-        method for the ranking (best-first, self + no-tag prompts already
-        excluded) and only renders it; never raises. sanitize=False is safe as
-        justified on the field: numbers-only inline styles, every dynamic
-        string escaped. Unsaved / untagged / no-match records get a muted
-        empty state."""
         for rec in self:
             if not rec.id or not rec.tag_ids:
                 rec.similar_html = rec._simrank_empty(
@@ -800,7 +765,7 @@ class EtpAssessmentPrompt(models.Model):
             matches = rec._similar_prompts(limit=8)
             if not matches:
                 rec.similar_html = rec._simrank_empty(
-                    "No aligned projects yet — no other generator shares "
+                    "No aligned projects yet - no other generator shares "
                     "these SOP tags.")
                 continue
             rows = Markup("")
@@ -840,9 +805,6 @@ class EtpAssessmentPrompt(models.Model):
                 '<div class="etp-simrank">{}</div>').format(rows)
 
     def action_view_similar(self):
-        """Open the generators that share enough weighted tags with this one.
-        Similarity is computed, not a stored relation, so the ranked ids are
-        resolved here and passed as an id domain to a minimal list view."""
         self.ensure_one()
         threshold = self._tag_similar_min_score()
         ids = [sim["prompt"].id
@@ -868,16 +830,6 @@ class EtpAssessmentPrompt(models.Model):
         }
 
     def action_normalize_tags(self):
-        """Re-extract semantic tags for the SELECTED generators so their tags
-        converge on the shared live vocabulary — the fix for historic drift
-        (one bank tagged modality:ui-screenshot, its twin modality:image, so
-        identical SOPs ranked as unrelated). Unlike action_backfill_all_tags
-        (which only fills UN-tagged idle banks), this RE-RUNS extraction on the
-        chosen banks even when they already carry tags, feeding the current
-        vocabulary so the model reuses canonical values. Bound to the generator
-        list 'Actions' menu; each bank is isolated so one 429/failure records its
-        own state without aborting the batch, and a bank with no SOP is skipped
-        (nothing to extract from) rather than erroring the whole run."""
         targets = self.filtered(
             lambda p: p.resource_ids.filtered(lambda r: r.category == "sop")
             or (p.source_text or "").strip())
@@ -911,12 +863,6 @@ class EtpAssessmentPrompt(models.Model):
 
     @api.model
     def action_backfill_all_tags(self):
-        """Extract tags NOW for every un-tagged generator that has a SOP resource,
-        inline (MANUAL-ONLY; there is no tag cron). Callable from the config menu
-        (an ir.actions.server). Only touches idle/failed generators with no tags
-        yet; each generator is extracted through _run_tag_extract_inline and
-        isolated so one failure records its own 'failed' state without aborting the
-        batch (nothing is left stuck in 'queued')."""
         prompts = self.search([
             ("tag_extract_state", "in", ("idle", "failed")),
             ("tag_ids", "=", False),
@@ -955,7 +901,7 @@ class EtpAssessmentPromptQuestion(models.Model):
     description = fields.Text(
         string="Description",
         help="Optional candidate-facing description. NEVER put options or the "
-             "correct answer here — those live in dimensions / the answer key.")
+             "correct answer here - those live in dimensions / the answer key.")
     time_minutes = fields.Integer(string="Time (minutes)", default=0)
     question_type = fields.Selection(
         QUESTION_TYPE_SELECTION,
@@ -964,7 +910,7 @@ class EtpAssessmentPromptQuestion(models.Model):
     medium_display = fields.Char(
         string="Medium", compute="_compute_medium_display",
         help="Image for the image question types (A/B Evaluation, "
-             "Prompt/Labelling) — the only ones that render a picture; Text "
+             "Prompt/Labelling) - the only ones that render a picture; Text "
              "otherwise. Derived from the question type.")
     has_revealing_option = fields.Boolean(
         compute="_compute_has_revealing_option",
@@ -1365,8 +1311,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                          ("ak_constraints", "constraints"))
 
     def _ideal_answer_key(self):
-        """The rubric_json key the 'Ideal Answer' field maps to: image_prompt
-        stores it as ideal_prompt, image_label as ideal_labels."""
         self.ensure_one()
         if self.question_type == "image_prompt":
             return "ideal_prompt"
@@ -1394,9 +1338,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                 rec[fname] = "\n".join(str(x) for x in val) or False
 
     def _inverse_answer_key_fields(self):
-        """Write the friendly rubric fields back into rubric_json, preserving
-        any other keys. One shared inverse for all of them: it rebuilds from the
-        current field values, so it is correct no matter how many fired."""
         import json as _json
         for rec in self:
             try:
@@ -1479,9 +1420,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return True
 
     def _assert_no_key_drift(self, bank_question):
-        """Phase-3 approve guard: the answer key just materialized onto the bank
-        question MUST equal the flaw-injection construction_keys, else the key is
-        no longer ground-truth and approval is refused."""
         self.ensure_one()
         keys = ab_construction_keys(self.flaw_plan_json)
         if not keys:
@@ -1497,16 +1435,10 @@ class EtpAssessmentPromptQuestion(models.Model):
             raise UserError(
                 "Key drift: the materialized answer key for %r does not match "
                 "its flaw-injection construction keys, so it is no longer "
-                "ground-truth — refusing to approve.\n%s"
+                "ground-truth - refusing to approve.\n%s"
                 % (self.name or "draft", "\n".join(drift)))
 
     def _assert_flaw_render_verified(self):
-        """Phase-3 approve guard: refuse to approve an image_ab whose render QA
-        flagged a planted flaw that never appeared in the pixels
-        (verification_json.needs_review). Such a flaw backs a construction key
-        the image cannot justify, so the answer key would no longer be
-        ground-truth. Degrade cases (verification disabled / unavailable) set
-        needs_review False and pass through untouched."""
         self.ensure_one()
         import json as _json
         try:
@@ -1526,18 +1458,11 @@ class EtpAssessmentPromptQuestion(models.Model):
         raise UserError(
             "Flaw verification failed: a planted flaw never rendered into the "
             "image after re-generation, so the construction key it backs is not "
-            "justified by the pixels — refusing to approve %r. Regenerate the "
+            "justified by the pixels - refusing to approve %r. Regenerate the "
             "image or fix the flaw plan.\n%s"
             % (self.name or "draft", "\n".join(unconfirmed) or "(unconfirmed)"))
 
     def _dimension_specs(self):
-        """Normalize this draft's answer key to a list of dimension specs:
-        ``[{"label", "options":[str], "correct":[str]}]``.
-
-        The editable ``answer_dimension_ids`` records are authoritative when
-        present (so the preview + approve follow what the reviewer edited);
-        otherwise fall back to parsing the raw LLM JSON.
-        """
         self.ensure_one()
         if self.answer_dimension_ids:
             specs = []
@@ -1557,13 +1482,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return self._specs_from_json()
 
     def _specs_from_json(self):
-        """Parse the raw LLM JSON answer key into dimension specs.
-
-        Source of truth is dimensions_json when present (multi-dimension,
-        e.g. image_ab); otherwise fall back to the single-dimension
-        options_json + correct_answer_json shorthand the generator emits.
-        ``correct`` is normalized to option STRINGS (indices resolved here).
-        """
         import json as _json
         self.ensure_one()
         specs = []
@@ -1610,14 +1528,8 @@ class EtpAssessmentPromptQuestion(models.Model):
 
     @staticmethod
     def _normalize_correct(correct, options):
-        """Accept correct answers as a single value, a list, option strings,
-        or 0-based indices; return the matching option STRINGS.
-
-        Indices may arrive as JSON ints (dimensions_json) OR as numeric strings
-        (the plain ``correct_answer`` / ``dimN_correct`` CSV columns, which split
-        to strings). String matching wins FIRST, so an option literally named
-        "1" still matches by value; a numeric string is only treated as an index
-        when it matches no option."""
+        """String matching must stay ahead of index resolution: an option
+        literally named "1" matches by value, not as index 1."""
         if correct is None:
             return []
         if not isinstance(correct, list):
@@ -1649,10 +1561,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return out
 
     def _sync_answer_relational_from_json(self):
-        """(Re)build the editable answer_dimension_ids from the raw LLM JSON.
-        Seeds the relational answer key on create and rebuilds it on demand
-        after a raw-JSON edit. Types with no option set (subjective / image_prompt
-        / image_label rubric) yield no axes, so they are simply left empty here."""
         for rec in self:
             specs = rec._specs_from_json()
             commands = [(5, 0, 0)]
@@ -1670,8 +1578,6 @@ class EtpAssessmentPromptQuestion(models.Model):
             rec.answer_dimension_ids = commands
 
     def action_rebuild_answer_key_from_json(self):
-        """Button: overwrite the editable answer key from the raw JSON (use
-        after hand-editing the Advanced raw JSON)."""
         self._sync_answer_relational_from_json()
         return True
 
@@ -1687,27 +1593,10 @@ class EtpAssessmentPromptQuestion(models.Model):
         return records
 
     def _materialize_dimensions(self, bank_question):
-        """Create one PRIVATE question.dimension per spec, flagging the correct
-        option lines.
-
-        FOOLPROOF IMPORT RULE: every imported/approved question gets its OWN
-        fresh dimension carrying ONLY its own options — for ALL question types
-        (mcq, msq, image_ab, image_prompt, image_label). We never look up a master
-        dimension
-        by name and never top up an existing one. Name-based reuse caused two
-        real footguns:
-          1. Accumulation — questions sharing a label (e.g. an Odoo export
-             where every row is titled "Non-STEM Baseline", or two image_ab
-             questions both using axis "Overall Choice") inherited each other's
-             options (Q1=4, Q2=8 …) and even picked up stale options left on a
-             pre-existing master.
-          2. Cross-edit / drift — the per-question option line text is
-             ``related(store=True)`` to the master, so editing one master option
-             silently rewrites every question that borrowed it.
-        A private dimension per question makes the answer set self-contained and
-        immune to both. Analytics can still group by dimension NAME (preserved);
-        it just no longer shares the row identity across questions.
-        """
+        """Always create a PRIVATE dimension per question; never look one up by
+        name. Questions sharing a label would inherit each other's options, and
+        option text is related(store=True) to the master, so editing one master
+        option rewrites every question that borrowed it."""
         self.ensure_one()
         QDim = self.env["etp.assessment.pro.question.dimension"]
         for spec in self._dimension_specs():
@@ -1734,8 +1623,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                     "with no answer key for this dimension.", self.id, label)
 
     def _materialize_images(self, bank_question):
-        """Create question.image rows from images_json, pushing URLs / base64
-        data to S3 when configured (graceful fallback to a raw URL or binary)."""
         import json as _json
         self.ensure_one()
         raw = (self.images_json or "").strip()
@@ -1795,14 +1682,8 @@ class EtpAssessmentPromptQuestion(models.Model):
             self._carry_or_detect_label(bank_question, image, slot, spec)
 
     def _carry_label_capture(self, image):
-        """Copy the REAL-PAGE CAPTURE directives authored for a source_url
-        image_label onto the 'single' bank image so the detect cron / capture
-        path drives a live DOM capture (primary), keeping the rendered synthetic
-        brief as the hybrid fallback. Also carries the model-authored DENSE
-        per-box map (label_boxes_json + behavioural key + omitted element) so the
-        synthetic fallback can draw numbered boxes deterministically with ZERO
-        detect calls; detections_json is deliberately left empty so the primary
-        capture still runs first. No-op when no source_url was authored."""
+        """Leave detections_json empty here: setting it makes the detect cron
+        skip the image, and the live DOM capture must run first."""
         self.ensure_one()
         src = (self.source_url or "").strip()
         if not src:
@@ -1826,11 +1707,6 @@ class EtpAssessmentPromptQuestion(models.Model):
 
     @staticmethod
     def _inline_image_bytes(spec):
-        """Decode the just-rendered image bytes carried INLINE in an images_json
-        spec (its base64/data-URL ``data``), independent of whether
-        _materialize_images offloaded the picture to S3 (ingest returns b64=False
-        after an S3 upload, yet the in-memory bytes are still right here). Returns
-        b"" for a pure external-URL spec, which has nothing to detect in memory."""
         import base64 as _b64
         from ..services import image_ingest
         data = (spec.get("data") or "").strip()
@@ -1849,22 +1725,6 @@ class EtpAssessmentPromptQuestion(models.Model):
             return b""
 
     def _carry_or_detect_label(self, bank_question, image, slot, spec):
-        """Approve-time answer-key handoff for an image_label 'single' image.
-
-        FIRST CHOICE: CARRY the render-time detection already stashed in the
-        draft spec (detections_json + annotated overlay, computed by
-        _detect_label_on_render the moment the draft rendered) straight onto the
-        bank image with ZERO Vertex calls — approval never re-detects.
-
-        FALLBACK: only when the draft carries no key (render-time detect failed,
-        or the picture was supplied without a render pass) detect ONCE here on
-        the inline rendered bytes — still failure-isolated inside
-        image._detect_inline, which never rolls back the approve and never spends
-        the cron retry budget, so a keyless image is left for
-        _cron_detect_image_labels to retry from storage.
-
-        Scoped to image_label 'single' with NO model-authored DENSE key (that key
-        is drawn deterministically by _apply_authored_label_key)."""
         self.ensure_one()
         if bank_question.question_type != "image_label" or slot != "single":
             return
@@ -1881,11 +1741,6 @@ class EtpAssessmentPromptQuestion(models.Model):
 
     @staticmethod
     def _carry_render_detection(image, spec):
-        """Copy a render-time detection stashed in the draft's images_json spec
-        onto the bank ``image`` with no re-detection: the numbered-box
-        detections_json plus the annotated overlay (data-URL and/or S3 url).
-        Returns True when a key was carried, False when the spec has none (so the
-        caller falls back to a single inline detect)."""
         if not isinstance(spec, dict):
             return False
         det = (spec.get("detections_json") or "").strip()
@@ -1904,13 +1759,8 @@ class EtpAssessmentPromptQuestion(models.Model):
         return True
 
     def _apply_authored_label_key(self, bank_question):
-        """Attach a DENSE (model-authored) image_label answer key to the 'single'
-        bank image: draw the numbered boxes on the rendered screenshot from the
-        model's coordinates (deterministic, Pillow only — no Vertex/detection
-        call) and carry the behavioural key + coverage gate + application, the
-        SAME shape a DOM capture produces. Because detections_json is set, the
-        detect cron skips this image, so the authored key is never overwritten.
-        No-op for legacy single-box labels (no behavioural key)."""
+        """Sets detections_json, which makes the detect cron skip this image, so
+        the authored key is never overwritten."""
         import json as _json
         import base64
         self.ensure_one()
@@ -1964,7 +1814,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return True
 
     def _briefs(self):
-        """Parse image_brief_json into a list of {slot,label,prompt}."""
         import json as _json
         self.ensure_one()
         raw = (self.image_brief_json or "").strip()
@@ -1980,7 +1829,6 @@ class EtpAssessmentPromptQuestion(models.Model):
             if isinstance(parsed, list) else []
 
     def _current_images(self):
-        """Parse images_json into a list of {slot,label,data|url}."""
         import json as _json
         self.ensure_one()
         raw = (self.images_json or "").strip()
@@ -2020,11 +1868,8 @@ class EtpAssessmentPromptQuestion(models.Model):
         }
 
     def _dense_preview_dets(self):
-        """Parse the model-authored per-box map (label_boxes_json) into the
-        imaging.annotate_image detections shape [{box_2d,label,description}], or
-        [] when the draft carries no usable dense map (mirrors the bank image's
-        _dense_detections so the draft preview and the approved fallback draw
-        the SAME boxes)."""
+        """Must stay in sync with question_image._dense_detections so the draft
+        preview and the approved fallback draw the same boxes."""
         import json as _json
         self.ensure_one()
         raw = (self.label_boxes_json or "").strip()
@@ -2047,17 +1892,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return dets
 
     def _draw_dense_preview(self, images):
-        """Draw the model-authored dense per-box map onto each just-rendered
-        'single' synthetic screenshot deterministically (Pillow via
-        imaging.annotate_image, ZERO Vertex calls) and stash the numbered overlay
-        (annotated_data) + detections_json into its images_json spec, so the
-        DRAFT preview shows numbered boxes for source_url + dense drafts instead
-        of a bare screenshot. No-op when the draft has no dense map (a legacy
-        synthetic draft falls through to the render-time Gemini detect). The
-        bank-image answer key is untouched: a source_url image still drives a live
-        DOM capture and a dense image is drawn by _apply_authored_label_key at
-        approve, and neither carries this preview key (_carry_or_detect_label
-        returns early for both)."""
         import base64 as _b64
         import json as _json
         self.ensure_one()
@@ -2088,17 +1922,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return images
 
     def _capture_source_url_on_render(self, images):
-        """Live DOM capture for a source_url image_label draft at render time.
-
-        Drives dom_capture.capture_and_annotate on the draft's real source_url
-        (threading its authored capture_config / omit directives) and stashes the
-        REAL captured screenshot + numbered boxes + behavioural key into the
-        'single' spec, so the draft preview shows the true labelled page — the
-        same accurate result the "Capture URL" detect button produces, made the
-        default. Returns True when a live capture with >=1 box was stored; False
-        when Playwright is absent, the capture fails, or it yields zero boxes (the
-        caller then falls back to the model's guessed dense preview). Never
-        raises — capture must never break the render."""
         import base64 as _b64
         import json as _json
         self.ensure_one()
@@ -2112,8 +1935,7 @@ class EtpAssessmentPromptQuestion(models.Model):
                        and (s.get("slot") or "single") == "single"), None)
         if single is None:
             return False
-        # Thread the authored capture directives (viewport / wait / dismiss /
-        # omit) the same way question_image._capture_kwargs does.
+        # Keep in sync with question_image._capture_kwargs.
         kwargs = {}
         try:
             cfg = _json.loads(self.capture_config_json or "{}")
@@ -2145,8 +1967,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         annotated_png = result.get("annotated_png")
         if not annotated_png:
             return False
-        # Persist the annotated screenshot + real key into the single spec so the
-        # draft renders the TRUE captured page (bytes -> data-URL b64).
         single["annotated_data"] = (
             "data:image/png;base64,%s"
             % _b64.b64encode(annotated_png).decode())
@@ -2159,8 +1979,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         if label_key:
             single["detections_json"] = _json.dumps(
                 label_key, ensure_ascii=False)
-        # Carry the captured source_url + behavioural key onto the draft so the
-        # answer key at approve is the live-captured ground truth, not guessed.
         vals = {"source_url": src}
         bkey = result.get("behavioural_key")
         if bkey:
@@ -2183,39 +2001,12 @@ class EtpAssessmentPromptQuestion(models.Model):
         return True
 
     def _detect_label_on_render(self, images):
-        """RENDER-TIME image_label detection: the moment a draft's 'single'
-        image is rendered, run element detection on the JUST-rendered in-memory
-        bytes and stash the numbered-box answer key + annotated overlay INTO the
-        matching images_json spec, so a reviewer SEES the boxed image on the
-        DRAFT before approving. Approval later CARRIES this to the bank image
-        without re-detecting (_carry_or_detect_label).
-
-        image_label only, honouring detection_mode. A source_url or DENSE
-        model-authored draft (label_boxes_json) instead has its numbered boxes
-        drawn on the rendered synthetic screenshot deterministically from that
-        map (_draw_dense_preview, ZERO Vertex calls) so the DRAFT preview is
-        boxed too; its bank-image answer key is still owned by the live DOM
-        capture (source_url) or _apply_authored_label_key (dense) at approve, so
-        the render-time Gemini detect below runs ONLY for a legacy synthetic
-        draft that carries no model-authored map. FAILURE ISOLATED: each
-        detection runs in its own savepoint and any error is logged + swallowed
-        so it NEVER rolls back or fails the render; the spec is simply left
-        keyless for _cron_detect_image_labels to retry after approval, spending
-        NONE of the 3-attempt detection budget here."""
         self.ensure_one()
         if self.question_type != "image_label" or not isinstance(images, list):
             return images
-        # PRIMARY (accurate): when the draft names a real source_url and
-        # Playwright is available, capture the LIVE page now — real element
-        # geometry + behavioural key, the same path the "Capture URL" / detect
-        # button uses — so the reviewer sees the TRUE labelled page on the draft,
-        # not the model's guessed box coordinates. Only if capture is
-        # unavailable / fails / yields nothing do we fall back to the
-        # model-authored dense preview (guessed boxes) or Gemini detect.
         if (self.source_url or "").strip():
             if self._capture_source_url_on_render(images):
                 return images
-            # capture unavailable/failed: fall back to the dense guessed preview
             return self._draw_dense_preview(images)
         images = self._draw_dense_preview(images)
         if (self.behavioural_key_json or "").strip():
@@ -2255,15 +2046,9 @@ class EtpAssessmentPromptQuestion(models.Model):
         return images
 
     def _render_all_images(self):
-        """Render ALL of this draft's briefs, ALL-OR-NOTHING for the 'rendered'
-        stamp: a draft is only marked 'rendered' when every brief has a picture,
-        so a candidate never sees a half-rendered question. But money is never
-        wasted: slots that already rendered (persisted in images_json, or handed
-        back on a 429) are KEPT, and each retry renders ONLY the missing slots.
-        A quota (429) hit persists whatever came back and re-queues without
-        spending an attempt; other partial/failed renders spend one and flip to
-        'failed' past the cap.
-        """
+        """Only stamp 'rendered' once every brief has an image, and always keep
+        slots that already rendered: each render is paid for, so a retry must
+        re-render only the missing slots."""
         import json as _json
         from ..services import vertex
         self.ensure_one()
@@ -2273,14 +2058,11 @@ class EtpAssessmentPromptQuestion(models.Model):
         if not renderable:
             return False
 
-        # Reuse slots already paid for on a previous tick (money safety): only
-        # the briefs whose slot has no persisted image are re-rendered.
         have = {img.get("slot"): img for img in self._current_images()
                 if isinstance(img, dict) and (img.get("data") or img.get("url"))}
         todo = [b for b in renderable
                 if (b.get("slot") or "single") not in have]
         if not todo:
-            # Everything is already rendered; just make sure the stamp is right.
             fresh = list(have.values())
             fresh = self._detect_label_on_render(fresh)
             self.write({
@@ -2297,8 +2079,7 @@ class EtpAssessmentPromptQuestion(models.Model):
                            "prompt_id": self.prompt_id.id,
                            "note": self.name})
         except vertex.VertexQuotaError as exc:
-            # Persist any slots that DID render before the 429, merged with the
-            # ones we already had, so the next tick renders only what's left.
+            # Persist slots that rendered before the 429 so they are not re-paid.
             salvaged = {**have}
             for img in (getattr(exc, "partial", None) or []):
                 if isinstance(img, dict) and img.get("slot"):
@@ -2313,7 +2094,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                 self.write({"image_state": "pending"})
             return False
 
-        # Merge freshly rendered slots with the ones we already had.
         merged = {**have}
         for img in (new_images or []):
             if isinstance(img, dict) and img.get("slot"):
@@ -2334,7 +2114,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                                            "prompt_id": self.prompt_id.id,
                                            "note": self.name})
                     except vertex.VertexQuotaError:
-                        # Keep the rendered pair; verification retries next tick.
                         self.write({
                             "images_json": _json.dumps(
                                 images, ensure_ascii=False),
@@ -2359,7 +2138,7 @@ class EtpAssessmentPromptQuestion(models.Model):
             return True
 
         # Incomplete render (a slot came back empty, not a 429): persist what we
-        # have so it's not re-paid, spend an attempt, fail past the cap.
+        # have so it is not re-paid.
         attempts = (self.image_render_attempts or 0) + 1
         vals = {
             "image_render_attempts": attempts,
@@ -2372,14 +2151,9 @@ class EtpAssessmentPromptQuestion(models.Model):
 
     @api.model
     def _cron_render_pending_images(self):
-        """Background drainer for pending image drafts. Renders only a FEW per
-        tick and COMMITS after each draft, so a slow tick that trips Odoo's cron
-        time limit (which kills + reloads the worker) can never roll back — and
-        re-pay for — pictures already rendered. A SESSION-level advisory lock
-        (survives the mid-loop commits, unlike an xact lock that releases at the
-        first commit) serializes drains so two workers never double-render a
-        draft; a draft left mid-flight by a killed worker is simply retried next
-        tick because its state stays 'pending'."""
+        """The advisory lock must stay SESSION-level: an xact lock would release
+        at the first per-draft commit. Commit per draft so an Odoo cron-timeout
+        kill cannot roll back — and re-pay for — images already rendered."""
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_IMAGE_RENDER,))
         if not self.env.cr.fetchone()[0]:
@@ -2417,7 +2191,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                 "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_IMAGE_RENDER,))
 
     def _video_briefs(self):
-        """Parse video_brief_json into [{slot,label,prompt}] (clips only)."""
         import json as _json
         self.ensure_one()
         raw = (self.video_brief_json or "").strip()
@@ -2435,7 +2208,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                 if isinstance(b, dict) and (b.get("prompt") or "").strip()]
 
     def _video_ops(self):
-        """Parse video_op_json into the {slot: {...}} op-state map."""
         import json as _json
         self.ensure_one()
         try:
@@ -2445,7 +2217,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return ops if isinstance(ops, dict) else {}
 
     def _video_files(self):
-        """Parse video_files_json into a list of staged clip specs."""
         import json as _json
         self.ensure_one()
         raw = (self.video_files_json or "").strip()
@@ -2461,12 +2232,8 @@ class EtpAssessmentPromptQuestion(models.Model):
             if isinstance(parsed, list) else []
 
     def _submit_video_ops(self):
-        """Submit one Veo op per clip brief, store the op names, and flip to
-        'generating' once EVERY slot has an op. IDEMPOTENT: a slot that already
-        carries an op_name is never re-submitted, and a 429 mid-batch is caught
-        so the ops submitted so far persist and the draft stays 'pending' — the
-        next tick resumes with the remaining slots only, never double-sending an
-        op or spending an attempt on the quota hit."""
+        """A slot that already carries an op_name must never be re-submitted:
+        the stored op_name is the idempotency handle against double-billing."""
         import json as _json
         from ..services import vertex
         self.ensure_one()
@@ -2501,12 +2268,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return all_submitted
 
     def _poll_video_ops(self):
-        """Poll every not-done Veo op on this 'generating' draft. Done clips are
-        ingested (S3 when configured) and staged in video_files_json. ALL-OR-
-        NOTHING: video_state flips to 'rendered' only once EVERY op is done. A
-        429 leaves the op untouched (no attempt spent, stays 'generating'); a
-        still-running op simply waits; a genuine failure/empty payload spends an
-        attempt and fails the draft past the cap. Returns True on 'rendered'."""
         import json as _json
         from ..services import vertex, image_ingest
         self.ensure_one()
@@ -2586,11 +2347,6 @@ class EtpAssessmentPromptQuestion(models.Model):
         return vals.get("video_state") == "rendered"
 
     def _materialize_videos(self, bank_question):
-        """Create question.video rows from video_files_json, the video twin of
-        _materialize_images. A staged clip's url lands straight on the row; a
-        base64 fallback is ingested (S3 when configured, else kept on-record).
-        No-op when no clips are staged — the config gate leaves video_files_json
-        empty and the admin uploads on the bank question (Phase 1)."""
         self.ensure_one()
         files = self._video_files()
         if not files:
@@ -2619,10 +2375,6 @@ class EtpAssessmentPromptQuestion(models.Model):
             })
 
     def _submit_pending_video_ops(self):
-        """Submit phase of the video cron: send Veo ops for pending video_prompt
-        drafts, committing per draft. THE CONFIG GATE — when video generation is
-        not configured (no Veo model / no resolvable bearer) this returns
-        immediately, leaving drafts 'pending' for the upload path."""
         from ..services import vertex
         if not vertex.video_generation_available(self.env):
             return
@@ -2645,8 +2397,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                 self.env.cr.commit()
 
     def _poll_generating_video_ops(self):
-        """Poll phase of the video cron: advance generating drafts, committing
-        per draft so a killed worker never re-pays for clips already staged."""
         drafts = self.search([
             ("question_type", "in", list(VIDEO_QUESTION_TYPES)),
             ("video_state", "=", "generating"),
@@ -2666,11 +2416,8 @@ class EtpAssessmentPromptQuestion(models.Model):
 
     @api.model
     def _cron_poll_video_ops(self):
-        """Background driver for async Veo video generation (video_prompt Phase
-        3). SUBMIT then POLL, both idempotent, under ONE session-level advisory
-        lock (survives the per-draft commits) so no two workers touch the same
-        draft. Absent Veo config makes the submit phase a no-op, so the upload
-        path stays fully functional (the config gate)."""
+        """The advisory lock must stay SESSION-level: an xact lock would release
+        at the first per-draft commit."""
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_VIDEO_POLL,))
         if not self.env.cr.fetchone()[0]:
@@ -2683,8 +2430,6 @@ class EtpAssessmentPromptQuestion(models.Model):
                 "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_VIDEO_POLL,))
 
     def action_apply_uploaded_image(self):
-        """Apply a Growth-uploaded binary as the image for upload_slot,
-        replacing any generated image in that slot."""
         import json as _json
         self.ensure_one()
         if not self.upload_image:
@@ -2708,6 +2453,12 @@ class EtpAssessmentPromptQuestion(models.Model):
             "Image Uploaded", "Your image now fills slot %r." % slot)
 
 
+# Formats _extract_text() intentionally does NOT extract: they are passed to the
+# multimodal model as inline document parts instead. Kept beside _extract_text so
+# the two cannot drift apart - _compute_status reads this to avoid flagging them.
+NATIVE_DOC_EXTENSIONS = ("pdf", "png", "jpg", "jpeg", "webp", "gif")
+
+
 class EtpAssessmentPromptResource(models.Model):
     _name = "etp.assessment.pro.prompt.resource"
     _description = "Prompt Resource File"
@@ -2719,8 +2470,8 @@ class EtpAssessmentPromptResource(models.Model):
     sequence = fields.Integer(default=10)
     name = fields.Char(string="Filename")
     category = fields.Selection(
-        [("sop", "SOP"), ("vendor", "Vendor"),
-         ("client", "Client"), ("other", "Other")],
+        [("sop", "SOP"), ("reference", "Reference"), ("sample", "Sample Questions"),
+         ("vendor", "Vendor"), ("client", "Client"), ("other", "Other")],
         default="other", required=True, index=True,
     )
     file = fields.Binary(string="File", attachment=True, required=True)
@@ -2729,11 +2480,34 @@ class EtpAssessmentPromptResource(models.Model):
     char_count = fields.Integer(
         compute="_compute_char_count", store=True
     )
+    status = fields.Selection(
+        [("pending", "Uploaded"), ("ready", "Ready"), ("native", "Sent natively"),
+         ("failed", "Failed")],
+        compute="_compute_status", string="Status",
+        help="Ready = text extracted; Sent natively = PDF/image read directly by the "
+             "multimodal model, so no text extraction is expected; Uploaded = stored, "
+             "text not extracted yet; Failed = extraction error.")
 
     @api.depends("extracted_text")
     def _compute_char_count(self):
         for rec in self:
             rec.char_count = len(rec.extracted_text or "")
+
+    @api.depends("extracted_text", "extraction_error", "file", "name")
+    def _compute_status(self):
+        for rec in self:
+            ext = (rec.name or "").rsplit(".", 1)[-1].lower()
+            if rec.extraction_error:
+                rec.status = "failed"
+            elif (rec.extracted_text or "").strip():
+                rec.status = "ready"
+            elif ext in NATIVE_DOC_EXTENSIONS:
+                # _extract_text() deliberately returns empty-with-no-error for these:
+                # they go to the model as inline document parts. Reporting them as
+                # "pending" left a permanent amber dot on a perfectly good PDF.
+                rec.status = "native"
+            else:
+                rec.status = "pending"
 
     @staticmethod
     def _extract_docx(raw):
@@ -2778,10 +2552,9 @@ class EtpAssessmentPromptResource(models.Model):
                     text = _re.sub(r"<[^>]+>", " ", text)
                     text = _re.sub(r"\s+", " ", text)
                 return text, False
-            if ext in ("pdf", "png", "jpg", "jpeg", "webp", "gif"):
-                # Sent to the model natively (document/image vision) by
-                # _sop_doc_parts; no local text extraction is needed, so an
-                # empty extracted_text here is expected, not an error.
+            if ext in NATIVE_DOC_EXTENSIONS:
+                # Sent natively to the model by _sop_doc_parts: empty
+                # extracted_text is expected here, not an error.
                 return "", False
             return "", f"Unsupported file type '.{ext}'."
         except Exception as exc:

@@ -112,7 +112,7 @@ class EtpAssessmentQuestion(models.Model):
     has_valid_key = fields.Boolean(
         string="Answer Key OK", compute="_compute_has_valid_key", store=True,
         help="False when an objective (MCQ/MSQ) question has no correct option "
-             "marked — it cannot be scored and needs a fix.")
+             "marked - it cannot be scored and needs a fix.")
 
     has_revealing_option = fields.Boolean(
         compute="_compute_has_revealing_option",

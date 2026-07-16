@@ -419,7 +419,7 @@
                 </header>
                 <div class="alert alert-danger" invisible="not is_violated" role="alert">
                     <strong>Violation:</strong>
-                    <field name="violation_reason" readonly="1"/> —
+                    <field name="violation_reason" readonly="1"/> -
                     <field name="violation_datetime" readonly="1"/>
                     (count: <field name="violation_count" readonly="1"/>)
                 </div>

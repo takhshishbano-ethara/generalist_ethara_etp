@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-"""ETP Assessment lifecycle models: assessment, evaluator, response, response line."""
 import base64
 import csv
 import io
@@ -89,9 +88,7 @@ class EtpAssessment(models.Model):
              "within a minute via the recompute cron).")
     threshold_recompute_pending = fields.Boolean(default=False, copy=False)
 
-    # copy=False: a duplicated assessment must not inherit the original's
-    # (now-past) schedule — that would trip the "Start Date cannot be in the
-    # past" constraint on duplicate. The copy starts blank; the user re-schedules.
+    # copy=False required: a copied (now-past) schedule trips _check_schedule_dates.
     start_date = fields.Datetime(string="Start Date", copy=False)
     end_date = fields.Datetime(string="End Date", copy=False)
 
@@ -133,7 +130,7 @@ class EtpAssessment(models.Model):
              "violation.")
     rule_webcam = fields.Boolean(
         string="Require Webcam", default=False,
-        help="Require webcam access for proctoring (placeholder switch — "
+        help="Require webcam access for proctoring (placeholder switch - "
              "client-side detector wired in portal_templates.xml).")
     max_violations = fields.Integer(
         string="Max Violations (0 = no cap)", default=0,
@@ -149,7 +146,7 @@ class EtpAssessment(models.Model):
         string="Require Justification on Objective Questions", default=False,
         help="When on, MCQ/MSQ questions also show a justification box the "
              "candidate must fill. Off (default) keeps objective questions "
-             "clean — no confusing optional box.",
+             "clean - no confusing optional box.",
     )
     require_justification_image_comparison = fields.Boolean(
         string="Require Justification for Image Comparison", default=False,
@@ -161,7 +158,7 @@ class EtpAssessment(models.Model):
     llm_auto_score = fields.Boolean(
         string="Auto-queue subjective grading on submit", default=False,
         help="When on, a candidate's submit auto-queues them for the background "
-             "grader (still batched in 20s by the cron — never scored inline "
+             "grader (still batched in 20s by the cron - never scored inline "
              "during the exam). Off (default): an admin must click 'Run "
              "Subjective Evaluation'.")
 
@@ -188,11 +185,8 @@ class EtpAssessment(models.Model):
         return res
 
     def _recompute_subjective_results(self, batch=500, commit=False):
-        """Option A: after a subjective_threshold change, recompute the stored
-        pass/fail in batches so a large assessment never locks the whole response
-        table in one transaction (the LLM raw score is untouched). Small
-        assessments run this inline on save (commit=False); the cron runs it for
-        large ones with commit=True so locks release between batches."""
+        # Must stay batched: one transaction over all responses locks the whole
+        # response table; commit=True releases locks between batches.
         subj_fields = ["llm_raw_score", "llm_passed", "llm_score", "llm_max_score"]
         for a in self:
             responses = a.response_ids.filtered("needs_llm")
@@ -248,7 +242,6 @@ class EtpAssessment(models.Model):
             rec.invite_summary = "  ·  ".join(parts)
 
     def action_requeue_all_invitations(self):
-        """Re-queue every not-yet-sent candidate (e.g. to retry failures)."""
         self.ensure_one()
         self.assessment_evaluator_ids.action_requeue_invitation()
 
@@ -501,9 +494,6 @@ class EtpAssessment(models.Model):
         }
 
     def action_llm_score_all(self):
-        """Admin trigger: queue every submitted, unscored candidate for
-        subjective grading. The background cron drains them in batches of 20 —
-        no LLM call runs in this request, so the admin UI never blocks."""
         self.ensure_one()
         todo = self.assessment_evaluator_ids.filtered(
             lambda ev: ev.state == "submitted" and any(
@@ -517,7 +507,7 @@ class EtpAssessment(models.Model):
             "params": {
                 "title": "Subjective Grading Queued",
                 "message": f"Queued {len(todo)} candidate(s). The background "
-                           f"grader processes about 20 at a time — refresh to "
+                           f"grader processes about 20 at a time - refresh to "
                            f"watch the LLM status advance.",
                 "type": "success",
                 "sticky": False,
@@ -544,10 +534,6 @@ class EtpAssessment(models.Model):
 
     @api.model
     def _cron_llm_auto_score(self):
-        """Background grader: drains admin-requested subjective scoring in
-        batches of 20 per tick. Only candidates explicitly flagged via 'Run
-        Subjective Evaluation' (scoring_requested) are graded — nothing runs on
-        the candidate's exam path."""
         self.env.cr.execute("SELECT pg_advisory_unlock_all()")
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_AUTOSCORE,))
@@ -578,13 +564,11 @@ class EtpAssessment(models.Model):
                     ADVISORY_LOCK_AUTOSCORE)
 
     def action_export_results(self):
-        """Export the scorecard: one row per candidate."""
         self.ensure_one()
         from ..services import export as export_svc
         return export_svc.export_results(self)
 
     def action_export_responses(self):
-        """Export every response in this assessment, one row per answer."""
         self.ensure_one()
         from ..services import export as export_svc
         return export_svc.export_responses(self)
@@ -628,8 +612,8 @@ class EtpAssessmentEvaluator(models.Model):
             user = self.env["res.users"].sudo().search(
                 [("partner_id", "=", self.applicant_id.partner_id.id)], limit=1)
         if not user and (self.applicant_id.email_from or "").strip():
-            # Security: widens candidate auth — an internal user (never bound
-            # as a candidate) is matched by login==email as their own candidate.
+            # Security: login==email fallback can match an internal user never
+            # bound as a candidate, widening candidate auth.
             user = self.env["res.users"].sudo().with_context(
                 active_test=False).search(
                 [("login", "=ilike", self.applicant_id.email_from.strip())],
@@ -735,7 +719,6 @@ class EtpAssessmentEvaluator(models.Model):
         if vals.get("state") == "submitted":
             stamp = fields.Datetime.now()
             for rec in self.filtered(lambda r: not r.submitted_at):
-                # Nested write carries no 'state' key, so it cannot recurse here.
                 super(EtpAssessmentEvaluator, rec).write(
                     {"submitted_at": stamp})
         return super().write(vals)
@@ -775,7 +758,6 @@ class EtpAssessmentEvaluator(models.Model):
         "response_ids.needs_llm", "response_ids.llm_state",
         "response_ids.llm_passed")
     def _compute_result_summary(self):
-        """Build the admin-facing post-scoring summary card."""
         import html as _html
 
         def esc(v):
@@ -805,7 +787,7 @@ class EtpAssessmentEvaluator(models.Model):
             if rec.state != "submitted":
                 rec.result_summary = (
                     '<div class="alert alert-info mb-0" role="status">'
-                    'Candidate has not submitted yet — '
+                    'Candidate has not submitted yet - '
                     f'{esc(rec.answered_count or 0)} of '
                     f'{esc(rec.total_questions or 0)} answered. '
                     'Summary appears once the assessment is submitted and '
@@ -829,7 +811,7 @@ class EtpAssessmentEvaluator(models.Model):
                     '<div class="alert alert-warning mt-2 mb-0 py-1 px-2" '
                     'role="status">'
                     f'\u26a0 {esc(rec.subjective_pending)} subjective '
-                    'response(s) still awaiting scoring — totals below are '
+                    'response(s) still awaiting scoring - totals below are '
                     'not final.</div>')
 
             def cell(label, value, sub=""):
@@ -956,10 +938,6 @@ class EtpAssessmentEvaluator(models.Model):
             tpl.send_mail(rec.id, force_send=False)
 
     def _deliver_invitation(self):
-        """Send this candidate's invitation(s): a one-time set-password link (if
-        they've never logged in) + the day/single exam invitation. Exam mail
-        queues to the mail cron (force_send=False). Exceptions propagate so the
-        invite cron can flag this candidate 'failed'."""
         self.ensure_one()
         user = self.applicant_id.candidate_user_id
         if user and not user.login_date and not user._is_internal():
@@ -970,10 +948,6 @@ class EtpAssessmentEvaluator(models.Model):
 
     @api.model
     def _cron_send_pending_invitations(self, batch=25):
-        """Drain queued candidate invitations in committed batches so a large
-        cohort never blocks the launch request. Per-candidate savepoint+commit;
-        a failed send flags the candidate 'failed' (visible in the UI, re-queue
-        to retry) rather than aborting the whole run."""
         pending = self.search([("invite_state", "=", "queued")], limit=batch)
         for ev in pending:
             try:
@@ -996,19 +970,17 @@ class EtpAssessmentEvaluator(models.Model):
                         "Invite cron: could not flag evaluator %s failed", ev.id)
 
     def action_requeue_invitation(self):
-        """Re-queue selected candidates (e.g. after a failed send) for the cron."""
         self.filtered(lambda e: e.invite_state != "sent").write(
             {"invite_state": "queued", "invite_error": False})
 
     def action_llm_score(self):
-        """Trigger subjective scoring for this candidate; returns count scored."""
         from ..services import scoring as scoring_svc
         scored = 0
         for rec in self:
             if rec.state != "submitted":
                 raise UserError(
                     f"Candidate '{rec.applicant_id.partner_name}' has not "
-                    f"submitted — scoring runs on submitted assessments only.")
+                    f"submitted - scoring runs on submitted assessments only.")
             rec.write({"llm_state": "scoring", "llm_error": False})
             try:
                 scored += scoring_svc.score_evaluator(self.env, rec)
@@ -1025,27 +997,23 @@ class EtpAssessmentEvaluator(models.Model):
         return scored
 
     def action_queue_llm_score(self):
-        """P2-2: queue this candidate for the background grader instead of
-        calling Vertex inline in the request (a slow model blows the timeout)."""
         for rec in self:
             if rec.state != "submitted":
                 raise UserError(
                     f"Candidate '{rec.applicant_id.partner_name}' has not "
-                    f"submitted — scoring runs on submitted assessments only.")
+                    f"submitted - scoring runs on submitted assessments only.")
         self.write({"scoring_requested": True, "llm_state": "pending"})
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
                 "title": "Subjective Grading Queued",
-                "message": "Queued for the background grader — refresh shortly.",
+                "message": "Queued for the background grader - refresh shortly.",
                 "type": "success", "sticky": False,
             },
         }
 
     def action_reset_errored_scoring(self):
-        """Reset answers stuck in terminal 'error' (e.g. scored while Vertex was
-        down) back to 'pending' and re-queue; 'scored' answers are untouched."""
         reset = 0
         for rec in self:
             errored = rec.response_ids.filtered(lambda r: r.llm_state == "error")
@@ -1066,7 +1034,6 @@ class EtpAssessmentEvaluator(models.Model):
         }
 
     def action_export_responses(self):
-        """Per-candidate Export Responses: one row per answer for this candidate."""
         self.ensure_one()
         from ..services import export as export_svc
         return export_svc.export_responses(self.assessment_id, evaluator=self)
@@ -1123,7 +1090,6 @@ class EtpAssessmentEvaluator(models.Model):
         return fields.Datetime.now() > self.deadline_datetime
 
     def _apply_results_disclosure(self):
-        """Reveal results per assessment.results_release; never un-releases."""
         for rec in self:
             if rec.results_released:
                 continue
@@ -1215,8 +1181,6 @@ class EtpAssessmentResponse(models.Model):
         string="Full Scoring Result (JSON)", readonly=True, copy=False,
         help="The complete per-field v6 result object from the grader, kept "
              "for audit.")
-    # Research subjective-judge v10 component scores (promoted from
-    # llm_result_json for querying/reporting; the judge computes them 0-100).
     llm_key_closeness = fields.Float(
         string="Key Closeness (0-100)", readonly=True, copy=False,
         help="v10: how close the worker answer is to the golden answer, judged "
@@ -1233,7 +1197,7 @@ class EtpAssessmentResponse(models.Model):
         help="v10: none / medium / high. Never changes the score, a flag only.")
     llm_verdict_consistency = fields.Char(
         string="Verdict Consistency", readonly=True, copy=False,
-        help="v10: match / contradiction / indeterminate / not_applicable — "
+        help="v10: match / contradiction / indeterminate / not_applicable - "
              "does the worker's committed verdict agree with the answer key.")
     llm_golden_claims_json = fields.Text(
         string="Golden Claims (JSON)", readonly=True, copy=False,
@@ -1290,7 +1254,7 @@ class EtpAssessmentResponse(models.Model):
         string="Integrity Alert", compute="_compute_integrity_alert",
         store=True, copy=False,
         help="Read-only audit flag: True when the scoring audit signals an "
-             "integrity event — a Phase-1 gate (empty_answer/injection_attempt), "
+             "integrity event - a Phase-1 gate (empty_answer/injection_attempt), "
              "a Phase-3 answer-key drift, or an integrity/key_drift flag. "
              "Display + filter only; never affects the score or pass/fail.")
     ab_verdict_pct = fields.Float(
@@ -1312,8 +1276,6 @@ class EtpAssessmentResponse(models.Model):
 
     @staticmethod
     def _audit_json(text):
-        """Parse a stored audit JSON blob to a python object, never raising on
-        empty or malformed content (returns None instead)."""
         if not text:
             return None
         try:
@@ -1323,11 +1285,6 @@ class EtpAssessmentResponse(models.Model):
 
     @api.depends("llm_gate", "llm_flags_json", "llm_result_json")
     def _compute_integrity_alert(self):
-        """Surface (read-only) whether this answer's scoring audit signals an
-        integrity event: a Phase-1 gate (empty_answer/injection_attempt), a
-        Phase-3 key drift, or an integrity/key_drift flag in the flags/audit
-        JSON. Parsed defensively — bad/empty JSON is never an alert and never
-        crashes. Does NOT touch llm_raw_100, the mark, or pass/fail."""
         gate_alerts = ("empty_answer", "injection_attempt", "key_drift")
         flag_alerts = ("integrity_alert", "key_drift")
         for rec in self:
@@ -1353,8 +1310,6 @@ class EtpAssessmentResponse(models.Model):
 
     @staticmethod
     def _pct_from_fraction(value):
-        """Turn a stored 0..1 audit sub-score into a 0-100 percentage, defaulting
-        to 0.0 for a missing/None/non-numeric value (never raises)."""
         try:
             return round(max(0.0, float(value)) * 100.0, 2)
         except (TypeError, ValueError):
@@ -1362,10 +1317,6 @@ class EtpAssessmentResponse(models.Model):
 
     @api.depends("llm_result_json")
     def _compute_audit_subscores(self):
-        """Surface the Phase-2 (image_ab) and Phase-4 (image_label) sub-scores
-        the grader already recorded in llm_result_json, as read-only 0-100
-        percentages. These MIRROR the audit only: they never recompute or affect
-        llm_raw_100, the earned mark, or pass/fail. Absent/malformed audit -> 0."""
         for rec in self:
             audit = rec._audit_json(rec.llm_result_json)
             ab = audit.get("ab_scores") if isinstance(audit, dict) else None
@@ -1405,8 +1356,6 @@ class EtpAssessmentResponse(models.Model):
             rec.correct_summary = ", ".join(correct)
 
     def _image_ab_mcq_pct(self):
-        """image_ab verdicts, objective: the % of scoring axes whose chosen
-        verdict exactly matches the keyed verdict (no LLM)."""
         self.ensure_one()
         total = correct = 0
         for qd in self.question_id.question_dimension_ids:
@@ -1422,9 +1371,6 @@ class EtpAssessmentResponse(models.Model):
         return (correct / total * 100.0) if total else 0.0
 
     def _image_ab_uses_llm(self):
-        """image_ab needs a Vertex call ONLY when the assessment requires a
-        justification AND the candidate wrote one. Verdict-only answers (toggle
-        off, or a blank justification) are fully scored from the verdicts."""
         self.ensure_one()
         return bool(
             self.question_id.question_type == "image_ab"
@@ -1436,10 +1382,6 @@ class EtpAssessmentResponse(models.Model):
                  "question_id.question_dimension_ids.option_line_ids.is_correct",
                  "llm_raw_100", "llm_state")
     def _compute_ab_scores(self):
-        """image_ab verdict% (objective, live from the picks) and final%. Once the
-        scorer has run, final% mirrors the immutable blended llm_raw_100 (verdict
-        lane, or 0.75*verdict + 0.25*justification); before scoring it shows the
-        verdict-only estimate."""
         for rec in self:
             if rec.question_id.question_type != "image_ab":
                 rec.ab_mcq_pct = 0.0
@@ -1455,12 +1397,6 @@ class EtpAssessmentResponse(models.Model):
     @api.depends("llm_raw_100", "llm_state", "needs_llm", "ab_final_pct",
                  "question_id.question_type")
     def _compute_subjective_marks(self):
-        """Derive the earned mark, pass flag and 0-1 display score from the
-        IMMUTABLE llm_raw_100 against the LIVE per-answer threshold. Because
-        these are computed (not frozen at scoring time), changing the threshold
-        in Settings re-decides pass/fail for every already-scored answer without
-        re-running the LLM. EQUAL MARKS: max is always 1, mark is 1 when the raw
-        score clears the threshold else 0 (a gated/zero answer fails)."""
         for rec in self:
             raw_t = rec.assessment_id.subjective_threshold
             threshold = raw_t if 0.0 <= raw_t <= 100.0 \
@@ -1576,15 +1512,8 @@ class EtpAssessmentResponse(models.Model):
                 rec._check_all_submitted()
 
     def _enqueue_subjective_scoring(self):
-        """Queue needs_llm responses for subjective scoring. Scoring NEVER runs
-        inline on the candidate's submit — it is admin-triggered (Run Subjective
-        Evaluation) and drained by the cron in batches of 20. If the assessment
-        opts into auto-queue (llm_auto_score), flag the evaluator so the cron
-        picks it up next tick — still batched, never on the candidate's path.
-
-        A verdict-only image_ab (toggle off, or a blank justification) needs no
-        Vertex call: its deterministic verdict score is settled here and stored
-        as the immutable llm_raw_100 through the scorer's single-write path."""
+        # Queue only: LLM scoring must never run inline on the candidate's
+        # submit path — the cron drains it.
         from ..services import scoring as scoring_svc
         auto_eval_ids = set()
         repend_eval_ids = set()

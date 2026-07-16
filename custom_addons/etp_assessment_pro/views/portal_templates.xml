@@ -18,7 +18,7 @@
         </t>
     </template>
 
-    <template id="portal_image_zoom" name="ETP — Image Zoom Lightbox">
+    <template id="portal_image_zoom" name="ETP - Image Zoom Lightbox">
         <div id="etp-zoom-overlay" class="etp-zoom-overlay" aria-hidden="true"
              role="dialog" aria-modal="true" aria-label="Image viewer">
             <div class="etp-zoom-toolbar">
@@ -226,7 +226,7 @@
         </script>
     </template>
 
-    <template id="portal_invalid_token" name="ETP Assessment — Invalid Token">
+    <template id="portal_invalid_token" name="ETP Assessment - Invalid Token">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-state is-danger">
@@ -244,7 +244,7 @@
         </t>
     </template>
 
-    <template id="portal_assessment_closed" name="ETP Assessment — Closed">
+    <template id="portal_assessment_closed" name="ETP Assessment - Closed">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-state is-warning">
@@ -262,7 +262,7 @@
         </t>
     </template>
 
-    <template id="portal_assessment_complete" name="ETP Assessment — Complete">
+    <template id="portal_assessment_complete" name="ETP Assessment - Complete">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-result-hero etp-result-status">
@@ -280,7 +280,7 @@
                     </p>
                     <p class="etp-result-note">
                         <i class="fa fa-clock-o"/> Your responses are locked and
-                        awaiting evaluation — you'll be notified once results are
+                        awaiting evaluation - you'll be notified once results are
                         released.
                     </p>
                     <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
@@ -291,7 +291,7 @@
         </t>
     </template>
 
-    <template id="portal_instructions" name="ETP Assessment — Instructions">
+    <template id="portal_instructions" name="ETP Assessment - Instructions">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="o_etp_card_narrow etp-instructions">
@@ -365,7 +365,7 @@
                                 <p t-if="preview" class="etp-warn">
                                     <i class="fa fa-eye mt-1"/>
                                     <span>
-                                        Preview mode — you are not the assigned
+                                        Preview mode - you are not the assigned
                                         candidate. The timer will not start and no
                                         answers are saved.
                                     </span>
@@ -378,7 +378,7 @@
         </t>
     </template>
 
-    <template id="portal_question_page" name="ETP Assessment — Question Page">
+    <template id="portal_question_page" name="ETP Assessment - Question Page">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-sticky">
@@ -493,7 +493,7 @@
                                                  t-out="img.label"/>
                                             <div class="etp-image-zoomable"
                                                  tabindex="0" role="button"
-                                                 aria-label="Open image — click to zoom and inspect">
+                                                 aria-label="Open image - click to zoom and inspect">
                                                 <img class="etp-eval-image img-fluid"
                                                      draggable="false"
                                                      oncontextmenu="return false;"
@@ -548,7 +548,7 @@
                                                  t-out="img.label"/>
                                             <div class="etp-image-zoomable"
                                                  tabindex="0" role="button"
-                                                 aria-label="Open image — click to zoom and inspect">
+                                                 aria-label="Open image - click to zoom and inspect">
                                                 <img class="etp-eval-image img-fluid"
                                                      draggable="false"
                                                      oncontextmenu="return false;"
@@ -654,7 +654,7 @@
                                              t-out="label_image.label"/>
                                         <div class="etp-image-zoomable"
                                              tabindex="0" role="button"
-                                             aria-label="Open image — click to zoom and inspect">
+                                             aria-label="Open image - click to zoom and inspect">
                                             <img class="etp-eval-image img-fluid"
                                                  draggable="false"
                                                  oncontextmenu="return false;"
@@ -976,7 +976,7 @@
         </t>
     </template>
 
-    <template id="portal_review_page" name="ETP Assessment — Review">
+    <template id="portal_review_page" name="ETP Assessment - Review">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <span class="etp-eyebrow">Final step</span>
@@ -988,7 +988,7 @@
                              class="alert alert-warning etp-review-warn"
                              role="alert">
                             <i class="fa fa-exclamation-triangle me-2"/>
-                            You can't submit yet —
+                            You can't submit yet -
                             <strong><span t-out="len(unanswered)"/></strong>
                             question(s) still need an answer. Please answer
                             every question, then click Submit Assessment.
@@ -1041,7 +1041,7 @@
         </t>
     </template>
 
-    <template id="portal_wrong_candidate" name="ETP Assessment — Wrong Candidate">
+    <template id="portal_wrong_candidate" name="ETP Assessment - Wrong Candidate">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-state is-danger">
@@ -1067,7 +1067,7 @@
     </template>
 
 
-    <template id="portal_my_assessment_card" name="ETP — My Assessment Card">
+    <template id="portal_my_assessment_card" name="ETP - My Assessment Card">
         <div t-attf-class="etp-acard etp-acard--#{item['status_kind']}">
             <div class="etp-acard-main">
                 <div class="etp-acard-top">
@@ -1130,9 +1130,9 @@
                     </span>
                 </t>
                 <t t-elif="bucket == 'completed'">
-                    <div class="etp-acard-await" title="Submitted — awaiting results">
+                    <div class="etp-acard-await" title="Submitted - awaiting results">
                         <span class="etp-acard-await-icon"><i class="fa fa-check"/></span>
-                        <span class="etp-acard-await-label">Submitted — awaiting results</span>
+                        <span class="etp-acard-await-label">Submitted - awaiting results</span>
                     </div>
                 </t>
                 <t t-if="bucket == 'available'">
@@ -1159,7 +1159,7 @@
         </div>
     </template>
 
-    <template id="portal_my_assessments" name="ETP — My Assessments">
+    <template id="portal_my_assessments" name="ETP - My Assessments">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <a href="/web/session/logout?redirect=/web/login"
                class="o_etp_topbar_link">

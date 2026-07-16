@@ -72,7 +72,7 @@
         <field name="help" type="html">
             <p class="o_view_nocontent_smiley_face">No candidate results yet.</p>
             <p>Once candidates are scored, their results power these native
-               bar / pie charts and the pivot table — average score,
+               bar / pie charts and the pivot table - average score,
                pass/fail split, and objective vs subjective marks per
                assessment.</p>
         </field>
