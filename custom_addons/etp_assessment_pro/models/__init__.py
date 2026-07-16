@@ -3,6 +3,7 @@ from . import question
 from . import question_image
 from . import question_video
 from . import question_dimension
+from . import question_type
 from . import prompt
 from . import prompt_question_dimension
 from . import bank_import

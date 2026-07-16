@@ -136,7 +136,7 @@ class TestVideoPromptPhase2SopGen(_Base):
         payload = json.dumps([_video_item(), _video_item(single=True)])
         with patch.object(vertex, "_call_vertex", return_value=payload):
             draft_ids = vertex.generate_questions_from_sop(
-                self.env, prompt, force_type="video_prompt")
+                self.env, prompt, allowed_types=("video_prompt",))
         self.assertEqual(len(draft_ids), 2)
         drafts = self.Draft.browse(draft_ids)
         for d in drafts:

@@ -49,6 +49,10 @@ QUESTION_TYPE_SELECTION = [
     ("video_prompt", "Video - Prompt"),
 ]
 QUESTION_TYPE_CODES = frozenset(code for code, _label in QUESTION_TYPE_SELECTION)
+# QUESTION_TYPE_CODES is a frozenset (unordered). The generation directives and
+# the allow-list reader need a deterministic order so the prompt text is stable
+# and diffable across runs.
+QUESTION_TYPE_ORDER = tuple(code for code, _label in QUESTION_TYPE_SELECTION)
 
 OBJECTIVE_QUESTION_TYPES = frozenset({"mcq", "msq"})
 SUBJECTIVE_QUESTION_TYPES = frozenset({"subjective_rubric"})

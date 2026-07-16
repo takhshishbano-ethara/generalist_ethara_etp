@@ -18,6 +18,7 @@ from ..constants import (
     ab_flip_construction_keys, ab_specs_from_construction_keys,
     validate_flaw_plan, normalize_flaw_plan,
     QUESTION_TYPE_PROMPT_LIST,
+    QUESTION_TYPE_ORDER as _QUESTION_TYPE_ORDER,
     VERTEX_DEFAULT_LOCATION,
     VERTEX_DEFAULT_MODEL,
     GENERATION_DEFAULT_MODEL,
@@ -1149,14 +1150,21 @@ def _image_question_directive(qtype, count, ab_dims=None):
     return base + _image_type_contract(qtype, ab_dims)
 
 
-def _image_contracts_note(ab_dims=None):
-    """The image_specs OUTPUT CONTRACTS appended to the GENERIC multi-type SOP
-    directive so every image item the model chooses to author is well-formed —
-    crucially image_ab's flaw_plan — and survives _validate_question_item instead
-    of being dropped as malformed."""
+def _image_contracts_note(ab_dims=None, types=None):
+    """The image_specs OUTPUT CONTRACTS appended to a multi-type SOP directive so
+    every image item the model authors is well-formed — crucially image_ab's
+    flaw_plan — and survives _validate_question_item instead of being dropped as
+    malformed. ``types=None`` covers every image/video type (the generic path,
+    byte-identical to the historical hardcoded tuple, since QUESTION_TYPE_ORDER
+    filtered by _IMAGE_OR_VIDEO_TYPES is exactly that tuple); a set restricts the
+    contracts to the image/video types present in an allow-list."""
+    wanted = [qt for qt in _QUESTION_TYPE_ORDER
+              if qt in _IMAGE_OR_VIDEO_TYPES and (types is None or qt in types)]
+    if not wanted:
+        return ""
     contracts = " ".join(
         "For %s items: %s" % (qt, _image_type_contract(qt, ab_dims))
-        for qt in ("image_ab", "image_prompt", "image_label", "video_prompt"))
+        for qt in wanted)
     return (
         "\n\nIMAGE-TYPE OUTPUT CONTRACTS (mandatory whenever you author an image "
         "question — an image item whose image_specs does not match the shape "
@@ -2041,7 +2049,7 @@ def _sample_doc_parts(prompt_record):
     return [part] if part else []
 
 
-_FORCED_TYPE_SPEC = {
+_TEXT_TYPE_SPEC = {
     "mcq": "options (>=3 strings) and correct_answer (exactly one option)",
     "msq": "options (>=4 strings) and correct_answer (a list of the correct options)",
     "subjective_rubric": "rubric = {checklist, constraints, pass_condition}",
@@ -2071,7 +2079,7 @@ def _forced_type_directive(force_type, count, ab_dims=None):
                 + _image_question_directive(force_type, n, ab_dims=ab_dims)
                 + _ENVELOPE_REMINDER
                 + _SELF_CONTAINED_RULE)
-    spec = _FORCED_TYPE_SPEC.get(force_type, "")
+    spec = _TEXT_TYPE_SPEC.get(force_type, "")
     return (f"Generate EXACTLY {n} question(s). EVERY item's question_type MUST be "
             f'exactly "{force_type}" — do NOT produce any other type. For EACH item '
             "provide " + spec + "." + _ENVELOPE_REMINDER
@@ -2183,16 +2191,84 @@ def _capture_sop_metadata(env, prompt_record, raw):
     except Exception as exc:  # noqa: BLE001
         _logger.warning("etp_assessment metadata capture skipped: %s",
                         repr(exc)[:160])
+def _text_contracts_note(types):
+    """The answer-key shapes for the TEXT types in an allow-list — the text twin of
+    _image_contracts_note, so a MIXED text+image set gets BOTH halves of its
+    contract. Empty when the allow-list has no text types."""
+    wanted = [qt for qt in _QUESTION_TYPE_ORDER
+              if qt in _TEXT_TYPE_SPEC and qt in types]
+    if not wanted:
+        return ""
+    contracts = " ".join(
+        "For %s items provide %s." % (qt, _TEXT_TYPE_SPEC[qt]) for qt in wanted)
+    return ("\n\nTEXT-TYPE OUTPUT CONTRACTS (mandatory for each text item you "
+            "author): " + contracts)
+
+
+def _allowed_types_directive(allowed, count, ab_dims=None):
+    """EXCLUSIVE directive for an allow-list run: every item's question_type must be
+    one of ``allowed`` (an ordered, deduped, already-validated tuple of >=1 codes),
+    with the output contract for EVERY allowed type merged in. A single-element
+    list returns _forced_type_directive's exact PROMPT TEXT (the emitted directive
+    is bit-identical to the old forced run); note the applier still differs — it
+    FILTERS out-of-list items rather than OVERRIDING their type (see
+    _resolve_item_type). A mixed text+image list emits BOTH the text and image
+    contracts and lets the model pick the best type per item; any item whose type
+    is outside the list is dropped downstream by _resolve_item_type."""
+    if len(allowed) == 1:
+        return _forced_type_directive(allowed[0], count, ab_dims=ab_dims)
+    type_list = ", ".join('"%s"' % t for t in allowed)
+    count_clause = f"Generate approximately {count} question(s). " if count else ""
+    return (
+        count_clause
+        + "EVERY item's question_type MUST be one of [" + type_list + "] — do "
+        "NOT produce any other type; an item of any other type is DISCARDED. "
+        "Choose the best-fitting allowed type per item, and use EVERY allowed "
+        "type at least once across the batch where the SOP supports it. "
+        "Return ONLY a JSON array, no markdown."
+        + _text_contracts_note(allowed)
+        + _image_contracts_note(ab_dims, types=allowed)
+        + _SELF_CONTAINED_RULE)
+
+
+def _resolve_item_type(item, allowed):
+    """The question_type to persist for one generated item, or None to DROP it.
+
+    No allow-list -> today's behaviour (unknown/missing type defaults to mcq).
+    With an allow-list the list is a FILTER, not an override: an out-of-list item
+    is DROPPED, never restamped — its payload is shaped for the type the model
+    chose, so restamping either fails _validate_question_item (image types) or,
+    worse, passes with the wrong answer-key shape (an mcq payload stamped msq). A
+    single-type allow-list keeps the old convenience of stamping an item whose
+    type is missing/garbled, since the intent is unambiguous.
+
+    NOTE: this matches the old single-forced behaviour for the common case, but it
+    FILTERS rather than OVERRIDES — an item the model authored as a different but
+    valid type is dropped (not relabelled), which the old forced path would have
+    stamped-then-usually-dropped-as-malformed. Same net persistence, cleaner log."""
+    raw = item.get("question_type")
+    # isinstance guard: a model may return a non-string question_type (e.g. a list
+    # ["mcq"]); `x in <frozenset>` would raise TypeError: unhashable and abort the
+    # WHOLE batch. Treat any non-string as "no usable type" and let the rules below
+    # drop or default it, keeping the batch's other valid items.
+    qtype = raw if isinstance(raw, str) and raw in _QUESTION_TYPES else None
+    if not allowed:
+        return qtype or "mcq"
+    if qtype is None and len(allowed) == 1:
+        return allowed[0]
+    return qtype if qtype in allowed else None
 
 
 def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
-                                force_type=""):
+                                allowed_types=()):
     """SKILL-FREE generation: send the SOP document(s) NATIVELY (with their
     images/layout) plus an optional sample-question format, and let the best
     multimodal model author questions directly following the format IN the SOP.
-    When ``force_type`` is a valid question type, every item is pinned to it.
-    Reuses the same parse / validate / draft-creation pipeline as
-    generate_questions, minus the per-skill machinery."""
+    When ``allowed_types`` is a non-empty tuple of valid codes, every item is
+    restricted to those types (the model still picks the best fit per item; a
+    single-element tuple reproduces the old forced-type behaviour). Reuses the
+    same parse / validate / draft-creation pipeline, minus the per-skill
+    machinery."""
     doc_parts = _sop_doc_parts(prompt_record.resource_ids)
     sample_parts = _sample_doc_parts(prompt_record)
     has_sample = bool(sample_parts or sample_text)
@@ -2202,10 +2278,22 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "No SOP document or notes to generate from — upload a SOP file first.")
     system_prompt = _get_question_prompt(env)
     model = _generation_model(env)
-    forced = force_type if force_type in _QUESTION_TYPES else ""
+    allowed = tuple(dict.fromkeys(allowed_types or ()))
+    # A valid entry must be a known code string. Non-strings (e.g. None/False from a
+    # blank Selection) count as unknown so the gate still fails CLOSED with a clear
+    # ValueError — repr() keeps sorted()/join() from choking on a None entry.
+    unknown = [t for t in allowed
+               if not (isinstance(t, str) and t in _QUESTION_TYPES)]
+    if unknown:
+        # Fail CLOSED: an unknown code means constants and the DB disagree (a type
+        # retired without a migration). The cron writes this to sop_gen_error and
+        # the form surfaces it — far better than silently dropping the allow-list.
+        raise ValueError(
+            "Unknown question type(s) in the generation allow-list: %s"
+            % ", ".join(sorted(map(repr, unknown))))
     ab_dims = _ab_fallback_dims()
-    if forced:
-        directive = _forced_type_directive(forced, count, ab_dims=ab_dims)
+    if allowed:
+        directive = _allowed_types_directive(allowed, count, ab_dims=ab_dims)
     else:
         directive = (
         "The attached document is a SOP that contains the test content, any "
@@ -2281,13 +2369,19 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             items = []
     PromptQuestion = env["etp.assessment.pro.prompt.question"].sudo()
     draft_ids = []
+    dropped_out_of_scope = 0
     for it in items:
         name = (it.get("name") or it.get("title") or "").strip()
         prompt_text = (it.get("prompt") or "").strip()
         if not name and not prompt_text:
             continue
-        qtype = forced or (it.get("question_type")
-            if it.get("question_type") in _QUESTION_TYPES else "mcq")
+        qtype = _resolve_item_type(it, allowed)
+        if qtype is None:
+            dropped_out_of_scope += 1
+            _logger.warning(
+                "etp_assessment (SOP) dropped out-of-scope %r item; allow-list=%s",
+                it.get("question_type"), ",".join(allowed))
+            continue
         if _item_cites_source(it):
             _logger.warning(
                 "etp_assessment (SOP) dropped source-citing %s item", qtype)
@@ -2343,8 +2437,9 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             })
         draft_ids.append(PromptQuestion.create(vals).id)
     _logger.info(
-        "etp_assessment generated %s drafts from SOP on prompt=%s",
-        len(draft_ids), prompt_record.id)
+        "etp_assessment generated %s drafts from SOP on prompt=%s "
+        "(%s dropped as out-of-scope for the allow-list)",
+        len(draft_ids), prompt_record.id, dropped_out_of_scope)
     return draft_ids
 
 

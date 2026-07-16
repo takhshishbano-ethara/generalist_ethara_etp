@@ -24,3 +24,4 @@ from . import test_video_prompt_phase2
 from . import test_video_prompt_phase3
 from . import test_video_prompt_draft_preview
 from . import test_llm_dashboard_projects
+from . import test_gen_type_allow_list

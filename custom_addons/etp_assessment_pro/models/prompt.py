@@ -4,7 +4,7 @@ import logging
 from markupsafe import Markup, escape
 
 from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 from ..constants import (
     QUESTION_TYPE_SELECTION, DIFFICULTY_SELECTION, IMAGE_QUESTION_TYPES,
@@ -47,7 +47,7 @@ class EtpAssessmentPrompt(models.Model):
     state = fields.Selection(
         [
             ("draft", "Draft"),
-            ("skills_ready", "Skills Extracted"),
+            ("skills_ready", "Tags Extracted"),
             ("generating", "Generating"),
             ("done", "Done"),
         ],
@@ -65,7 +65,7 @@ class EtpAssessmentPrompt(models.Model):
             ("failed", "Failed"),
         ],
         default="idle", copy=False, string="Extraction State",
-        help="Skill extraction runs in the background: clicking Extract Skills "
+        help="Tag extraction runs in the background: clicking Extract Tags "
              "queues it and a cron does the (slow) LLM call OFF the web request. "
              "This is what prevents the 'cursor already closed' crash on managed "
              "Postgres, where a long in-request call lets the DB connection be "
@@ -76,7 +76,7 @@ class EtpAssessmentPrompt(models.Model):
         [("idle", "Idle"), ("queued", "Queued"), ("generating", "Generating"),
          ("done", "Done"), ("failed", "Failed")],
         default="idle", copy=False, string="SOP Generation",
-        help="Skill-free path: the SOP document is sent natively to the "
+        help="The SOP document is sent natively to the "
              "multimodal model which authors questions directly per the format "
              "in the SOP. Runs in the background (a cron does the slow call off "
              "the web request).")
@@ -190,10 +190,27 @@ class EtpAssessmentPrompt(models.Model):
     sop_question_count = fields.Integer(
         string="Questions to Generate", default=0,
         help="0 = let the model decide from the SOP; otherwise a target count.")
+    # Do not remove: dropping this field drops its DB column (user data), and the
+    # 19.0.1.103.0 post-migrate reads it to seed allowed_question_type_ids. Kept
+    # as a legacy shadow, still honoured by _allowed_question_types() for rows an
+    # integration writes directly. Sunset in a later major.
     force_question_type = fields.Selection(
-        QUESTION_TYPE_SELECTION, string="Force Question Type",
-        help="Force EVERY generated question to this exact type (e.g. "
-             "Image - Labelling). Leave empty to let the model choose per the SOP.")
+        QUESTION_TYPE_SELECTION, string="Force Question Type (legacy)",
+        help="Deprecated: replaced by the Generate Only These Types allow-list.")
+    allowed_question_type_ids = fields.Many2many(
+        "etp.assessment.pro.question.type",
+        relation="etp_pro_prompt_allowed_qtype_rel",
+        column1="prompt_id", column2="qtype_id",
+        string="Generate only these types",
+        help="Allow-list: the generator may author ONLY these question types, "
+             "choosing the best fit per item. Leave empty to let the model "
+             "choose freely per the SOP.")
+    # Transient one-click "Select all" toggle: an onchange loads every question
+    # type then resets it, so it acts as a momentary button that works on an
+    # unsaved record (an onchange runs client-side — no save-first like a button).
+    select_all_types = fields.Boolean(
+        string="Select all types", copy=False,
+        help="Tick to load every question type at once; it resets immediately.")
     quick_upload_file = fields.Binary(string="Upload SOP / Doc")
     quick_upload_filename = fields.Char()
     upload_sop_file = fields.Binary(string="Upload SOP")
@@ -294,6 +311,71 @@ class EtpAssessmentPrompt(models.Model):
             )
         return "\n\n".join(parts)
 
+    def _allowed_question_types(self):
+        """Ordered, deduped allow-list of the question types this generator may
+        author; () means unconstrained (the model picks per the SOP).
+
+        Sorts the linked vocabulary rows by (sequence, id) so the generation
+        directive is stable across runs regardless of M2M read order, then maps
+        to their taxonomy `code`. Falls back to the legacy scalar
+        force_question_type when nothing is linked, so a value written by an
+        older integration still forces its type."""
+        self.ensure_one()
+        # Sort explicitly rather than trust the M2M read order: an M2M just
+        # written in the same transaction can read back in link/creation order.
+        codes = list(dict.fromkeys(
+            self.allowed_question_type_ids
+                .sorted(lambda t: (t.sequence, t.id)).mapped("code")))
+        if not codes and self.force_question_type:
+            codes = [self.force_question_type]
+        return tuple(codes)
+
+    # ---- allow-list / count guardrails ------------------------------------
+    def _raise_count_to_type_floor(self):
+        """Silently keep Questions to Generate >= the number of selected types,
+        so each selected type can appear at least once. The count field visibly
+        updates and a persistent helper explains it (a modal on every bump would
+        nag when types are added one by one). A count of 0 ("let the model
+        decide") is exempt. Idempotent: bumping to n where n >= n converges, so
+        re-running it from a dependent onchange can't loop."""
+        self.ensure_one()
+        n = len(self.allowed_question_type_ids)
+        if self.sop_question_count and self.sop_question_count < n:
+            self.sop_question_count = n
+
+    @api.onchange("allowed_question_type_ids", "sop_question_count")
+    def _onchange_min_questions_for_types(self):
+        """Keep the count and the selection consistent live. Re-runs whenever
+        either changes, so it can't get stuck when the user edits the types."""
+        self._raise_count_to_type_floor()
+
+    @api.onchange("select_all_types")
+    def _onchange_select_all_types(self):
+        """One-click select-all: load every active question type, then reset the
+        transient toggle so it behaves like a momentary button."""
+        if self.select_all_types:
+            self.allowed_question_type_ids = self.env[
+                "etp.assessment.pro.question.type"].search([])
+            self.select_all_types = False
+            self._raise_count_to_type_floor()
+
+    @api.constrains("sop_question_count", "allowed_question_type_ids")
+    def _check_question_count(self):
+        """Backstop for writes that skip onchange (RPC, CSV import): the count
+        must be a valid non-negative integer and, when types are pinned, at least
+        one per selected type."""
+        for rec in self:
+            if rec.sop_question_count < 0:
+                raise ValidationError(
+                    "Questions to Generate cannot be negative.")
+            n = len(rec.allowed_question_type_ids)
+            if rec.sop_question_count and rec.sop_question_count < n:
+                raise ValidationError(
+                    "Questions to Generate (%d) is less than the %d selected "
+                    "question types. Set it to at least %d, remove some types, "
+                    "or set it to 0 to let the model decide the count."
+                    % (rec.sop_question_count, n, n))
+
     def action_generate_from_sop(self):
         """One-click SKILL-FREE generation: queue the SOP for the background cron,
         which sends the document natively (images included) to the best
@@ -345,7 +427,7 @@ class EtpAssessmentPrompt(models.Model):
                     draft_ids = vertex.generate_questions_from_sop(
                         self.env, prompt,
                         count=prompt.sop_question_count or 0,
-                        force_type=(prompt.force_question_type or ""))
+                        allowed_types=prompt._allowed_question_types())
                     # Persist the drafts in their OWN commit before the contended
                     # final state write. The drafts touch only the child table, so
                     # this commit never races the prompt row; a serialization race
@@ -490,6 +572,17 @@ class EtpAssessmentPrompt(models.Model):
             "tag_extract_state": "done",
         })
         return tags
+
+    def action_approve_all_drafts(self):
+        """Approve every pending draft question of this generator into the bank in
+        one click. The Drafts table otherwise only offers per-row / per-selection
+        approval, so a large batch is dozens of clicks."""
+        self.ensure_one()
+        drafts = self.question_ids.filtered(lambda r: r.state == "draft")
+        if not drafts:
+            raise UserError("There are no pending drafts to approve.")
+        drafts.action_approve()
+        return True
 
     def action_extract_tags(self):
         """Extract this SOP's semantic tags NOW (synchronously) and store them, so

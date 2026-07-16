@@ -13,21 +13,21 @@
               parent="menu_etp_assessment_pro_root"
               action="action_etp_assessment"
               groups="etp_assessment_pro.group_assessment_manager"
-              sequence="5"/>
+              sequence="25"/>
 
     <menuitem id="menu_etp_assessment_pro_question"
               name="Questions"
               parent="menu_etp_assessment_pro_root"
               action="action_etp_assessment_pro_question"
               groups="etp_assessment_pro.group_assessment_manager"
-              sequence="20"/>
+              sequence="15"/>
 
     <menuitem id="menu_etp_assessment_pro_prompt"
               name="Generators"
               parent="menu_etp_assessment_pro_root"
               action="action_etp_assessment_pro_prompt"
               groups="etp_assessment_pro.group_assessment_manager"
-              sequence="30"/>
+              sequence="5"/>
 
     <menuitem id="menu_etp_assessment_pro_responses"
               name="All Responses"

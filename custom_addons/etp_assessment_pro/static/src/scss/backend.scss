@@ -149,6 +149,87 @@
 }
 
 /* =======================================================================
+   GENERATOR FORM — SOP-first flow, boxed config panel, status cluster.
+   The prompt form was task-hostile: the mandatory SOP upload was buried
+   in a tab, and the two config inputs (allowed types chips + extra-notes
+   textarea) rendered as borderless placeholder text. These rules give the
+   config region a real card, draw resting boxes around the two controls,
+   and dim the read-only status cluster. All scoped under .o_etp_backend.
+   ======================================================================= */
+.o_etp_backend {
+    /* the promoted, required SOP uploader — a soft highlighted slab */
+    .o_etp_sop_upload {
+        background: var(--etp-surface-2);
+        border: 1px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+    }
+
+    /* the "Generation controls" card wraps every run knob */
+    .o_etp_panel {
+        background: var(--etp-surface-2);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+        padding: 1.1rem 1.4rem 1.35rem;
+        margin: 0.5rem 0 0.25rem;
+
+        /* first heading sits flush with the card top */
+        > .o_horizontal_separator:first-child { margin-top: 0; }
+    }
+
+    /* resting input box for the chips + textarea (they had none) */
+    .o_etp_control {
+        border: 1px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+        background: var(--etp-surface);
+        padding: 0.4rem 0.65rem;
+        box-shadow: var(--etp-shadow-sm);
+        transition: border-color var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease);
+    }
+    .o_etp_control:focus-within {
+        border-color: var(--etp-accent);
+        box-shadow: 0 0 0 0.18rem var(--etp-accent-ring);
+    }
+    /* fields fill the box; their own inner borders are flattened so the
+       wrapper owns the single visible frame */
+    .o_etp_control .o_field_widget { width: 100%; }
+    .o_etp_control .o_field_many2many_tags { min-height: 2rem; }
+    .o_etp_control .o_input,
+    .o_etp_control input.o_input {
+        border: 0 !important;
+        box-shadow: none !important;
+        padding: 0.1rem 0;
+    }
+    .o_etp_control textarea.o_input {
+        min-height: 6.25rem;
+        resize: vertical;
+        border: 0 !important;
+        box-shadow: none !important;
+        padding: 0.1rem 0;
+    }
+
+    /* dimmed status cluster — "things the system reports", not inputs */
+    .o_etp_status .o_form_label {
+        color: var(--etp-faint);
+        font-weight: 500;
+    }
+}
+
+/* section separators win the type tier over Odoo's default uppercase, so
+   title (1.65rem) > separator (1.05rem) > label > helper reads as steps.
+   Odoo's own selector is more specific + forces uppercase, so !important is
+   required here (the module's lower-specificity rule above already lost). */
+.o_etp_backend .o_form_sheet .o_horizontal_separator,
+.o_etp_backend .o_etp_panel .o_horizontal_separator {
+    text-transform: none !important;
+    font-size: 1.05rem !important;
+    font-weight: 700;
+    color: var(--etp-ink);
+    letter-spacing: -0.005em;
+}
+
+/* =======================================================================
    FORM HEADER + STATUSBAR — branded ribbon
    ======================================================================= */
 .o_etp_backend {

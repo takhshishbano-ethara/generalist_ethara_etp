@@ -390,10 +390,13 @@
                             <span class="etp-qcount">
                                 <b t-out="current_index"/> / <span t-out="total_questions"/>
                             </span>
-                            <span t-if="deadline_iso" class="badge bg-warning text-dark etp-timer"
-                                  id="etp-timer" t-att-data-deadline="deadline_iso">
+                            <span t-if="deadline_iso" class="badge bg-light text-dark border etp-timer"
+                                  id="etp-timer" role="timer" aria-label="Time remaining"
+                                  t-att-data-deadline="deadline_iso">
                                 --:--
                             </span>
+                            <span t-if="deadline_iso" id="etp-timer-alert"
+                                  class="visually-hidden" aria-live="assertive"/>
                         </div>
                     </div>
                     <div class="progress etp-progress etp-progress--live"
@@ -809,20 +812,37 @@
                         }
                         // Countdown timer. data-deadline is UTC ISO 8601.
                         var t = document.getElementById('etp-timer');
+                        var tAlert = document.getElementById('etp-timer-alert');
                         if (t &amp;&amp; t.dataset.deadline) {
                             var deadline = new Date(t.dataset.deadline);
-                            var fired = false;
+                            var fired = false, warned5 = false, warned1 = false;
+                            function announce(msg) {
+                                if (tAlert) { tAlert.textContent = msg; }
+                            }
                             function tick() {
                                 var ms = deadline - new Date();
                                 if (ms &lt;= 0) {
                                     t.textContent = '00:00';
-                                    t.classList.remove('bg-warning');
-                                    t.classList.add('bg-danger', 'text-white');
+                                    t.classList.remove('bg-light', 'bg-warning', 'text-dark', 'border', 'etp-timer-warn');
+                                    t.classList.add('bg-danger', 'text-white', 'etp-timer-critical');
                                     if (!fired) {
                                         fired = true;
+                                        announce('Time is up. Submitting your assessment.');
                                         document.getElementById('etp-response-form').submit();
                                     }
                                     return;
+                                }
+                                // Low-time warnings: amber emphasis at 5 min, red at 1 min.
+                                if (ms &lt;= 60000 &amp;&amp; !warned1) {
+                                    warned1 = true;
+                                    t.classList.remove('bg-light', 'bg-warning', 'border');
+                                    t.classList.add('bg-danger', 'text-white', 'etp-timer-critical');
+                                    announce('One minute remaining.');
+                                } else if (ms &lt;= 300000 &amp;&amp; !warned5) {
+                                    warned5 = true;
+                                    t.classList.remove('bg-light', 'border');
+                                    t.classList.add('bg-warning', 'etp-timer-warn');
+                                    announce('Five minutes remaining.');
                                 }
                                 var mm = Math.floor(ms / 60000);
                                 var ss = Math.floor((ms % 60000) / 1000);

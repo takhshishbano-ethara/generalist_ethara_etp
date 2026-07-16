@@ -124,7 +124,7 @@ class TestBugBSopGenSerializationResilience(TransactionCase):
             "source_text": "Author some questions.",
             "sop_gen_state": "queued"})
 
-        def fake_gen(env, prompt_rec, count=0, force_type=""):
+        def fake_gen(env, prompt_rec, count=0, allowed_types=()):
             ids = []
             for i in range(2):
                 ids.append(env["etp.assessment.pro.prompt.question"].sudo().create({

@@ -75,9 +75,6 @@
                     <field name="answer_key_preview" widget="html"
                            invisible="not has_answer_key"/>
                     <notebook>
-                        <page string="Skills">
-                            
-                        </page>
                         <page string="Dimensions">
                             <div class="alert alert-info" role="alert"
                                  invisible="not has_answer_key">
