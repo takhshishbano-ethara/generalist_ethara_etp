@@ -79,7 +79,7 @@
                    warning — parked, waiting on another human to act
                    success — done       danger — dead -->
           <!-- status_label, not status: the list mixes both stages, and one Selection
-               label is wrong for half the rows (a stage-2 row must read "Pass It K
+               label is wrong for half the rows (a stage-2 row must read "Pass @ K
                Generated", not "Baseline Generated"). The raw value still drives the
                colours. -->
           <field name="status" column_invisible="1"/>
@@ -126,7 +126,8 @@
       <field name="name">kensei2.tracker.allocation.form</field>
       <field name="model">kensei2.tracker.allocation</field>
       <field name="arch" type="xml">
-        <form string="Task Allocation" class="o_kensei2_alloc_form">
+        <form string="Task Allocation" class="o_kensei2_alloc_form"
+              js_class="kensei2_tracker_autosave">
           <header>
             <button name="action_hand_off" type="object" string="Hand off to Stage 2"
                     class="btn-primary" icon="fa-share"
@@ -139,6 +140,12 @@
                     class="btn-secondary" icon="fa-undo"
                     confirm="Reopening withdraws this task's completion: its delivery date is cleared and it drops back into the pipeline. Continue?"
                     invisible="status not in ('deliverable', 'failed')"
+                    groups="kensei2.group_kensei2_ql"/>
+            <!-- Reset THIS stage only: clears this stage's inputs, leaves the others.
+                 Blocked (with a message) if a later stage was built on this one. -->
+            <button name="action_reset_stage" type="object" string="Reset Stage"
+                    class="btn-secondary text-danger" icon="fa-eraser"
+                    confirm="Reset THIS stage? Its inputs — drive link, QC results, scores and notes for this stage only — will be permanently erased and the stage starts again from the beginning. Other stages are unchanged. This cannot be undone."
                     groups="kensei2.group_kensei2_ql"/>
             <!-- Reset is NOT Reopen. Reopen un-freezes one stage and keeps its work;
                  this DESTROYS the work on every stage and starts the task over. It is
@@ -160,7 +167,7 @@
                  failed task still shows Failed — it just no longer takes up a slot on
                  every healthy one. -->
             <!-- One bar PER STAGE — and each stage names the trajectory step its own
-                 way: stage 1 says Baseline, stage 2 says Pass It K. Same stored values;
+                 way: stage 1 says Baseline, stage 2 says Pass @ K. Same stored values;
                  `stage2_status` is just `status` under stage 2's labels. -->
             <field name="status" widget="kensei2_statusbar" invisible="stage_no == 2"
                    statusbar_visible="in_progress,tasker_qc_completed,ready_baseline,baseline_generated,manual_qc,ready_next_stage"/>
@@ -199,6 +206,10 @@
             <field name="is_final_stage" invisible="1"/>
             <field name="has_stage_2" invisible="1"/>
             <field name="is_locked" invisible="1"/>
+            <field name="is_doc_locked" invisible="1"/>
+            <field name="days_in_status" invisible="1"/>
+            <field name="qc_candidate_ids" invisible="1"/>
+            <field name="pl_candidate_ids" invisible="1"/>
 
             <!-- A FRESH STAGE 2 IS EMPTY ON PURPOSE, and without saying so it reads as
                  data loss: the hand-off drops you straight onto this record, every field
@@ -207,7 +218,7 @@
             <div class="alert alert-info" role="alert"
                  invisible="stage_no != 2 or status != 'ready_baseline'">
               <i class="fa fa-info-circle me-1"/>This is <b>Stage 2</b>, and it starts empty
-              on purpose — stage 2 generates its <b>own</b> Pass It K trajectory and QCs it.
+              on purpose — stage 2 generates its <b>own</b> Pass @ K trajectory and QCs it.
               <b>Nothing has been lost:</b> stage 1's drive link, scores and QC are intact on
               the <b>Stage 1</b> tab.
             </div>
@@ -237,6 +248,11 @@
               stage before changing them.
             </div>
 
+            <!-- Guided stepper: one glance at where this stage is, what's next, and
+                 how long it has been parked. Replaces the per-step "do X to unlock Y"
+                 hints that used to be scattered through the sub-tabs. -->
+            <widget name="kensei2_tracker_stepper"/>
+
             <group>
               <group string="Task Details">
                 <!-- One record = one stage = one tasker. The label follows the stage
@@ -257,6 +273,7 @@
               <group string="Assignment">
                 <field name="assigned_pl_id" string="PL"
                        readonly="not is_manager"
+                       domain="[('id', 'in', pl_candidate_ids)]"
                        options="{'no_create': True, 'no_open': True}"/>
                 <field name="assigned_ql_id" string="QL" readonly="1"/>
                 <field name="function" readonly="1"/>
@@ -299,7 +316,7 @@
                     <field name="s1_overall_score" string="Overall (%)" readonly="1"/>
                     <field name="s1_date_final" string="Completed On" readonly="1"/>
                   </group>
-                  <group string="Stage 2 — Pass It K &amp; QC">
+                  <group string="Stage 2 — Pass @ K and QC">
                     <div class="text-muted" colspan="2" invisible="has_stage_2">
                       <i class="fa fa-hourglass-half me-1"/>Not started — stage 2 is
                       assigned once every stage 1 step is complete.
@@ -312,9 +329,9 @@
                            invisible="not has_stage_2" options="{'no_open': True}"/>
                     <field name="s2_status" string="Status" readonly="1"
                            invisible="not has_stage_2"/>
-                    <field name="s2_baseline_drive_link" string="Pass It K Link"
+                    <field name="s2_baseline_drive_link" string="Pass @ K Link"
                            widget="url" readonly="1" invisible="not has_stage_2"/>
-                    <field name="s2_baseline_gen_status" string="Pass It K Generation"
+                    <field name="s2_baseline_gen_status" string="Pass @ K Generation"
                            readonly="1" invisible="not has_stage_2"/>
                     <field name="s2_manual_qc_status" string="Manual QC" readonly="1"
                            invisible="not has_stage_2"/>
@@ -361,7 +378,9 @@
                 </group>
 
                 <group string="Notes">
-                  <field name="notes" nolabel="1"
+                  <!-- colspan=2 so the textarea spans the group's full width instead
+                       of just the value column (which left it half-width). -->
+                  <field name="notes" nolabel="1" colspan="2"
                          placeholder="Progress notes, blockers, context…"/>
                 </group>
               </page>
@@ -383,37 +402,30 @@
                        which is already finished, so they are always shown. -->
                   <page string="1. Tasker QC" name="page_s1_tasker_qc">
                     <group invisible="stage_no != 1">
-                      <field name="drive_link" widget="url" readonly="is_locked"
+                      <field name="drive_link" widget="kensei2_drive_link" readonly="is_locked"
                              placeholder="https://drive.google.com/…" force_save="1"/>
                       <field name="tasker_qc_notes" readonly="is_locked" placeholder="Notes for this stage…" force_save="1"/>
                     </group>
-                    <div class="text-muted small mt-2"
-                         invisible="stage_no != 1 or drive_link">
-                      <i class="fa fa-lock me-1"/>Add the <b>Drive Link</b> to unlock
-                      <b>2. PL Verification</b>.
-                    </div>
                     <group invisible="stage_no == 1">
                       <field name="s1_drive_link" widget="url" readonly="1"/>
                       <field name="s1_tasker_qc_notes" readonly="1"/>
                     </group>
                   </page>
 
-                  <page string="2. PL Verification" name="page_s1_pl_verification"
-                        invisible="stage_no == 1 and not drive_link">
+                  <page string="2. PL Verification" name="page_s1_pl_verification">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or drive_link">
+                      <i class="fa fa-lock me-1"/>Locked — add the <b>Drive Link</b> in
+                      <b>1. Tasker QC</b> to start PL Verification.
+                    </div>
                     <group invisible="stage_no != 1">
-                      <field name="pl_verified_status" readonly="is_locked or not drive_link" force_save="1"/>
-                      <field name="pl_verified_reason" readonly="is_locked"
+                      <field name="pl_verified_status" readonly="is_doc_locked or not drive_link" force_save="1"/>
+                      <field name="pl_verified_reason" readonly="is_doc_locked"
                              invisible="pl_verified_status != 'failed'"
-                             required="pl_verified_status == 'failed'"
                              placeholder="Reason for failure…" force_save="1"/>
-                      <field name="pl_verified_notes" readonly="is_locked or not drive_link"
+                      <field name="pl_verified_notes" readonly="is_doc_locked or not drive_link"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
-                    <div class="text-muted small mt-2"
-                         invisible="stage_no != 1 or pl_verified_status == 'done'">
-                      <i class="fa fa-lock me-1"/>Mark <b>PL Verification</b> as
-                      <b>Done</b> to unlock <b>3. Ready for Baseline</b>.
-                    </div>
                     <group invisible="stage_no == 1">
                       <field name="s1_pl_verified_status" readonly="1"/>
                       <field name="s1_pl_verified_reason" readonly="1"
@@ -422,24 +434,22 @@
                     </group>
                   </page>
 
-                  <page string="3. Ready for Baseline" name="page_s1_ready_baseline"
-                        invisible="stage_no == 1 and pl_verified_status != 'done'">
+                  <page string="3. Ready for Baseline" name="page_s1_ready_baseline">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or pl_verified_status == 'done'">
+                      <i class="fa fa-lock me-1"/>Locked — mark <b>PL Verification</b>
+                      as <b>Done</b> to unlock this step.
+                    </div>
                     <group invisible="stage_no != 1">
                       <field name="baseline_ready_status"
-                             readonly="is_locked or pl_verified_status != 'done'" force_save="1"/>
-                      <field name="baseline_ready_reason" readonly="is_locked"
+                             readonly="is_doc_locked or pl_verified_status != 'done'" force_save="1"/>
+                      <field name="baseline_ready_reason" readonly="is_doc_locked"
                              invisible="baseline_ready_status != 'failed'"
-                             required="baseline_ready_status == 'failed'"
                              placeholder="Reason for failure…" force_save="1"/>
                       <field name="baseline_ready_notes"
-                             readonly="is_locked or pl_verified_status != 'done'"
+                             readonly="is_doc_locked or pl_verified_status != 'done'"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
-                    <div class="text-muted small mt-2"
-                         invisible="stage_no != 1 or baseline_ready_status == 'done'">
-                      <i class="fa fa-lock me-1"/>Sign off <b>Ready for Baseline</b> as
-                      <b>Done</b> to unlock <b>4. Baseline Trajectory</b>.
-                    </div>
                     <group invisible="stage_no == 1">
                       <field name="s1_baseline_ready_status" readonly="1"/>
                       <field name="s1_baseline_ready_reason" readonly="1"
@@ -448,38 +458,43 @@
                     </group>
                   </page>
 
-                  <page string="4. Baseline Trajectory" name="page_s1_baseline_trajectory"
-                        invisible="stage_no == 1 and baseline_ready_status != 'done'">
+                  <page string="4. Baseline Trajectory" name="page_s1_baseline_trajectory">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or baseline_ready_status == 'done'">
+                      <i class="fa fa-lock me-1"/>Locked — sign off <b>Ready for
+                      Baseline</b> as <b>Done</b> to unlock this step.
+                    </div>
                     <group invisible="stage_no != 1">
                       <group string="Trajectory">
-                        <field name="baseline_drive_link" widget="url" readonly="is_locked"
+                        <field name="baseline_drive_link" widget="kensei2_drive_link" readonly="is_locked or baseline_ready_status != 'done'"
                                placeholder="https://drive.google.com/…" force_save="1"/>
                         <field name="baseline_gen_status"
-                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
-                        <field name="baseline_gen_reason" readonly="is_locked"
+                               readonly="is_doc_locked or not baseline_drive_link" force_save="1"/>
+                        <field name="baseline_gen_reason" readonly="is_doc_locked"
                                invisible="baseline_gen_status != 'failed'"
-                               required="baseline_gen_status == 'failed'"
                                placeholder="Reason for failure…" force_save="1"/>
                       </group>
-                      <!-- Unlocked by Pass It K Generation = Done; _check_baseline_metrics
+                      <!-- Unlocked by Pass @ K Generation = Done; _check_baseline_metrics
                            then refuses to save that Done without a QCed By. -->
                       <group string="Evaluation Metrics">
-                        <field name="rubric_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
-                        <field name="pytest_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
-                        <field name="overall_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
-                        <field name="qced_by" options="{'no_open': True}"
+                        <field name="rubric_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="pytest_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="overall_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" options="{'no_open': True}"
                                readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <div class="text-muted small" colspan="2"
+                             invisible="baseline_gen_status != 'done'">
+                          <i class="fa fa-info-circle me-1"/>Each score must be
+                          <b>0–100</b>. An out-of-range value is highlighted in red and
+                          blocks saving.
+                        </div>
                       </group>
                     </group>
                     <group string="Notes" invisible="stage_no != 1">
-                      <field name="baseline_gen_notes" nolabel="1" readonly="is_locked"
+                      <field name="baseline_gen_notes" nolabel="1"
+                             readonly="is_doc_locked or baseline_ready_status != 'done'"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
-                    <div class="text-muted small mt-2"
-                         invisible="stage_no != 1 or (baseline_gen_status == 'done' and qced_by)">
-                      <i class="fa fa-lock me-1"/>Set <b>Baseline Generation</b> to
-                      <b>Done</b> and fill <b>QCed By</b> to unlock <b>5. Manual QC</b>.
-                    </div>
                     <group invisible="stage_no == 1">
                       <group string="Trajectory">
                         <field name="s1_baseline_drive_link" widget="url" readonly="1"/>
@@ -499,15 +514,21 @@
                     </group>
                   </page>
 
-                  <page string="5. Manual QC" name="page_s1_manual_qc"
-                        invisible="stage_no == 1 and (baseline_gen_status != 'done' or not qced_by)">
+                  <page string="5. Manual QC" name="page_s1_manual_qc">
+                    <!-- Unlocked only when the Baseline step is FULLY complete:
+                         generation Done, QCed By set, AND all three scores valid. -->
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)">
+                      <i class="fa fa-lock me-1"/>Locked — finish <b>4. Baseline
+                      Trajectory</b> (generation <b>Done</b>, <b>QCed By</b>, and all
+                      three scores 0–100) to unlock this step.
+                    </div>
                     <group invisible="stage_no != 1">
-                      <field name="manual_qc_status" readonly="is_locked" force_save="1"/>
-                      <field name="manual_qc_reason" readonly="is_locked"
+                      <field name="manual_qc_status" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100" force_save="1"/>
+                      <field name="manual_qc_reason" readonly="is_doc_locked"
                              invisible="manual_qc_status != 'failed'"
-                             required="manual_qc_status == 'failed'"
                              placeholder="Reason for failure…" force_save="1"/>
-                      <field name="manual_qc_notes" readonly="is_locked"
+                      <field name="manual_qc_notes" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <group invisible="stage_no == 1">
@@ -554,45 +575,50 @@
                   <!-- Stage 2's own steps. Nothing to show until stage 2 has actually
                        been assigned, and Manual QC only appears once the trajectory is
                        generated and QCed By is set. -->
-                  <page string="Pass It K" name="page_s2_baseline_trajectory"
+                  <page string="Pass @ K" name="page_s2_baseline_trajectory"
                         invisible="stage_no != 2 and not has_stage_2">
-                    <!-- The whole Tracker calls this step Pass It K. Stage 1 and stage 2
+                    <!-- The whole Tracker calls this step Pass @ K. Stage 1 and stage 2
                          share these very fields, so it is one step done twice, not two
                          different things — hence one name, on the model AND here. -->
                     <group invisible="stage_no != 2">
-                      <group string="Pass It K">
-                        <field name="baseline_drive_link" string="Pass It K Drive Link"
-                               widget="url" readonly="is_locked"
+                      <group string="Pass @ K">
+                        <field name="baseline_drive_link" string="Pass @ K Drive Link"
+                               widget="kensei2_drive_link" readonly="is_locked"
                                placeholder="https://drive.google.com/…" force_save="1"/>
-                        <field name="baseline_gen_status" string="Pass It K Generation"
-                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
-                        <field name="baseline_gen_reason" string="Pass It K Failure Reason"
-                               readonly="is_locked"
+                        <field name="baseline_gen_status" string="Pass @ K Generation"
+                               readonly="is_doc_locked or not baseline_drive_link" force_save="1"/>
+                        <field name="baseline_gen_reason" string="Pass @ K Failure Reason"
+                               readonly="is_doc_locked"
                                invisible="baseline_gen_status != 'failed'"
-                               required="baseline_gen_status == 'failed'"
                                placeholder="Reason for failure…" force_save="1"/>
                       </group>
                       <group string="Evaluation Metrics">
-                        <field name="rubric_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
-                        <field name="pytest_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
-                        <field name="overall_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
-                        <field name="qced_by" options="{'no_open': True}"
+                        <field name="rubric_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="pytest_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="overall_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" options="{'no_open': True}"
                                readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <div class="text-muted small" colspan="2"
+                             invisible="baseline_gen_status != 'done'">
+                          <i class="fa fa-info-circle me-1"/>Each score must be
+                          <b>0–100</b>. An out-of-range value is highlighted in red and
+                          blocks saving.
+                        </div>
                       </group>
                     </group>
-                    <group string="Pass It K Notes" invisible="stage_no != 2">
-                      <field name="baseline_gen_notes" nolabel="1" readonly="is_locked"
+                    <group string="Pass @ K Notes" invisible="stage_no != 2">
+                      <field name="baseline_gen_notes" nolabel="1" readonly="is_doc_locked"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <!-- The same tab as seen FROM STAGE 1: stage 2's work, read-only.
-                         Same naming, so the step is called Pass It K wherever it shows. -->
+                         Same naming, so the step is called Pass @ K wherever it shows. -->
                     <group invisible="stage_no == 2">
-                      <group string="Pass It K">
-                        <field name="s2_baseline_drive_link" string="Pass It K Drive Link"
+                      <group string="Pass @ K">
+                        <field name="s2_baseline_drive_link" string="Pass @ K Drive Link"
                                widget="url" readonly="1"/>
-                        <field name="s2_baseline_gen_status" string="Pass It K Generation"
+                        <field name="s2_baseline_gen_status" string="Pass @ K Generation"
                                readonly="1"/>
-                        <field name="s2_baseline_gen_reason" string="Pass It K Failure Reason"
+                        <field name="s2_baseline_gen_reason" string="Pass @ K Failure Reason"
                                readonly="1"
                                invisible="s2_baseline_gen_status != 'failed'"/>
                       </group>
@@ -603,25 +629,25 @@
                         <field name="s2_qced_by" readonly="1" options="{'no_open': True}"/>
                       </group>
                     </group>
-                    <group string="Pass It K Notes" invisible="stage_no == 2">
+                    <group string="Pass @ K Notes" invisible="stage_no == 2">
                       <field name="s2_baseline_gen_notes" nolabel="1" readonly="1"/>
                     </group>
-                    <div class="text-muted small mt-2"
-                         invisible="stage_no != 2 or (baseline_gen_status == 'done' and qced_by)">
-                      <i class="fa fa-lock me-1"/>Set <b>Pass It K Generation</b> to
-                      <b>Done</b> and fill <b>QCed By</b> to unlock <b>Manual QC</b>.
-                    </div>
                   </page>
 
                   <page string="Manual QC" name="page_s2_manual_qc"
-                        invisible="(stage_no != 2 and not has_stage_2) or (stage_no == 2 and (baseline_gen_status != 'done' or not qced_by))">
+                        invisible="stage_no != 2 and not has_stage_2">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 2 or (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)">
+                      <i class="fa fa-lock me-1"/>Locked — finish <b>Pass @ K</b>
+                      (generation <b>Done</b>, <b>QCed By</b>, and all three scores
+                      0–100) to unlock this step.
+                    </div>
                     <group invisible="stage_no != 2">
-                      <field name="manual_qc_status" readonly="is_locked" force_save="1"/>
-                      <field name="manual_qc_reason" readonly="is_locked"
+                      <field name="manual_qc_status" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100" force_save="1"/>
+                      <field name="manual_qc_reason" readonly="is_doc_locked"
                              invisible="manual_qc_status != 'failed'"
-                             required="manual_qc_status == 'failed'"
                              placeholder="Reason for failure…" force_save="1"/>
-                      <field name="manual_qc_notes" readonly="is_locked"
+                      <field name="manual_qc_notes" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <group invisible="stage_no == 2">
@@ -739,16 +765,6 @@
     <record model="ir.actions.client" id="kensei2_dashboard_action">
       <field name="name">Dashboard</field>
       <field name="tag">kensei2_dashboard</field>
-    </record>
-    <record model="ir.actions.client" id="kensei2_tracker_dashboard_action">
-      <field name="name">Dashboard</field>
-      <field name="tag">kensei2_tracker_dashboard</field>
-    </record>
-
-    <!-- ===================== Tasker Dashboard (per-tasker, client action) ===================== -->
-    <record model="ir.actions.client" id="kensei2_tasker_dashboard_action">
-      <field name="name">Dashboard</field>
-      <field name="tag">kensei2_tasker_dashboard</field>
     </record>
 
   </data>

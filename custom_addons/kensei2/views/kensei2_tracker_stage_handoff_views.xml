@@ -38,12 +38,5 @@
       </field>
     </record>
 
-    <record model="ir.actions.act_window" id="action_kensei2_tracker_stage_handoff">
-      <field name="name">Hand off to Next Stage</field>
-      <field name="res_model">kensei2.tracker.stage.handoff</field>
-      <field name="view_mode">form</field>
-      <field name="target">new</field>
-    </record>
-
   </data>
 </odoo>

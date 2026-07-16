@@ -110,7 +110,7 @@ class Kensei2TrackerTeamMember(models.Model):
     # ------------------------------------------------------------------ #
     #  Computes
     # ------------------------------------------------------------------ #
-    @api.depends('user_id')
+    @api.depends('user_id', 'user_id.email', 'user_id.login')
     def _compute_email(self):
         """Mirror the linked user's email/login onto the stored ``email`` so the
         column stays populated for the list, search and bulk-import matching."""

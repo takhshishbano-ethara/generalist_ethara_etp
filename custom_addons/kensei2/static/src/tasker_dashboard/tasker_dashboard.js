@@ -1,7 +1,15 @@
 /** @odoo-module */
-import { useState, onWillStart } from "@odoo/owl";
+import { useState, onWillStart, onWillUnmount } from "@odoo/owl";
 import { registry } from "@web/core/registry";
+import { router } from "@web/core/browser/router";
 import { Kensei2DashboardBase } from "@kensei2/dashboard_base/dashboard_base";
+
+// member_id must survive the URL. When a client action mounts, the action manager
+// runs its OWN router.pushState(..., {replace:true}); replace mode keeps ONLY the
+// "locked" keys (computeNextState -> pick(state, ..._lockedKeys)) plus the action
+// stack, so an un-locked member_id we added gets wiped and a refresh recovers
+// nothing. Locking it makes the manager's replace preserve it. Registered once.
+router.addLockedKey("member_id");
 
 /**
  * Per-tasker performance dashboard. Serves two entry points:
@@ -14,7 +22,27 @@ export class Kensei2TaskerDashboard extends Kensei2DashboardBase {
 
     setup() {
         super.setup();
-        this.memberId = this.props.action?.params?.member_id || false;
+        // The action params are the single source of truth: on a fresh drill-in
+        // action_view_performance sets member_id; on a REFRESH Odoo rebuilds the
+        // action from the URL and copies the (locked) member_id back into the params
+        // (_getActionParams -> params: state). So no separate URL read is needed, and
+        // reading the URL directly would surface a STALE locked value when you next
+        // open your own dashboard. The server authorises every member_id, so a
+        // hand-typed one is safe.
+        this.memberId = Number(this.props.action?.params?.member_id) || false;
+        // Reflect the current view in the URL so a refresh recovers it: keep the id
+        // for a tasker (locked, so the action manager's replace preserves it), and
+        // clear it for the viewer's own dashboard (undefined is dropped by
+        // sanitizeSearch) so a stale id never leaks in.
+        router.replaceState(
+            { member_id: this.memberId || undefined }, { sync: true });
+        // member_id is a LOCKED url key so it survives a refresh — but that also
+        // means it would linger on every other page. Clear it when the dashboard is
+        // left via in-app navigation. A browser REFRESH tears down the VM without
+        // firing this, so the id still survives a reload (which is the whole point).
+        onWillUnmount(() => {
+            router.replaceState({ member_id: undefined }, { sync: true });
+        });
         this.state = useState({
             loading: true,
             denied: false,

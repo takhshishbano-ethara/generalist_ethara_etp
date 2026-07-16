@@ -27,6 +27,16 @@
         margin-left: 0;
         flex: 1 1 auto;
 
+        // Never wrap. When the row is too narrow for every stage (e.g. a Failed
+        // record adds a 7th chevron and the chatter panel is open), core's flexbox
+        // wraps ONE item onto its own line and flex-grow balloons it to full width —
+        // the giant "Authoring" chevron. Forcing nowrap keeps every stage on one
+        // row; the buttons shrink and ellipsize (min-width:0 below) and the full
+        // name stays in each button's title tooltip (kensei2_statusbar widget).
+        // Only the wrap is overridden — flex-direction stays row-reverse, so the
+        // left-to-right order is unchanged.
+        flex-wrap: nowrap;
+
         // THE WHOLE GAME IS: DO NOT LET THIS ROW WRAP.
         //
         // Core's StatusBarField.adjustVisibleItems() does

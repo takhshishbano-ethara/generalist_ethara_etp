@@ -10,11 +10,11 @@ _logger = logging.getLogger(__name__)
 # Funnel stages.
 #
 # THE SAME STORED STATUS MEANS DIFFERENT WORK ON DIFFERENT STAGES. `baseline_generated`
-# on stage 1 is a Baseline trajectory; on stage 2 it is a Pass It K trajectory. They
+# on stage 1 is a Baseline trajectory; on stage 2 it is a Pass @ K trajectory. They
 # are separate steps of the pipeline, not one step counted twice — so they get
 # separate buckets, and a bucket is keyed on (stage_no, status), never on status
 # alone. Folding them together is what made a stage-2 task vanish into "In Trajectory"
-# with nothing anywhere showing it was in Pass It K.
+# with nothing anywhere showing it was in Pass @ K.
 #
 # `stage` = None means the bucket counts that status on EITHER stage.
 # css-key matches the .o_ktd_funnel_* pastel classes in tracker_dashboard.scss.
@@ -25,7 +25,7 @@ _FUNNEL = [
     #
     #   Stage 1: Authoring -> Tasker QC -> Ready for Baseline -> Baseline Generated
     #            -> Stage 1 Manual QC -> Ready for Next Stage
-    #   Stage 2: Ready for Pass It K -> Pass It K Generated -> Stage 2 Manual QC
+    #   Stage 2: Ready for Pass @ K -> Pass @ K Generated -> Stage 2 Manual QC
     #            -> Deliverable
     #
     # `stage` = None means the bucket counts that status on EITHER stage.
@@ -45,7 +45,7 @@ _FUNNEL = [
     # task configured with >2 stages still lands somewhere.
     ("ready_next_stage", "Ready for Next Stage", ["ready_next_stage"], None),
     # --- stage 2 ---
-    ("pass_it_k",     "Stage 2 Pass It K",         ["ready_baseline", "baseline_generated"], 2),
+    ("pass_it_k",     "Stage 2 Pass @ K",         ["ready_baseline", "baseline_generated"], 2),
     ("manual_qc_s2",  "Stage 2 Manual QC",         ["manual_qc"], 2),
     # Only the FINAL stage can deliver, so in a two-stage task this is stage 2's
     # terminal step. Un-gated for the same reason as ready_next_stage.
@@ -62,13 +62,13 @@ _ACTIVE_STATUSES = [
 ]
 
 # (stage_no, status) -> progress-table column. Stage-aware for the same reason the
-# funnel is: stage 1's Baseline and stage 2's Pass It K share a stored value but are
+# funnel is: stage 1's Baseline and stage 2's Pass @ K share a stored value but are
 # different work, and a table that merges them cannot show where anything actually is.
 # A `None` stage matches either.
 _PROGRESS_BUCKET = {
     # (stage_no, status) -> progress-table column. Stage-aware because the two
     # ladders share stored values under different names: 'baseline_generated' is
-    # Baseline on stage 1 and Pass It K on stage 2, and 'manual_qc' is each stage's
+    # Baseline on stage 1 and Pass @ K on stage 2, and 'manual_qc' is each stage's
     # OWN QC gate. A table that merges them cannot show where anything actually is.
     # A `None` stage matches either.
     (None, "in_progress"): "in_auth",
@@ -94,7 +94,7 @@ _PROGRESS_COLUMNS = ("in_auth", "ready", "in_traj", "s1_qc", "handed_off",
 
 
 def _pipeline_stage(stage_no):
-    """Which of the two PIPELINES a stage runs — 1 (authoring) or 2 (Pass It K).
+    """Which of the two PIPELINES a stage runs — 1 (authoring) or 2 (Pass @ K).
 
     Mirrors _compute_status, which branches on `stage_no >= 2`: everything past
     stage 2 runs the stage-2 ladder and so produces stage-2 statuses. Matching the
@@ -443,7 +443,7 @@ class Kensei2TrackerController(http.Controller):
             p for p, in Alloc._read_group([("project", "!=", False)], ["project"]) if p)
         # The filter matches the STORED status, which two stages share under
         # different names: picking "Baseline Generated" also returns every stage-2
-        # row, whose real name is "Pass It K Generated". Naming only one of them
+        # row, whose real name is "Pass @ K Generated". Naming only one of them
         # makes the dropdown lie about what it selects, so where the two ladders
         # disagree the option names both.
         s2 = dict(Alloc.STAGE2_STATUS_SELECTION)
@@ -486,7 +486,7 @@ class Kensei2TrackerController(http.Controller):
 
         domain = []
         # Stage scope. A cell counts COMPLETED STAGES, and the two stages are
-        # different work -- a bare "3" merges an authoring pass with a Pass It K run
+        # different work -- a bare "3" merges an authoring pass with a Pass @ K run
         # and cannot say which. Scoping the whole domain (not just the completions)
         # is deliberate: filtering to Stage 2 should drop a tasker who has never
         # worked a Stage 2 out of the roster entirely, rather than leave them as an

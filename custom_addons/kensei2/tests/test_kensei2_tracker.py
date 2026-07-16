@@ -153,6 +153,9 @@ class Kensei2TrackerCommon(TransactionCase):
             "baseline_ready_status": "done",
             "baseline_drive_link": "https://drive.example.com/b",
             "baseline_gen_status": "done",
+            "rubric_score": 80.0,
+            "pytest_score": 80.0,
+            "overall_score": 80.0,
             "qced_by": alloc.env.user.id,
             "manual_qc_status": "done",
         })
@@ -231,6 +234,9 @@ class TestTrackerAccessControl(Kensei2TrackerCommon):
         alloc.write({
             "baseline_drive_link": "https://drive.example.com/b",
             "baseline_gen_status": "done",
+            "rubric_score": 80.0,
+            "pytest_score": 80.0,
+            "overall_score": 80.0,
             "qced_by": self.env.user.id,
             "manual_qc_status": "done",
         })
@@ -355,7 +361,7 @@ class TestTrackerStatusLadder(Kensei2TrackerCommon):
         alloc.baseline_drive_link = "https://drive.example.com/b"
         self.assertEqual(alloc.status, "baseline_generated")
 
-        alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id})
+        alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id, "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0})
         self.assertEqual(alloc.status, "manual_qc")
 
         alloc.manual_qc_status = "done"
@@ -389,10 +395,13 @@ class TestTrackerStatusLadder(Kensei2TrackerCommon):
         self.assertEqual(alloc.status, "failed")
         self.assertEqual(alloc.final_status, "failed")
 
-    def test_failure_requires_a_reason(self):
+    def test_failure_reason_is_optional(self):
+        """A gate can be marked Failed WITHOUT a reason — the box is optional."""
         alloc = self._make_alloc(suffix="noreason")
-        with self.assertRaises(ValidationError):
-            alloc.pl_verified_status = "failed"
+        alloc.write({"drive_link": "https://drive.example.com/a",
+                     "pl_verified_status": "failed"})
+        self.assertEqual(alloc.status, "failed")
+        self.assertFalse(alloc.pl_verified_reason)
 
     def test_baseline_done_requires_qced_by(self):
         alloc = self._make_alloc(suffix="noqc")
@@ -400,6 +409,9 @@ class TestTrackerStatusLadder(Kensei2TrackerCommon):
             alloc.write({
                 "drive_link": "https://drive.example.com/a",
                 "baseline_gen_status": "done",
+                "rubric_score": 80.0,
+                "pytest_score": 80.0,
+                "overall_score": 80.0,
             })
 
     def test_stage2_starts_at_ready_baseline(self):
@@ -411,7 +423,7 @@ class TestTrackerStatusLadder(Kensei2TrackerCommon):
 
         alloc.baseline_drive_link = "https://drive.example.com/b"
         self.assertEqual(alloc.status, "baseline_generated")
-        alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id})
+        alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id, "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0})
         self.assertEqual(alloc.status, "manual_qc")
         alloc.manual_qc_status = "done"
         # the FINAL stage is the only one that can deliver
@@ -652,6 +664,9 @@ class TestTrackerStageHandoff(Kensei2TrackerCommon):
         payload = {
             "baseline_drive_link": "https://passitk.example.com",
             "baseline_gen_status": "done",
+            "rubric_score": 80.0,
+            "pytest_score": 80.0,
+            "overall_score": 80.0,
             "qced_by": self.env.user.id,
             "manual_qc_status": "done",
         }
@@ -677,12 +692,12 @@ class TestTrackerStageHandoff(Kensei2TrackerCommon):
 
         Both stages run the same pipeline over the same fields and the SAME stored
         values (`ready_baseline`, `baseline_generated`) — but stage 1 calls the step
-        Baseline and stage 2 calls it Pass It K. A Selection carries one set of
+        Baseline and stage 2 calls it Pass @ K. A Selection carries one set of
         labels, so `status` holds stage 1's and `stage2_status` holds stage 2's.
 
         The trap this guards: the list and kanban mix both stages, so rendering the
         raw `status` label showed "Baseline Generated" on a stage-2 row whose form
-        said "Pass It K Generated" — the same task reading two different things.
+        said "Pass @ K Generated" — the same task reading two different things.
         `status_label` picks the right one per row. If any surface goes back to the
         single Selection, this fails.
         """
@@ -693,15 +708,15 @@ class TestTrackerStageHandoff(Kensei2TrackerCommon):
         # 1. the two dialects
         self.assertEqual(s1["ready_baseline"], "Ready for Baseline")
         self.assertEqual(s1["baseline_generated"], "Baseline Generated")
-        self.assertEqual(s2["ready_baseline"], "Ready for Pass It K")
-        self.assertEqual(s2["baseline_generated"], "Pass It K Generated")
+        self.assertEqual(s2["ready_baseline"], "Ready for Pass @ K")
+        self.assertEqual(s2["baseline_generated"], "Pass @ K Generated")
 
         # 2. same STORED values — the labels differ, the data does not
         self.assertEqual(set(s1), set(s2))
 
         # 3. status_label picks per ROW (this is what the list and kanban render)
         a1 = self._make_alloc(suffix="lbl1")
-        a1.write({"drive_link": "https://d/a", "pl_verified_status": "done",
+        a1.write({"drive_link": "https://drive.google.com/a", "pl_verified_status": "done",
                   "baseline_ready_status": "done"})
         a1.invalidate_recordset()
         self.assertEqual(a1.stage_no, 1)
@@ -716,17 +731,17 @@ class TestTrackerStageHandoff(Kensei2TrackerCommon):
         }).action_confirm()
         a2 = self.Alloc.search([("task_id", "=", a1.task_id), ("stage_no", "=", 2)])
         self.assertEqual(a2.status, "ready_baseline")           # same stored value…
-        self.assertEqual(a2.status_label, "Ready for Pass It K",  # …different word
-                         "a stage-2 row must read Pass It K")
+        self.assertEqual(a2.status_label, "Ready for Pass @ K",  # …different word
+                         "a stage-2 row must read Pass @ K")
         self.assertEqual(a2.stage2_status, "ready_baseline")
 
         # 4. the dashboard gives the two stages SEPARATE funnel cards. It used to
         #    carry one card that merely renamed itself with the stage filter, so
-        #    with no filter (the default view) Pass It K was invisible and its
+        #    with no filter (the default view) Pass @ K was invisible and its
         #    tasks were counted as stage-1 trajectory work.
         cards = {c["key"]: c for c in tracker._funnel({(2, "ready_baseline"): 1})}
         self.assertEqual(cards["pass_it_k"]["value"], 1)
-        self.assertEqual(cards["pass_it_k"]["label"], "Stage 2 Pass It K")
+        self.assertEqual(cards["pass_it_k"]["label"], "Stage 2 Pass @ K")
         self.assertEqual(cards["in_trajectory"]["value"], 0,
                          "a stage-2 task must not be counted as stage-1 trajectory")
 
@@ -773,6 +788,9 @@ class TestTrackerReopen(Kensei2TrackerCommon):
         alloc.write({
             "baseline_drive_link": "https://drive.example.com/b",
             "baseline_gen_status": "done",
+            "rubric_score": 80.0,
+            "pytest_score": 80.0,
+            "overall_score": 80.0,
             "qced_by": self.env.user.id,
             "manual_qc_status": "done",
         })
@@ -791,11 +809,219 @@ class TestTrackerReopen(Kensei2TrackerCommon):
         alloc.write({
             "baseline_drive_link": "https://drive.example.com/b",
             "baseline_gen_status": "done",
+            "rubric_score": 80.0,
+            "pytest_score": 80.0,
+            "overall_score": 80.0,
             "qced_by": self.env.user.id,
             "manual_qc_status": "done",
         })
         with self.assertRaises(AccessError):
             alloc.with_user(self.user_tasker).action_reopen()
+
+
+class TestTrackerFailedStateDocumentation(Kensei2TrackerCommon):
+    """A failed gate must stay documentable.
+
+    Marking a gate Failed drives the record to status 'failed', which sets is_locked
+    — and that used to freeze the very reason field the form REQUIRES and only shows
+    WHEN failed, so the tab looked frozen and no reason could be typed. The
+    reason/notes fields now follow the softer is_doc_locked rule (delivered or handed
+    off), not is_locked, so a failure can be written up after it happens.
+    """
+
+    def _failed_at_pl(self):
+        """A stage-1 record failed at PL Verification. The reason is optional, so it
+        is left empty here on purpose — this is exactly the case that used to trap
+        the user: failed, no reason yet, and the reason box frozen."""
+        alloc = self._make_alloc(suffix="failpl", stage_no=1)
+        alloc.write({"drive_link": "https://drive.example.com/a",
+                     "pl_verified_status": "failed"})
+        self.assertEqual(alloc.status, "failed")
+        return alloc
+
+    def test_failed_record_is_locked_but_not_doc_locked(self):
+        alloc = self._failed_at_pl()
+        self.assertTrue(alloc.is_locked, "a failed record still freezes its inputs")
+        self.assertFalse(alloc.is_doc_locked,
+                         "but NOT its failure-documentation fields")
+
+    def test_reason_and_notes_are_writable_after_failure(self):
+        alloc = self._failed_at_pl()
+        # As a REAL user, NOT self.env: su bypasses _check_locked, so only a non-su
+        # write proves the guard actually ALLOWS documenting a failure.
+        alloc.with_user(self.user_ql).write({
+            "pl_verified_reason": "Rubric mismatch on task 3.",
+            "pl_verified_notes": "Escalated to QL for re-scoping.",
+        })
+        self.assertEqual(alloc.pl_verified_reason, "Rubric mismatch on task 3.")
+        self.assertEqual(alloc.pl_verified_notes, "Escalated to QL for re-scoping.")
+
+    def test_operational_inputs_stay_frozen_after_failure(self):
+        """You document why it failed; you do NOT keep authoring it."""
+        alloc = self._failed_at_pl()
+        with self.assertRaises(UserError):
+            alloc.with_user(self.user_ql).write(
+                {"drive_link": "https://drive.example.com/changed"})
+
+    def test_doc_fields_freeze_once_delivered(self):
+        """Deliverable is a SUCCESS terminal: everything, docs included, is frozen."""
+        alloc = self._make_alloc(suffix="deliv-doc", stage_no=2)
+        alloc.write({
+            "baseline_drive_link": "https://drive.example.com/b",
+            "baseline_gen_status": "done",
+            "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0,
+            "qced_by": self.env.user.id,
+            "manual_qc_status": "done",
+        })
+        self.assertEqual(alloc.status, "deliverable")
+        self.assertTrue(alloc.is_doc_locked)
+        with self.assertRaises(UserError):
+            alloc.with_user(self.user_ql).write({"manual_qc_notes": "late edit"})
+
+    def test_failed_editable_fields_are_a_subset_of_locked_inputs(self):
+        Alloc = self.env["kensei2.tracker.allocation"]
+        self.assertTrue(
+            Alloc._FAILED_EDITABLE_FIELDS.issubset(set(Alloc._LOCKED_INPUT_FIELDS)))
+
+    def test_a_failed_gate_can_be_flipped_back_by_the_same_user(self):
+        """Failing is reversible without a privileged Reopen: the gate status stays
+        editable while Failed, so a misclick self-corrects."""
+        alloc = self._failed_at_pl()
+        self.assertEqual(alloc.status, "failed")
+        # the tasker (not a manager) flips the failed gate back — no Reopen needed
+        alloc.with_user(self.user_ql).write({"pl_verified_status": "in_progress"})
+        alloc.invalidate_recordset()
+        self.assertNotEqual(alloc.status, "failed",
+                            "un-failing the gate must take the task out of Failed")
+        self.assertFalse(alloc.is_locked)
+
+
+class TestTrackerDriveLinkValidation(Kensei2TrackerCommon):
+    """A drive link must be a full URL with a real domain, not just a scheme."""
+
+    def test_scheme_only_link_is_rejected(self):
+        # "https://g" has no dotted host — it is not a usable link.
+        with self.assertRaises(ValidationError):
+            self._make_alloc(suffix="dl-scheme", drive_link="https://g")
+
+    def test_non_url_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            self._make_alloc(suffix="dl-junk", drive_link="not a url")
+
+    def test_real_url_is_accepted(self):
+        alloc = self._make_alloc(
+            suffix="dl-ok", drive_link="https://drive.google.com/file/d/xyz/view")
+        self.assertTrue(alloc.drive_link)
+
+    def test_empty_link_is_allowed(self):
+        # optional until the stage needs it
+        alloc = self._make_alloc(suffix="dl-empty")
+        self.assertFalse(alloc.drive_link)
+
+
+class TestTrackerScoreValidation(Kensei2TrackerCommon):
+    """Evaluation scores are required at the Done gate and must be 0–100."""
+
+    def _at_baseline_generated(self):
+        alloc = self._make_alloc(suffix="scores", stage_no=2)
+        alloc.write({"baseline_drive_link": "https://drive.example.com/b"})
+        self.assertEqual(alloc.status, "baseline_generated")
+        return alloc
+
+    def test_generation_done_requires_all_three_scores(self):
+        alloc = self._at_baseline_generated()
+        # QCed By present but scores missing -> rejected
+        with self.assertRaises(ValidationError):
+            alloc.write({"baseline_gen_status": "done",
+                         "qced_by": self.env.user.id})
+
+    def test_generation_done_with_scores_and_qc_passes(self):
+        alloc = self._at_baseline_generated()
+        alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id,
+                     "rubric_score": 91.0, "pytest_score": 88.0,
+                     "overall_score": 90.0})
+        self.assertEqual(alloc.status, "manual_qc")
+
+    def test_scores_out_of_range_are_rejected(self):
+        alloc = self._at_baseline_generated()
+        for bad in (-1.0, 100.1, 950.0):
+            with self.assertRaises(ValidationError):
+                alloc.write({"rubric_score": bad})
+        # boundaries are valid
+        alloc.write({"rubric_score": 0.0, "pytest_score": 100.0,
+                     "overall_score": 55.5})
+        self.assertEqual(alloc.overall_score, 55.5)
+
+    def test_manual_qc_is_inert_until_baseline_is_complete(self):
+        """The form keeps Manual QC read-only until the Baseline step is done, and
+        the ladder backs it up: a premature manual_qc_status must not advance the
+        task, since manual_qc is only reachable once generation + scores are in."""
+        alloc = self._at_baseline_generated()   # drive link set, generation NOT done
+        alloc.write({"manual_qc_status": "done"})
+        self.assertEqual(alloc.status, "baseline_generated",
+                         "Manual QC must not advance the task before the baseline "
+                         "step is complete")
+
+
+class TestTrackerTimeInStatus(Kensei2TrackerCommon):
+    """status_since / days_in_status power the stepper's aging signal."""
+
+    def test_status_since_is_set_on_create(self):
+        alloc = self._make_alloc(suffix="tis-create")
+        self.assertTrue(alloc.status_since)
+
+    def test_clock_resets_when_the_step_changes(self):
+        import datetime
+        alloc = self._make_alloc(suffix="tis-change")
+        alloc.status_since = datetime.datetime(2020, 1, 1)
+        # a status-advancing edit (drive link -> Tasker QC) must reset the clock
+        alloc.write({"drive_link": "https://drive.example.com/a"})
+        alloc.invalidate_recordset()
+        self.assertEqual(alloc.status, "tasker_qc_completed")
+        self.assertGreater(alloc.status_since, datetime.datetime(2021, 1, 1),
+                           "the step changed, so the clock should have reset to now")
+
+    def test_clock_holds_when_the_step_is_unchanged(self):
+        import datetime
+        alloc = self._make_alloc(suffix="tis-hold")
+        stamp = datetime.datetime(2020, 1, 1)
+        alloc.status_since = stamp
+        alloc.write({"notes": "context, not a step change"})
+        alloc.invalidate_recordset()
+        self.assertEqual(alloc.status, "in_progress")
+        self.assertEqual(alloc.status_since, stamp,
+                         "status did not change, so the clock must hold")
+
+    def test_days_in_status_counts_whole_days(self):
+        import datetime
+        alloc = self._make_alloc(suffix="tis-days")
+        alloc.status_since = alloc.status_since - datetime.timedelta(days=5, hours=1)
+        alloc.invalidate_recordset()
+        self.assertEqual(alloc.days_in_status, 5)
+
+
+class TestTrackerPickerDomains(Kensei2TrackerCommon):
+    """QCed By / PL pickers are scoped to the Tracker roster, not every Odoo user."""
+
+    def test_qc_candidates_are_active_team_members(self):
+        alloc = self._make_alloc(suffix="pick-qc")
+        # roster users are offered...
+        self.assertIn(self.user_tasker, alloc.qc_candidate_ids)
+        self.assertIn(self.user_other, alloc.qc_candidate_ids)
+        # ...a user with no team-member record is NOT
+        outsider = self._make_user("kt.outsider", self.g_tasker)
+        alloc.invalidate_recordset()
+        self.assertNotIn(outsider, alloc.qc_candidate_ids)
+
+    def test_pl_candidates_are_leads_only(self):
+        # user_pl holds the PL group, so its member's role computes to 'pl'
+        self._make_member(self.user_pl)
+        alloc = self._make_alloc(suffix="pick-pl")
+        alloc.invalidate_recordset()
+        self.assertIn(self.user_pl, alloc.pl_candidate_ids)
+        # a plain tasker member is a QC candidate but NOT a PL candidate
+        self.assertIn(self.user_tasker, alloc.qc_candidate_ids)
+        self.assertNotIn(self.user_tasker, alloc.pl_candidate_ids)
 
 
 class TestTrackerDashboardDataAccess(Kensei2TrackerCommon):
@@ -902,12 +1128,12 @@ class TestTrackerDashboardDataAccess(Kensei2TrackerCommon):
 
 
 class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
-    """The dashboard must not merge Baseline (stage 1) with Pass It K (stage 2).
+    """The dashboard must not merge Baseline (stage 1) with Pass @ K (stage 2).
 
     Both stages store the SAME status values -- 'ready_baseline' and
     'baseline_generated' -- because they run the same two rungs; only the NAMES
     differ. Every dashboard surface used to bucket on the status alone, so a stage-2
-    task in Pass It K was counted and displayed as stage-1 "In Trajectory", and Pass
+    task in Pass @ K was counted and displayed as stage-1 "In Trajectory", and Pass
     It K had no card and no column of its own anywhere.
     """
 
@@ -921,7 +1147,7 @@ class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
         self.assertEqual(s2.status, s1.status)
         # ...and yet they are DIFFERENT work, which only the label reveals.
         self.assertEqual(s1.status_label, "Baseline Generated")
-        self.assertEqual(s2.status_label, "Pass It K Generated")
+        self.assertEqual(s2.status_label, "Pass @ K Generated")
 
     def test_baseline_and_pass_it_k_get_their_own_funnel_cards(self):
         cards = {c["key"]: c for c in tracker._funnel({
@@ -929,10 +1155,10 @@ class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
             (2, "baseline_generated"): 5,
         })}
         self.assertEqual(cards["in_trajectory"]["value"], 3,
-                         "stage 2's Pass It K leaked into stage 1's In Trajectory")
+                         "stage 2's Pass @ K leaked into stage 1's In Trajectory")
         self.assertEqual(cards["pass_it_k"]["value"], 5,
-                         "Pass It K has no card of its own")
-        self.assertEqual(cards["pass_it_k"]["label"], "Stage 2 Pass It K")
+                         "Pass @ K has no card of its own")
+        self.assertEqual(cards["pass_it_k"]["label"], "Stage 2 Pass @ K")
 
     def test_funnel_card_drilldown_carries_its_stage(self):
         """Both cards count the same statuses, so the stage is the ONLY thing that
@@ -997,7 +1223,7 @@ class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
             self.Alloc.sudo(), "pl_id", [("id", "in", (s1 | s2).ids)])
         row = next(r for r in rows if r["total"] == 2)
         self.assertEqual(row["in_traj"], 1, "stage 1 Baseline")
-        self.assertEqual(row["pass_it_k"], 1, "stage 2 Pass It K")
+        self.assertEqual(row["pass_it_k"], 1, "stage 2 Pass @ K")
         self.assertEqual(
             sum(row[c] for c in tracker._PROGRESS_COLUMNS), row["total"],
             "the columns must account for every task in Total")
@@ -1006,10 +1232,10 @@ class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
         """The two QC gates share a stored value but are different queues."""
         s1 = self._make_alloc(suffix="sd-qc-1", stage_no=1)
         self._complete_stage1_to_baseline(s1)
-        s1.write({"baseline_gen_status": "done", "qced_by": self.env.user.id})
+        s1.write({"baseline_gen_status": "done", "qced_by": self.env.user.id, "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0})
         s2 = self._make_alloc(suffix="sd-qc-2", stage_no=2)
         s2.write({"baseline_drive_link": "https://drive.example.com/pik",
-                  "baseline_gen_status": "done", "qced_by": self.env.user.id})
+                  "baseline_gen_status": "done", "qced_by": self.env.user.id, "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0})
 
         self.assertEqual(s1.status, "manual_qc")
         self.assertEqual(s2.status, "manual_qc")          # same stored value...
@@ -1030,7 +1256,7 @@ class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
 
         s2 = self._make_alloc(suffix="sd-term-2", stage_no=2)
         s2.write({"baseline_drive_link": "https://drive.example.com/pik",
-                  "baseline_gen_status": "done", "qced_by": self.env.user.id,
+                  "baseline_gen_status": "done", "qced_by": self.env.user.id, "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0,
                   "manual_qc_status": "done"})
         self.assertTrue(s2.is_final_stage)
         self.assertEqual(s2.status, "deliverable")
@@ -1038,7 +1264,7 @@ class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
 
     def test_daily_status_filter_names_both_ladders(self):
         """The filter matches the stored status, which spans both stages -- so an
-        option labelled only 'Baseline Generated' silently returns Pass It K rows."""
+        option labelled only 'Baseline Generated' silently returns Pass @ K rows."""
         labels = dict(self.Alloc.STATUS_SELECTION)
         s2 = dict(self.Alloc.STAGE2_STATUS_SELECTION)
         ambiguous = [k for k in labels if k in s2 and s2[k] != labels[k]]
@@ -1336,7 +1562,7 @@ class TestTrackerDailyEndpoint(HttpCase):
         """A cell counts COMPLETED STAGES, and the two stages are different work.
 
         Unfiltered, one tasker who finished a stage 1 AND a stage 2 on the same day
-        shows a single "2" that merges an authoring pass with a Pass It K run. The
+        shows a single "2" that merges an authoring pass with a Pass @ K run. The
         Stage filter is what lets you tell them apart, so it must actually partition:
         stage 1 + stage 2 has to add back up to the unfiltered total.
         """
@@ -1353,6 +1579,9 @@ class TestTrackerDailyEndpoint(HttpCase):
                 "stage_no": stage_no,
                 "baseline_drive_link": "https://drive.example.com/%s" % suffix,
                 "baseline_gen_status": "done",
+                "rubric_score": 80.0,
+                "pytest_score": 80.0,
+                "overall_score": 80.0,
                 "qced_by": self.env.user.id,
                 "manual_qc_status": "done",
             }
@@ -1514,6 +1743,48 @@ class TestTrackerReset(Kensei2TrackerCommon):
         self.assertFalse(alloc.drive_link)
         self.assertFalse(alloc.tasker_qc_notes)
         self.assertEqual(alloc.status, "in_progress")
+
+    def test_reset_stage_clears_only_that_stage(self):
+        """Reset Stage on stage 2 wipes stage 2 back to its start and leaves stage 1
+        (and the whole task) intact."""
+        alloc = self._task_with_two_stages()
+        stage2 = self.Alloc.search([
+            ("task_id", "=", alloc.task_id), ("stage_no", "=", 2)])
+        stage2.write({"baseline_drive_link": "https://drive.example.com/pik"})
+        self.assertEqual(stage2.status, "baseline_generated")
+
+        stage2.with_user(self.user_ql).action_reset_stage()
+        stage2.invalidate_recordset()
+        alloc.invalidate_recordset()
+
+        # stage 2 back to its own starting point, its inputs cleared
+        self.assertFalse(stage2.baseline_drive_link)
+        self.assertEqual(stage2.status, "ready_baseline")   # "Ready for Pass @ K"
+        self.assertTrue(stage2.exists(), "the record must survive (not deleted)")
+        # stage 1 is untouched — still complete, still there
+        self.assertEqual(alloc.status, "ready_next_stage")
+        self.assertTrue(alloc.drive_link)
+
+    def test_reset_stage_blocked_when_a_later_stage_exists(self):
+        """Stage 1 can't be reset in place while stage 2 is built on it."""
+        alloc = self._task_with_two_stages()   # stage 1 has a child (stage 2)
+        with self.assertRaises(UserError):
+            alloc.with_user(self.user_ql).action_reset_stage()
+
+    def test_reset_stage_on_a_stage_1_with_no_child(self):
+        alloc = self._make_alloc(suffix="reset-stage-1")
+        alloc.write({"drive_link": "https://drive.example.com/a"})
+        self.assertEqual(alloc.status, "tasker_qc_completed")
+        alloc.with_user(self.user_ql).action_reset_stage()
+        alloc.invalidate_recordset()
+        self.assertFalse(alloc.drive_link)
+        self.assertEqual(alloc.status, "in_progress")
+
+    def test_tasker_cannot_reset_stage(self):
+        alloc = self._make_alloc(suffix="reset-stage-deny")
+        alloc.write({"drive_link": "https://drive.example.com/a"})
+        with self.assertRaises(AccessError):
+            alloc.with_user(self.user_tasker).action_reset_stage()
 
     def test_tasker_cannot_reset(self):
         alloc = self._make_alloc(suffix="reset-deny")

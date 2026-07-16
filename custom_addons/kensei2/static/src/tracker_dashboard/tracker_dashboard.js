@@ -90,8 +90,8 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         ["in_traj", "S1 Baseline"],
         ["s1_qc", "S1 Manual QC"],
         ["handed_off", "Next Stage"],
-        ["pik_ready", "S2 PIK Ready"],
-        ["pass_it_k", "S2 Pass It K"],
+        ["pik_ready", "S2 P@K Ready"],
+        ["pass_it_k", "S2 Pass @ K"],
         ["s2_qc", "S2 Manual QC"],
         ["verified", "Deliverable"],
         ["blocked", "Blocked"],
@@ -197,7 +197,7 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         if (!card.statuses || !card.statuses.length) {
             return; // e.g. "Avg Score" has nothing to open
         }
-        // The STAGE matters: "In Trajectory" and "In Pass It K" count the very same
+        // The STAGE matters: "In Trajectory" and "In Pass @ K" count the very same
         // statuses on different stages. Without it, clicking either card would open
         // both — the exact merge the funnel exists to undo.
         const domain = [["status", "in", card.statuses]];
