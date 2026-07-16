@@ -65,7 +65,7 @@ class Kensei2TrackerAllocation(models.Model):
     form. Inherits mail.thread so every tracked change is logged with who + when.
     """
     _name = 'kensei2.tracker.allocation'
-    _description = 'Kensei2 Tracker Task Allocation'
+    _description = 'Kensei Tracker Task Allocation'
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'assigned_date desc, id desc'
     _rec_name = 'task_id'
@@ -432,7 +432,7 @@ class Kensei2TrackerAllocation(models.Model):
     tasker_member_id = fields.Many2one(
         'kensei2.tracker.team.member', string='Tasker', required=True,
         index=True, ondelete='restrict', tracking=True,
-        help='Pick the tasker from the Kensei2 team roster (search by name or '
+        help='Pick the tasker from the Kensei team roster (search by name or '
              'email). Their email and Assigned PL / QL are synced automatically.',
     )
     tasker_name = fields.Char(string='Tasker Name', tracking=True)
@@ -476,6 +476,11 @@ class Kensei2TrackerAllocation(models.Model):
     )
     persona_id = fields.Many2one(
         'kensei2.persona', string='Persona', required=True, index=True, tracking=True)
+    # Surfaced from the chosen persona so the form shows its taxonomy next to it.
+    persona_l1_category = fields.Char(
+        related='persona_id.l1_category', string='L1 Category', readonly=True)
+    persona_l2_category = fields.Char(
+        related='persona_id.l2_category', string='L2 Category', readonly=True)
     # Derived from the current Status (the pipeline phase) rather than set by
     # hand, so it can never drift from where the task actually is. Terminal
     # statuses (Deliverable/Failed) map to Manual QC — the last phase reached.

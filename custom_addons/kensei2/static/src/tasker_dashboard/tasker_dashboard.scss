@@ -10,4 +10,74 @@
             grid-template-columns: repeat(2, 1fr);
         }
     }
+
+    // Sortable column headers on the My Tasks table.
+    .o_ktd_sortable {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+
+        &:hover {
+            text-decoration: underline;
+        }
+    }
+
+    // Task count next to the MY TASKS header.
+    .o_ktd_count {
+        font-weight: 400;
+        font-size: 0.8em;
+        opacity: 0.65;
+    }
+
+    // Filter toolbar above the My Tasks table.
+    .o_ktd_filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+
+        .o_ktd_search {
+            flex: 1 1 220px;
+            max-width: 340px;
+        }
+        .o_ktd_status {
+            flex: 0 0 auto;
+            width: auto;
+            min-width: 160px;
+        }
+        .o_ktd_current_toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin: 0;
+            font-size: 0.85em;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+    }
+
+    // Pager below the table.
+    .o_ktd_pager {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1rem;
+        margin-top: 0.5rem;
+
+        .o_ktd_pager_info {
+            font-size: 0.85em;
+            opacity: 0.7;
+        }
+        .o_ktd_pager_btns {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .o_ktd_pager_page {
+            font-size: 0.85em;
+            min-width: 6rem;
+            text-align: center;
+        }
+    }
 }

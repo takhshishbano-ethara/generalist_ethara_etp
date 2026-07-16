@@ -603,7 +603,7 @@ class Kensei2TrackerController(http.Controller):
 
     @http.route("/kensei2/tracker/dashboard", type="json", auth="user")
     def tracker_dashboard(self, date_from=None, date_to=None,
-                          group_by=None, stage=None, **kw):
+                          group_by=None, **kw):
         """Aggregate allocation data for the Tracker Dashboard.
 
         All figures come from grouped SQL (``_read_group``) rather than loading
@@ -660,9 +660,6 @@ class Kensei2TrackerController(http.Controller):
         # the task was handed off, i.e. penalise them for finishing. The Daily
         # Tracker already credits per stage for the same reason.
         people_domain = list(scope) + date_domain
-        stage_no = _to_int(stage)
-        if stage_no in (1, 2):
-            people_domain.append(("stage_no", "=", stage_no))
 
         # ----- counts by status (one grouped query) -----
         sc = _status_counts(Alloc, task_domain)
@@ -702,7 +699,8 @@ class Kensei2TrackerController(http.Controller):
              "value": round(avg_overall, 1) if avg_overall else None},
         ]
 
-        # One progress table, two axes: WHO to group by, and WHICH stage to count.
+        # One progress table, grouped by WHO (PL / QL / Tasker). Every stage record
+        # is counted (people are credited per stage).
         group_key = group_by if group_by in _PROGRESS_GROUPS else "pl"
         group_field = _PROGRESS_GROUPS[group_key]
 
@@ -712,7 +710,6 @@ class Kensei2TrackerController(http.Controller):
             "stats": stats,
             "rows": _progress_rows(Alloc, group_field, people_domain),
             "group_by": group_key,
-            "stage": stage_no if stage_no in (1, 2) else None,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }
@@ -803,16 +800,25 @@ class Kensei2TrackerController(http.Controller):
 
         funnel = _funnel(sc)
 
-        # recent tasks. A tasker's recent list mixes stage-1 and stage-2 rows, so the
+        # The tasker's tasks — ALL of them (this is their own record-rule-scoped set),
+        # not a recent slice. A tasker's list mixes stage-1 and stage-2 rows, so the
         # label MUST come from the record (status_label is stored and stage-aware) and
         # not from the status Selection -- that one table carries stage 1's names, and
         # would print a stage-2 row as "Baseline Generated" / "Stage 1 Manual QC".
-        recent = []
-        for a in Alloc.search(dom, order="assigned_date desc, id desc", limit=10):
-            recent.append({
+        tasks = []
+        for a in Alloc.search(dom, order="assigned_date desc, id desc"):
+            persona = a.persona_id
+            tasks.append({
                 "id": a.id, "task_id": a.task_id,
                 "stage": a.stage_no, "total_stages": a.total_stages,
-                "persona": a.persona_id.name or "",
+                # is_current_stage marks the row a multi-stage task currently sits on;
+                # the client's "Current stage only" filter uses it to collapse the two
+                # stage records of a handed-off task to a single row.
+                "is_current": a.is_current_stage,
+                "persona": persona.name or "",
+                "l1": persona.l1_category or "",
+                "l2": persona.l2_category or "",
+                "pl": a.assigned_pl_id.name or "",
                 "status": a.status, "status_label": a.status_label,
                 "overall": a.overall_score or None,
                 "assigned": a.assigned_date and a.assigned_date.isoformat(),
@@ -830,7 +836,7 @@ class Kensei2TrackerController(http.Controller):
 
         return {
             "subject": subject, "kpis": kpis, "funnel": funnel,
-            "recent": recent,
+            "tasks": tasks,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }

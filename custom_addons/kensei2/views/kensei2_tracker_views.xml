@@ -48,7 +48,7 @@
         <!-- js_class: adds the stat cards above the rows. The cards are scoped by
              the record rules and follow the active search filters, so they always
              agree with the rows underneath. See static/src/list_stats/. -->
-        <list string="Task Allocation" sample="1" js_class="kensei2_stats_list"
+        <list string="Task Allocation" js_class="kensei2_stats_list"
               decoration-muted="status == 'deliverable'"
               decoration-danger="status == 'failed'">
           <header>
@@ -269,6 +269,8 @@
                 <field name="tasker_email" readonly="1"/>
                 <field name="persona_id" readonly="not is_manager"
                        options="{'no_open': True}"/>
+                <field name="persona_l1_category" invisible="not persona_id"/>
+                <field name="persona_l2_category" invisible="not persona_id"/>
               </group>
               <group string="Assignment">
                 <field name="assigned_pl_id" string="PL"

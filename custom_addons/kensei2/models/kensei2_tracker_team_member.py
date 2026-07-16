@@ -20,7 +20,7 @@ class Kensei2TrackerTeamMember(models.Model):
     the record is rejected.
     """
     _name = 'kensei2.tracker.team.member'
-    _description = 'Kensei2 Tracker Team Member'
+    _description = 'Kensei Tracker Team Member'
     _inherit = ['mail.thread']
     _order = 'date_added desc, id desc'
     _rec_name = 'member_name'
@@ -88,7 +88,7 @@ class Kensei2TrackerTeamMember(models.Model):
     # ------------------------------------------------------------------ #
     assigned_pl_id = fields.Many2one(
         'res.users', string='Assigned PL', index=True, tracking=True,
-        help='Project Lead this member reports to for Kensei2 Tracker work.')
+        help='Project Lead this member reports to for Kensei Tracker work.')
     assigned_ql_id = fields.Many2one(
         'res.users', string='Assigned QL', index=True, tracking=True,
         help="Quality Lead responsible for reviewing this member's work.")
@@ -104,7 +104,7 @@ class Kensei2TrackerTeamMember(models.Model):
     # declared as ``models.Constraint`` table objects. One user = one member.
     _user_uniq = models.Constraint(
         'unique(user_id)',
-        'This user is already a Kensei2 team member — duplicates are not allowed.',
+        'This user is already a Kensei team member — duplicates are not allowed.',
     )
 
     # ------------------------------------------------------------------ #
@@ -146,7 +146,7 @@ class Kensei2TrackerTeamMember(models.Model):
             if not user:
                 raise ValidationError(_(
                     "No Odoo user is registered with the email “%s”, so this "
-                    "person cannot be added to the Kensei2 team. A team member "
+                    "person cannot be added to the Kensei team. A team member "
                     "must already exist as an Odoo user — no new user is "
                     "created.", email))
             rec.user_id = user

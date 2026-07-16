@@ -7,7 +7,7 @@
             <div class="o_ktd_topbar">
                 <div class="o_ktd_topbar_titles">
                     <span class="o_ktd_title">
-                        <i class="fa fa-line-chart me-2"/>Kensei2-RL Dashboard
+                        <i class="fa fa-line-chart me-2"/>Kensei-RL Dashboard
                     </span>
                     <span class="o_ktd_subtitle">
                         Reinforcement Learning pipeline
@@ -98,16 +98,6 @@
                                         t-att-aria-pressed="state.groupBy === g.key"
                                         t-on-click="() => this.setGroupBy(g.key)">
                                     <t t-out="g.label"/>
-                                </button>
-                            </t>
-                        </div>
-                        <div class="o_ktd_segment" role="group" aria-label="Stage">
-                            <t t-foreach="stages" t-as="s" t-key="s.key">
-                                <button class="o_ktd_segment_btn" type="button"
-                                        t-att-class="{ 'o_ktd_segment_active': state.stage === s.value }"
-                                        t-att-aria-pressed="state.stage === s.value"
-                                        t-on-click="() => this.setStage(s.value)">
-                                    <t t-out="s.label"/>
                                 </button>
                             </t>
                         </div>

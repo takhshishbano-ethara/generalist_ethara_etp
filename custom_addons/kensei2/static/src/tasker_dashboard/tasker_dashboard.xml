@@ -51,43 +51,109 @@
                 </div>
             </div>
 
-            <!-- ===================== Recent tasks ===================== -->
+            <!-- ===================== My tasks ===================== -->
+            <!-- Full task table (all of the tasker's own allocations), same columns as
+                 the main Task Allocation list. Headers sort client-side. -->
             <div class="o_ktd_section">
-                <div class="o_ktd_section_header"><i class="fa fa-history me-2"/>RECENT TASKS</div>
+                <div class="o_ktd_section_header o_ktd_section_header_split">
+                    <span><i class="fa fa-tasks me-2"/>MY TASKS</span>
+                    <span class="o_ktd_count" t-out="sortedTasks.length + ' of ' + state.tasks.length + ' task(s)'"/>
+                </div>
+
+                <!-- Filter toolbar -->
+                <div class="o_ktd_filters">
+                    <input type="text" class="o_ktd_search form-control form-control-sm"
+                           placeholder="Search task, persona, PL…"
+                           t-att-value="state.search"
+                           t-on-input="(ev) => this.onSearchInput(ev)"/>
+                    <select class="o_ktd_status form-select form-select-sm"
+                            t-on-change="(ev) => this.onStatusFilter(ev)">
+                        <option value="" t-att-selected="state.statusFilter === ''">All statuses</option>
+                        <t t-foreach="statusOptions" t-as="s" t-key="s">
+                            <option t-att-value="s" t-att-selected="state.statusFilter === s" t-out="s"/>
+                        </t>
+                    </select>
+                    <label class="o_ktd_current_toggle">
+                        <input type="checkbox" t-att-checked="state.currentOnly"
+                               t-on-change="() => this.toggleCurrentOnly()"/>
+                        Current stage only
+                    </label>
+                </div>
+
                 <div class="o_ktd_table_wrap">
                     <table class="o_ktd_table">
                         <thead>
                             <tr>
-                                <th class="o_ktd_col_pl">Task ID</th>
-                                <th>Stage</th>
-                                <th class="o_ktd_col_pl">Persona</th>
-                                <th>Status</th>
-                                <th>Overall</th>
-                                <th>Assigned</th>
-                                <th>Completed</th>
+                                <th class="o_ktd_col_pl o_ktd_sortable" t-on-click="() => this.setSort('task_id')">
+                                    Task ID <i t-if="state.sortKey === 'task_id'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
+                                <th class="o_ktd_sortable" t-on-click="() => this.setSort('stage')">
+                                    Stage <i t-if="state.sortKey === 'stage'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
+                                <th class="o_ktd_col_pl o_ktd_sortable" t-on-click="() => this.setSort('persona')">
+                                    Persona <i t-if="state.sortKey === 'persona'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
+                                <th class="o_ktd_sortable" t-on-click="() => this.setSort('l1')">
+                                    L1 / L2 <i t-if="state.sortKey === 'l1'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
+                                <th class="o_ktd_sortable" t-on-click="() => this.setSort('pl')">
+                                    PL <i t-if="state.sortKey === 'pl'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
+                                <th class="o_ktd_sortable" t-on-click="() => this.setSort('status_label')">
+                                    Status <i t-if="state.sortKey === 'status_label'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
+                                <th class="o_ktd_sortable" t-on-click="() => this.setSort('overall')">
+                                    Overall <i t-if="state.sortKey === 'overall'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
+                                <th class="o_ktd_sortable" t-on-click="() => this.setSort('assigned')">
+                                    Assigned <i t-if="state.sortKey === 'assigned'" t-attf-class="fa fa-caret-#{state.sortAsc ? 'up' : 'down'}"/>
+                                </th>
                             </tr>
                         </thead>
                         <tbody>
-                            <t t-if="state.recent.length === 0">
-                                <tr><td colspan="7" class="o_ktd_empty">
-                                    <i class="fa fa-inbox me-1"/>No tasks yet.
+                            <t t-if="sortedTasks.length === 0">
+                                <tr><td colspan="8" class="o_ktd_empty">
+                                    <i class="fa fa-inbox me-1"/>
+                                    <t t-if="state.tasks.length === 0">No tasks yet.</t>
+                                    <t t-else="">No tasks match the current filters.</t>
                                 </td></tr>
                             </t>
-                            <t t-foreach="state.recent" t-as="row" t-key="row.id">
+                            <t t-foreach="pagedTasks" t-as="row" t-key="row.id">
                                 <tr class="o_ktd_clickable" t-on-click="() => this.openTask(row)"
                                     t-on-keydown="(ev) => this.onRowKeydown(ev, row)"
                                     tabindex="0" role="button">
                                     <td class="o_ktd_col_pl"><t t-out="row.task_id"/></td>
                                     <td><t t-out="row.stage"/> / <t t-out="row.total_stages"/></td>
                                     <td class="o_ktd_col_pl"><t t-out="row.persona"/></td>
+                                    <td><t t-out="row.l1 or '—'"/> / <t t-out="row.l2 or '—'"/></td>
+                                    <td><t t-out="row.pl or '—'"/></td>
                                     <td><t t-out="row.status_label"/></td>
                                     <td><t t-out="fmt(row.overall, '%')"/></td>
                                     <td><t t-out="row.assigned or '—'"/></td>
-                                    <td><t t-out="row.completed or '—'"/></td>
                                 </tr>
                             </t>
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Pager -->
+                <div class="o_ktd_pager" t-if="sortedTasks.length > state.pageSize">
+                    <span class="o_ktd_pager_info">
+                        <t t-out="pageStart"/>–<t t-out="pageEnd"/> of <t t-out="sortedTasks.length"/>
+                    </span>
+                    <div class="o_ktd_pager_btns">
+                        <button type="button" class="btn btn-sm btn-secondary"
+                                t-att-disabled="state.page &lt;= 1"
+                                t-on-click="() => this.prevPage()">
+                            <i class="fa fa-chevron-left"/>
+                        </button>
+                        <span class="o_ktd_pager_page">Page <t t-out="currentPage"/> / <t t-out="pageCount"/></span>
+                        <button type="button" class="btn btn-sm btn-secondary"
+                                t-att-disabled="state.page &gt;= pageCount"
+                                t-on-click="() => this.nextPage()">
+                            <i class="fa fa-chevron-right"/>
+                        </button>
+                    </div>
                 </div>
             </div>
 

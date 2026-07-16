@@ -11,7 +11,7 @@
       <field name="arch" type="xml">
         <!-- Unassigned personas are the actionable ones (they are waiting to be
              allocated), so they stay at normal weight; assigned ones recede. -->
-        <list string="Personas" sample="1" multi_edit="1" js_class="kensei2_stats_list"
+        <list string="Personas" multi_edit="1" js_class="kensei2_stats_list"
               decoration-muted="assignment_status == 'assigned'">
           <header>
             <button name="%(action_kensei2_persona_import)d" type="action"

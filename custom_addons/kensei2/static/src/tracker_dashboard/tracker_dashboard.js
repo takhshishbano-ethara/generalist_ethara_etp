@@ -11,14 +11,6 @@ const GROUPS = [
     { key: "tasker", label: "Tasker", field: "tasker_member_id" },
 ];
 
-// The stage axis. `value: null` means "count every stage record", which is what
-// credits a person for each stage they actually worked.
-const STAGES = [
-    { key: "all", label: "All Stages", value: null },
-    { key: "s1", label: "Stage 1", value: 1 },
-    { key: "s2", label: "Stage 2", value: 2 },
-];
-
 export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
     static template = "kensei2.TrackerDashboard";
     static components = { ProgressTable };
@@ -26,7 +18,6 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
     setup() {
         super.setup();
         this.groups = GROUPS;
-        this.stages = STAGES;
         this.state = useState({
             loading: true,
             teamComposition: [],
@@ -34,7 +25,6 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
             stats: [],
             rows: [],
             groupBy: "pl",
-            stage: null,
             lastUpdated: "",
             dateFrom: "",
             dateTo: "",
@@ -45,7 +35,7 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
     async _load() {
         const res = await this._fetch(
             "/kensei2/tracker/dashboard",
-            { group_by: this.state.groupBy, stage: this.state.stage },
+            { group_by: this.state.groupBy },
             "Failed to load dashboard data.");
         if (!res) {
             return;
@@ -72,13 +62,6 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         }
     }
 
-    setStage(value) {
-        if (this.state.stage !== value) {
-            this.state.stage = value;
-            this._load();
-        }
-    }
-
     // ---- CSV export -----------------------------------------------------
     // The progress table's columns, in the SAME order and wording as
     // progress_table.xml. Kept here (not derived from a row) so an all-zero export
@@ -97,10 +80,6 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         ["blocked", "Blocked"],
     ];
 
-    get stageLabel() {
-        return (STAGES.find((s) => s.value === this.state.stage) || STAGES[0]).label;
-    }
-
     csvFileName() {
         return `kensei2_dashboard_${this.state.groupBy}.csv`;
     }
@@ -109,7 +88,6 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         return [
             ...super.csvMeta(),
             ["Group by", this.group.label],
-            ["Stage", this.stageLabel],
         ];
     }
 
@@ -207,17 +185,11 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         this._openAllocations(domain, card.label);
     }
 
-    // A row is one person on the currently selected axis. The drill-down repeats
-    // the stage filter so the list shows exactly the records the row counted.
+    // A row is one person on the currently selected axis; drill into their records.
     onRowClick(row) {
         const { label, field } = this.group;
         const domain = [[field, "=", row.id || false]];
-        let name = `${label} — ${row.name}`;
-        if (this.state.stage) {
-            domain.push(["stage_no", "=", this.state.stage]);
-            name += ` (Stage ${this.state.stage})`;
-        }
-        this._openAllocations(domain, name);
+        this._openAllocations(domain, `${label} — ${row.name}`);
     }
 }
 
