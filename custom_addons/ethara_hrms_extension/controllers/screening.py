@@ -56,6 +56,8 @@ def _serialize(applicant):
     except (ValueError, TypeError):
         payload = {}
 
+    screened = bool(applicant.resume_screened_at)
+
     return {
         "candidateId": applicant.id,
         "candidateName": applicant.partner_name
@@ -69,15 +71,15 @@ def _serialize(applicant):
         "currentStage": _canon_current_stage(applicant),
         "currentStatus": _canon_current_status(applicant),
         "resumeUrl": applicant.resume_url or None,
-        "matchScore": applicant.resume_score or 0,
-        "screeningScore": applicant.resume_score or 0,
-        "screeningSummary": applicant.resume_summary or "",
+        "matchScore": (applicant.resume_score or 0) if screened else 0,
+        "screeningScore": (applicant.resume_score or 0) if screened else 0,
+        "screeningSummary": (applicant.resume_summary or "") if screened else "",
         "recommendation": _REC_OUT.get(
             applicant.resume_recommendation, "pending",
         ),
         "manualOverride": override,
-        "strengths": payload.get("strengths") or [],
-        "gaps": payload.get("gaps") or [],
+        "strengths": (payload.get("strengths") or []) if screened else [],
+        "gaps": (payload.get("gaps") or []) if screened else [],
         "resumeUploadedAt": None,
         "lastScreenedAt": _iso(applicant.resume_screened_at),
         "createdAt": _iso(applicant.create_date),

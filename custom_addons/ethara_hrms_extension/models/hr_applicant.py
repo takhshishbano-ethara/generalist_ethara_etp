@@ -184,7 +184,25 @@ class HrApplicant(models.Model):
         result = super().write(vals)
         if vals.get('stage_id') and 'pipeline_status' not in vals:
             self._sync_pipeline_status_from_stage()
+        if not self.env.context.get('skip_user_sync') and (
+            'partner_name' in vals or 'partner_phone' in vals
+        ):
+            self._sync_user_from_applicant(vals)
         return result
+
+    def _sync_user_from_applicant(self, vals):
+        for applicant in self:
+            if not applicant.candidate_user_id:
+                continue
+            sync = {}
+            if 'partner_name' in vals:
+                sync['name'] = vals['partner_name']
+            if 'partner_phone' in vals:
+                sync['phone'] = vals['partner_phone']
+            if sync:
+                applicant.candidate_user_id.sudo().with_context(
+                    skip_applicant_sync=True,
+                ).write(sync)
 
     def _sync_pipeline_status_from_stage(self):
         for applicant in self:
