@@ -847,6 +847,29 @@ class Kensei2TrackerAllocation(models.Model):
                     "Enter the evaluation metrics (%s) before marking Generation "
                     "as Done.", ', '.join(missing)))
 
+    @api.constrains('manual_qc_status', 'baseline_gen_status', 'qced_by',
+                    'rubric_score', 'pytest_score', 'overall_score')
+    def _check_manual_qc_prerequisites(self):
+        """Manual QC can only be signed off (Done/Failed) once its trajectory is
+        fully generated, scored and QCed — the same bar the status ladder uses to
+        REACH Manual QC. Now that the tab is editable out of order (validate on
+        save), this is what makes a premature Manual QC fail with a message naming
+        exactly what is missing, instead of silently doing nothing."""
+        for rec in self:
+            if rec.manual_qc_status == 'in_progress':
+                continue
+            missing = []
+            if rec.baseline_gen_status != 'done':
+                missing.append('Generation = Done')
+            if not rec.qced_by:
+                missing.append('QCed By')
+            missing += [label for fname, label in self._SCORE_FIELDS
+                        if not (0 < rec[fname] <= 100)]
+            if missing:
+                raise ValidationError(_(
+                    "Complete the trajectory step before Manual QC — still needed: "
+                    "%s.", ', '.join(missing)))
+
 
     # ------------------------------------------------------------------ #
     #  Constraints — one task can be allocated only once.
@@ -1093,6 +1116,26 @@ class Kensei2TrackerAllocation(models.Model):
             'domain': [('task_id', '=', self.task_id)],
             'view_mode': 'list,form',
             'context': {'default_task_id': self.task_id},
+        }
+
+    def action_manual_save(self):
+        """Explicit Save button at the bottom of the form.
+
+        Clicking an object button on a dirty record makes Odoo SAVE it first (and run
+        the same validity checks as auto-save — missing required fields block the save
+        and are highlighted), so this only needs to confirm the save happened. It is a
+        thin convenience next to auto-save, not a different save path.
+        """
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _("Saved"),
+                'message': _("Your changes have been saved."),
+                'type': 'success',
+                'sticky': False,
+            },
         }
 
     # Every field a stage's own worker fills in. A locked record accepts writes to

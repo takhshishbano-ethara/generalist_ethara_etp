@@ -6,7 +6,7 @@
       <field name="name">kensei2.persona.import.form</field>
       <field name="model">kensei2.persona.import</field>
       <field name="arch" type="xml">
-        <form string="Bulk Upload Personas">
+        <form string="Bulk Upload Personas" class="o_kensei2_tracker_form">
 
           <!-- ===== Step 1: upload ===== -->
           <div invisible="state == 'done'">

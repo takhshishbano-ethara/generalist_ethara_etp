@@ -126,7 +126,7 @@
       <field name="name">kensei2.tracker.allocation.form</field>
       <field name="model">kensei2.tracker.allocation</field>
       <field name="arch" type="xml">
-        <form string="Task Allocation" class="o_kensei2_alloc_form"
+        <form string="Task Allocation" class="o_kensei2_alloc_form o_kensei2_tracker_form"
               js_class="kensei2_tracker_autosave">
           <header>
             <button name="action_hand_off" type="object" string="Hand off to Stage 2"
@@ -422,6 +422,7 @@
                       <field name="pl_verified_status" readonly="is_doc_locked or not drive_link" force_save="1"/>
                       <field name="pl_verified_reason" readonly="is_doc_locked"
                              invisible="pl_verified_status != 'failed'"
+                             required="pl_verified_status == 'failed' and not is_doc_locked"
                              placeholder="Reason for failure…" force_save="1"/>
                       <field name="pl_verified_notes" readonly="is_doc_locked or not drive_link"
                              placeholder="Notes for this stage…" force_save="1"/>
@@ -445,6 +446,7 @@
                              readonly="is_doc_locked or pl_verified_status != 'done'" force_save="1"/>
                       <field name="baseline_ready_reason" readonly="is_doc_locked"
                              invisible="baseline_ready_status != 'failed'"
+                             required="baseline_ready_status == 'failed' and not is_doc_locked"
                              placeholder="Reason for failure…" force_save="1"/>
                       <field name="baseline_ready_notes"
                              readonly="is_doc_locked or pl_verified_status != 'done'"
@@ -472,16 +474,17 @@
                                readonly="is_doc_locked or not baseline_drive_link" force_save="1"/>
                         <field name="baseline_gen_reason" readonly="is_doc_locked"
                                invisible="baseline_gen_status != 'failed'"
+                               required="baseline_gen_status == 'failed' and not is_doc_locked"
                                placeholder="Reason for failure…" force_save="1"/>
                       </group>
                       <!-- Unlocked by Pass @ K Generation = Done; _check_baseline_metrics
                            then refuses to save that Done without a QCed By. -->
                       <group string="Evaluation Metrics">
-                        <field name="rubric_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
-                        <field name="pytest_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
-                        <field name="overall_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
-                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" options="{'no_open': True}"
-                               readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <field name="rubric_score" widget="kensei2_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="pytest_score" widget="kensei2_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="overall_score" widget="kensei2_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" required="baseline_gen_status == 'done'" options="{'no_open': True}"
+                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
                         <div class="text-muted small" colspan="2"
                              invisible="baseline_gen_status != 'done'">
                           <i class="fa fa-info-circle me-1"/>Each score must be
@@ -515,20 +518,26 @@
                   </page>
 
                   <page string="5. Manual QC" name="page_s1_manual_qc">
-                    <!-- Unlocked only when the Baseline step is FULLY complete:
-                         generation Done, QCed By set, AND all three scores valid. -->
+                    <!-- Locked until the Baseline step is FULLY complete: generation
+                         Done, QCed By set, AND all three scores valid — the same bar the
+                         status ladder uses to REACH Manual QC. Sequential, like every
+                         earlier step, so it cannot be signed off out of order. -->
                     <div class="alert alert-light border" role="alert"
                          invisible="stage_no != 1 or (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)">
-                      <i class="fa fa-lock me-1"/>Locked — finish <b>4. Baseline
-                      Trajectory</b> (generation <b>Done</b>, <b>QCed By</b>, and all
-                      three scores 0–100) to unlock this step.
+                      <i class="fa fa-lock me-1"/>Locked — complete the <b>Baseline
+                      Trajectory</b> step (Generation <b>Done</b>, <b>QCed By</b> set and
+                      all three scores 0–100) to start Manual QC.
                     </div>
                     <group invisible="stage_no != 1">
-                      <field name="manual_qc_status" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100" force_save="1"/>
-                      <field name="manual_qc_reason" readonly="is_doc_locked"
+                      <field name="manual_qc_status" force_save="1"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"/>
+                      <field name="manual_qc_reason"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
                              invisible="manual_qc_status != 'failed'"
+                             required="manual_qc_status == 'failed' and not is_doc_locked"
                              placeholder="Reason for failure…" force_save="1"/>
-                      <field name="manual_qc_notes" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100"
+                      <field name="manual_qc_notes"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <group invisible="stage_no == 1">
@@ -590,14 +599,15 @@
                         <field name="baseline_gen_reason" string="Pass @ K Failure Reason"
                                readonly="is_doc_locked"
                                invisible="baseline_gen_status != 'failed'"
+                               required="baseline_gen_status == 'failed' and not is_doc_locked"
                                placeholder="Reason for failure…" force_save="1"/>
                       </group>
                       <group string="Evaluation Metrics">
-                        <field name="rubric_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
-                        <field name="pytest_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
-                        <field name="overall_score" widget="kensei2_score" readonly="is_locked or baseline_gen_status != 'done'" required="baseline_gen_status == 'done'" force_save="1"/>
-                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" options="{'no_open': True}"
-                               readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <field name="rubric_score" widget="kensei2_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="pytest_score" widget="kensei2_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="overall_score" widget="kensei2_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" required="baseline_gen_status == 'done'" options="{'no_open': True}"
+                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
                         <div class="text-muted small" colspan="2"
                              invisible="baseline_gen_status != 'done'">
                           <i class="fa fa-info-circle me-1"/>Each score must be
@@ -638,16 +648,20 @@
                         invisible="stage_no != 2 and not has_stage_2">
                     <div class="alert alert-light border" role="alert"
                          invisible="stage_no != 2 or (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)">
-                      <i class="fa fa-lock me-1"/>Locked — finish <b>Pass @ K</b>
-                      (generation <b>Done</b>, <b>QCed By</b>, and all three scores
-                      0–100) to unlock this step.
+                      <i class="fa fa-lock me-1"/>Locked — complete the <b>Pass @ K</b>
+                      step (Generation <b>Done</b>, <b>QCed By</b> set and all three
+                      scores 0–100) to start Manual QC.
                     </div>
                     <group invisible="stage_no != 2">
-                      <field name="manual_qc_status" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100" force_save="1"/>
-                      <field name="manual_qc_reason" readonly="is_doc_locked"
+                      <field name="manual_qc_status" force_save="1"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"/>
+                      <field name="manual_qc_reason"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
                              invisible="manual_qc_status != 'failed'"
+                             required="manual_qc_status == 'failed' and not is_doc_locked"
                              placeholder="Reason for failure…" force_save="1"/>
-                      <field name="manual_qc_notes" readonly="is_doc_locked or baseline_gen_status != 'done' or not qced_by or rubric_score &lt;= 0 or rubric_score &gt; 100 or pytest_score &lt;= 0 or pytest_score &gt; 100 or overall_score &lt;= 0 or overall_score &gt; 100"
+                      <field name="manual_qc_notes"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
                              placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <group invisible="stage_no == 2">
@@ -662,6 +676,15 @@
               </page>
 
             </notebook>
+
+            <!-- Explicit Save at the bottom, next to auto-save. Clicking it saves the
+                 record (Odoo saves a dirty record before running an object button);
+                 empty required fields block the save and are highlighted, same as
+                 auto-save. Hidden once the record is frozen (delivered / handed off). -->
+            <div class="d-flex justify-content-end mt-3" invisible="is_locked">
+              <button name="action_manual_save" type="object" string="Save"
+                      class="btn-primary" icon="fa-floppy-o"/>
+            </div>
           </sheet>
           <chatter/>
         </form>

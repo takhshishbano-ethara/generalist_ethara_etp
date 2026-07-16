@@ -68,7 +68,7 @@
       <field name="name">kensei2.tracker.team.member.form</field>
       <field name="model">kensei2.tracker.team.member</field>
       <field name="arch" type="xml">
-        <form string="Team Member">
+        <form string="Team Member" class="o_kensei2_tracker_form">
           <header>
             <button name="action_view_performance" type="object"
                     string="Performance" class="btn-primary" icon="fa-line-chart"

@@ -952,15 +952,28 @@ class TestTrackerScoreValidation(Kensei2TrackerCommon):
                      "overall_score": 55.5})
         self.assertEqual(alloc.overall_score, 55.5)
 
-    def test_manual_qc_is_inert_until_baseline_is_complete(self):
-        """The form keeps Manual QC read-only until the Baseline step is done, and
-        the ladder backs it up: a premature manual_qc_status must not advance the
-        task, since manual_qc is only reachable once generation + scores are in."""
+    def test_manual_qc_blocked_until_baseline_is_complete(self):
+        """The Manual QC tab is editable (validate-on-save), so signing it off before
+        the Baseline step is complete must be REJECTED with a message naming what is
+        missing — not silently ignored."""
         alloc = self._at_baseline_generated()   # drive link set, generation NOT done
-        alloc.write({"manual_qc_status": "done"})
-        self.assertEqual(alloc.status, "baseline_generated",
-                         "Manual QC must not advance the task before the baseline "
-                         "step is complete")
+        with self.assertRaises(ValidationError):
+            alloc.write({"manual_qc_status": "done"})
+
+    def test_manual_qc_error_names_the_missing_fields(self):
+        alloc = self._at_baseline_generated()
+        with self.assertRaises(ValidationError) as cm:
+            alloc.write({"manual_qc_status": "done"})
+        msg = str(cm.exception)
+        self.assertIn("Generation = Done", msg)
+        self.assertIn("QCed By", msg)
+
+    def test_manual_qc_passes_when_baseline_is_complete(self):
+        alloc = self._at_baseline_generated()
+        alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id,
+                     "rubric_score": 90.0, "pytest_score": 88.0,
+                     "overall_score": 91.0, "manual_qc_status": "done"})
+        self.assertEqual(alloc.status, "deliverable")
 
 
 class TestTrackerTimeInStatus(Kensei2TrackerCommon):

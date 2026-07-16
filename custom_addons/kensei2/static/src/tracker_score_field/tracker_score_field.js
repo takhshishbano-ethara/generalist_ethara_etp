@@ -1,25 +1,44 @@
 /** @odoo-module */
 import { registry } from "@web/core/registry";
 import { FloatField, floatField } from "@web/views/fields/float/float_field";
+import { useEffect } from "@odoo/owl";
 
 /**
- * A percentage score input that rejects out-of-range values inline.
+ * A percentage score input (0–100) that highlights itself red — and blocks the save —
+ * when it is INVALID or REQUIRED-BUT-EMPTY.
  *
- * The evaluation scores must be 0–100. The base FloatField only rejects non-numbers;
- * this adds the range. By THROWING from parse() we reuse core's own invalid-input
- * path (useInputField.onChange catches it and calls setInvalidField), so the box
- * turns red and the record can't be saved until it is fixed — the same treatment a
- * required-but-empty field gets, but for a wrong value. Server-side
- * _check_baseline_metrics still enforces the same rule, so this is UX, not the
- * source of truth.
+ * Odoo core will not flag an empty NUMBER as a missing required field (it treats 0 as
+ * "filled"), and it only validates a required field when the field is editable. So we
+ * enforce it here, mirroring the server rule in _check_baseline_metrics:
+ *   - out of 0–100 -> invalid (always);
+ *   - empty (0) once generation is Done -> invalid (that is when a score is required).
+ * The check runs whenever the value / generation status / editability changes and
+ * marks the field via setInvalidField, so it participates in the record's validity
+ * exactly like a native required field: red box + "invalid fields" on save.
  */
 export class Kensei2ScoreField extends FloatField {
-    parse(value) {
-        const parsed = super.parse(value);
-        if (parsed < 0 || parsed > 100) {
-            throw new Error("Score must be between 0 and 100.");
-        }
-        return parsed;
+    setup() {
+        super.setup();
+        useEffect(
+            () => {
+                const rec = this.props.record;
+                const value = rec.data[this.props.name] || 0;
+                const genDone = rec.data.baseline_gen_status === "done";
+                const invalid =
+                    !this.props.readonly &&
+                    (value < 0 || value > 100 || (genDone && !value));
+                if (invalid) {
+                    rec.setInvalidField(this.props.name);
+                } else {
+                    rec.resetFieldValidity(this.props.name);
+                }
+            },
+            () => [
+                this.props.record.data[this.props.name],
+                this.props.record.data.baseline_gen_status,
+                this.props.readonly,
+            ]
+        );
     }
 }
 

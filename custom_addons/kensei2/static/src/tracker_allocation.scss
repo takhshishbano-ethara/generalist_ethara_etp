@@ -90,3 +90,21 @@
         min-width: 8rem;
     }
 }
+
+// Required-field marker — shared across ALL Kensei2 Tracker forms (every Tracker
+// <form> carries the o_kensei2_tracker_form class). Odoo 19 flags a required input
+// ONLY by recolouring its underline (see .o_required_modifier in web/…/fields.scss)
+// — there is no "*". Draw an explicit red asterisk on the label of every required,
+// still-editable field so it reads at a glance. Purely presentational and reactive:
+// the o_required_modifier class is toggled live as the `required=` expression
+// changes, so the star appears/disappears with it (e.g. a score becomes required
+// only once Generation is Done). A readonly field is never starred.
+.o_kensei2_tracker_form {
+    .o_wrap_label:has(+ .o_wrap_input .o_field_widget.o_required_modifier:not(.o_readonly_modifier)) {
+        .o_form_label::after {
+            content: " *";
+            color: #dc3545;
+            font-weight: 700;
+        }
+    }
+}
