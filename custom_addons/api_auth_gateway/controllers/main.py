@@ -88,6 +88,7 @@ class ApiAuthController(http.Controller):
                 ('candidate_user_id', '=', user.id),
                 ('active', '=', True),
                 ('refuse_reason_id', '=', False),
+                ('pipeline_status', '!=', 'rejected'),
             ],
             limit=1, order='id desc',
         )

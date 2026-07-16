@@ -109,6 +109,54 @@ class HrApplicant(models.Model):
     is_duplicate = fields.Boolean(string='Is Duplicate')
     duplicate_reason = fields.Text(string='Duplicate Reason')
 
+    marital = fields.Selection(
+        [
+            ('single', 'Single'),
+            ('married', 'Married'),
+            ('divorced', 'Divorced'),
+            ('widowed', 'Widowed'),
+            ('separated', 'Separated'),
+            ('prefer_not_to_say', 'Prefer not to say'),
+        ],
+        string='Marital Status',
+    )
+
+    _PIPELINE_ORDER = (
+        'applied', 'shortlisted', 'evaluation', 'submission',
+        'contract', 'compliance', 'email_id', 'onboarded',
+    )
+
+    _STAGE_NAME_TO_PIPELINE = (
+        (('onboarded', 'onboarding complete'), 'onboarded'),
+        (('welcome mail', 'induction', 'email created', 'it email'), 'email_id'),
+        (('statutory', 'compliance'), 'compliance'),
+        (('contract', 'offer signed', 'hired'), 'contract'),
+        (('selection form', 'form sent', 'form submit', 'form validat'), 'submission'),
+        (('evaluation', 'interview'), 'evaluation'),
+        (('shortlist',), 'shortlisted'),
+        (('reject', 'refuse'), 'rejected'),
+        (('applied', 'application', 'sourc', 'resume upload', 'screening'), 'applied'),
+    )
+
+    @classmethod
+    def _derive_pipeline_status_from_name(cls, stage_name):
+        if not stage_name:
+            return None
+        lower = stage_name.strip().lower()
+        for keywords, pstatus in cls._STAGE_NAME_TO_PIPELINE:
+            if any(k in lower for k in keywords):
+                return pstatus
+        return None
+
+    @classmethod
+    def _pipeline_order_index(cls, status):
+        if not status or status == 'rejected':
+            return -1
+        try:
+            return cls._PIPELINE_ORDER.index(status)
+        except ValueError:
+            return -1
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
@@ -133,7 +181,31 @@ class HrApplicant(models.Model):
                         'new_job_id': new_job_id,
                         'changed_by_id': self.env.uid,
                     })
-        return super().write(vals)
+        result = super().write(vals)
+        if vals.get('stage_id') and 'pipeline_status' not in vals:
+            self._sync_pipeline_status_from_stage()
+        return result
+
+    def _sync_pipeline_status_from_stage(self):
+        for applicant in self:
+            if applicant.pipeline_status == 'rejected':
+                continue
+            derived = self._derive_pipeline_status_from_name(
+                applicant.stage_id.name if applicant.stage_id else '',
+            )
+            if not derived:
+                continue
+            current = applicant.pipeline_status or 'applied'
+            if derived == 'rejected':
+                if current != 'rejected':
+                    super(HrApplicant, applicant).write(
+                        {'pipeline_status': 'rejected'},
+                    )
+                continue
+            if self._pipeline_order_index(derived) > self._pipeline_order_index(current):
+                super(HrApplicant, applicant).write(
+                    {'pipeline_status': derived},
+                )
 
     @api.onchange('candidate_id', 'active', 'stage_id')
     def _onchange_warn_active_application(self):
@@ -553,16 +625,10 @@ class HrApplicant(models.Model):
     def _advance_stage_after_screening(self):
         self.ensure_one()
         Stage = self.env['hr.recruitment.stage'].sudo()
-        Reason = self.env['hr.applicant.refuse.reason'].sudo()
         rec = self.resume_recommendation
 
         if rec == 'reject':
-            reason = Reason.search(
-                [('name', '=', 'Rejected by AI resume screening')], limit=1,
-            ) or Reason.create({'name': 'Rejected by AI resume screening'})
             self.sudo().write({
-                'refuse_reason_id': reason.id,
-                'active': False,
                 'pipeline_status': 'rejected',
             })
             return

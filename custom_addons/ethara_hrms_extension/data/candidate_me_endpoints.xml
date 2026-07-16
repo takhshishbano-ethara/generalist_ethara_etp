@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ============================================================ -->
+        <!-- Candidate self-service endpoints                              -->
+        <!-- Mirrors the Node HRMS backend's /candidates/me family.        -->
+        <!-- Handlers live in controllers/candidate_me.py.                 -->
+        <!-- ============================================================ -->
+
+        <record id="endpoint_api_v1_candidates_me" model="api.endpoint">
+            <field name="url_pattern">/api/v1/candidates/me</field>
+            <field name="note">Candidate self-service overview (identity + applications).</field>
+        </record>
+
+        <record id="endpoint_api_v1_candidates_me_apply" model="api.endpoint">
+            <field name="url_pattern">/api/v1/candidates/me/apply</field>
+            <field name="note">Logged-in candidate applies to a job posting.</field>
+        </record>
+
+        <record id="endpoint_api_v1_candidates_me_profile" model="api.endpoint">
+            <field name="url_pattern">/api/v1/candidates/me/profile</field>
+            <field name="note">Logged-in candidate updates their own profile.</field>
+        </record>
+
+        <!-- Grant the Candidate role access to their own self-service     -->
+        <!-- endpoints. Admins can still add/remove additional grants at   -->
+        <!-- runtime via the Settings → API Roles UI (noupdate=1 keeps     -->
+        <!-- those runtime edits intact on module upgrade).                -->
+
+        <record id="role_ep_candidate_me_get" model="api.role.endpoint">
+            <field name="role_id" ref="api_auth_gateway.role_candidate_technical"/>
+            <field name="api_end_point_id" ref="endpoint_api_v1_candidates_me"/>
+            <field name="method">GET</field>
+        </record>
+
+        <record id="role_ep_candidate_me_apply_post" model="api.role.endpoint">
+            <field name="role_id" ref="api_auth_gateway.role_candidate_technical"/>
+            <field name="api_end_point_id" ref="endpoint_api_v1_candidates_me_apply"/>
+            <field name="method">POST</field>
+        </record>
+
+        <record id="role_ep_candidate_me_profile_patch" model="api.role.endpoint">
+            <field name="role_id" ref="api_auth_gateway.role_candidate_technical"/>
+            <field name="api_end_point_id" ref="endpoint_api_v1_candidates_me_profile"/>
+            <field name="method">PATCH</field>
+        </record>
+
+        <record id="role_ep_candidate_me_profile_post" model="api.role.endpoint">
+            <field name="role_id" ref="api_auth_gateway.role_candidate_technical"/>
+            <field name="api_end_point_id" ref="endpoint_api_v1_candidates_me_profile"/>
+            <field name="method">POST</field>
+        </record>
+
+    </data>
+</odoo>

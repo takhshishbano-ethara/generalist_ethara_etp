@@ -123,36 +123,94 @@ def _f(rec, fname):
     return rec[fname] if rec and fname in rec._fields else None
 
 
+def _selection_label(rec, field_name):
+    if not rec or field_name not in rec._fields:
+        return None
+    raw = rec[field_name]
+    if not raw:
+        return None
+    selection = dict(rec._fields[field_name].selection or [])
+    return selection.get(raw) or raw
+
+
+def _int_or_none(value):
+    try:
+        return int(value) if value not in (None, False, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value):
+    try:
+        f = float(value or 0)
+    except (TypeError, ValueError):
+        return None
+    return f or None
+
+
+def _str_or_none(value):
+    if value in (None, False, ""):
+        return None
+    return value
+
+
 def _serialize_position(job):
     if not job:
         return None
+    responsibilities = []
+    if "responsibility_ids" in job._fields:
+        responsibilities = [
+            r.name for r in job.responsibility_ids.sorted("sequence") if r.name
+        ]
+    benefits = []
+    if "benefit_ids" in job._fields:
+        benefits = [
+            b.name for b in job.benefit_ids.sorted("sequence") if b.name
+        ]
+    preferred_skills = []
+    if "preferred_skill_ids" in job._fields:
+        preferred_skills = [s.name for s in job.preferred_skill_ids if s.name]
     return {
-        "id":              job.id,
+        "id":              str(job.id),
         "title":           job.name,
-        "slug":            _f(job, "slug"),
+        "slug":            _str_or_none(_f(job, "slug")),
         "department":      job.department_id.name if job.department_id else None,
-        "summary":         _f(job, "summary"),
-        "description":     job.description or None,
-        "location":        job.address_id.city if job.address_id else None,
-        "employmentType":  _f(job, "employment_type"),
-        "workMode":        _f(job, "work_mode"),
-        "experienceLevel": _f(job, "experience_level"),
-        "experienceYears": _f(job, "experience_years"),
-        "salaryBracket":   _f(job, "salary_bracket"),
-        "responsibilities": _f(job, "responsibilities"),
-        "requirements":    _f(job, "requirements"),
-        "preferredSkills": _f(job, "preferred_skills"),
-        "benefits":        _f(job, "benefits"),
+        "summary":         _str_or_none(_f(job, "summary")),
+        "description":     _str_or_none(job.description),
+        "location":        _str_or_none(_f(job, "job_location")) or (
+                              job.address_id.city if job.address_id else None
+                           ),
+        "employmentType":  _selection_label(job, "employment_type"),
+        "workMode":        _selection_label(job, "work_mode"),
+        "experienceLevel": _selection_label(job, "experience_level"),
+        "experienceYears": _float_or_none(_f(job, "experience_years")),
+        "salaryBracket":   _str_or_none(_f(job, "salary_bracket")),
+        "responsibilities": responsibilities,
+        "requirements":    [],
+        "preferredSkills": preferred_skills,
+        "benefits":        benefits,
         "featured":        bool(_f(job, "is_featured")),
-        "openings":        _f(job, "no_of_recruitment") or job.no_of_recruitment or 1,
+        "openings":        job.no_of_recruitment or 1,
         "postedAt":        _iso(_f(job, "posted_at") or job.create_date),
-        "urgencyLevel":    _f(job, "urgency_level"),
+        "urgencyLevel":    _int_or_none(_f(job, "urgency_level")),
         "isActive":        bool(job.active),
-        "screeningPrompt": _f(job, "screening_prompt"),
-        "candidateCount":  _f(job, "application_count"),
-        "approvalStatus":  _f(job, "approval_status"),
+        "screeningPrompt": _str_or_none(_f(job, "screening_prompt")),
+        "candidateCount":  _int_or_none(_f(job, "application_count")),
+        "approvalStatus":  _f(job, "approval_status") or None,
         "approvalRequestedAt": _iso(_f(job, "approval_requested_at")),
         "approvalDecidedAt": _iso(_f(job, "approval_decided_at")),
+        "approvalEmailSentAt": _iso(_f(job, "approval_email_sent_at")),
+        "approvalRecipientEmail": _str_or_none(_f(job, "approval_recipient_email")),
+        "requestedBy": (
+            job.requested_by_id.name if _f(job, "requested_by_id")
+            else _str_or_none(_f(job, "external_requested_by"))
+        ),
+        "approvedBy": job.approved_by_id.name if _f(job, "approved_by_id") else None,
+        "reviewedByEmail": (
+            job.approved_by_id.login if _f(job, "approved_by_id")
+            else (job.rejected_by_id.login if _f(job, "rejected_by_id") else None)
+        ),
+        "rejectionReason": _str_or_none(_f(job, "rejection_reason")),
         "createdAt":       _iso(job.create_date),
         "updatedAt":       _iso(job.write_date),
     }
@@ -277,6 +335,7 @@ def _serialize(applicant):
         "aadhaarLast4":             aadhaar[-4:] if len(aadhaar) >= 4 else None,
         "gender":                   _f(applicant, "gender"),
         "dateOfBirth":              _iso(_f(applicant, "birthday")),
+        "maritalStatus":            _f(applicant, "marital"),
         "sourceType":               applicant.source_type or "direct_application",
         "sourceId":                 applicant.source_reference_id or None,
         "positionId":               applicant.job_id.id if applicant.job_id else None,
@@ -318,11 +377,11 @@ def _serialize(applicant):
         "githubUrl":                _f(applicant, "github_url"),
         "linkedinProfile":          _f(applicant, "linkedin_profile"),
         "experienceType":           _f(applicant, "experience"),
-        "experienceYears":          _f(applicant, "experience_years"),
+        "experienceYears":          _float_or_none(_f(applicant, "experience_years")),
         "currentCompany":           applicant.current_company or None,
-        "currentCTC":               applicant.current_ctc or 0,
-        "expectedCTC":              applicant.expected_ctc or 0,
-        "noticePeriod":             applicant.notice_period_days or 0,
+        "currentCTC":               _float_or_none(applicant.current_ctc),
+        "expectedCTC":              _float_or_none(applicant.expected_ctc),
+        "noticePeriod":             _int_or_none(applicant.notice_period_days),
         "position":                 _serialize_position(applicant.job_id),
         "college":                  _serialize_college(college),
         "vendor":                   None,
@@ -714,124 +773,125 @@ class EtharaCandidatesApi(http.Controller):
         rec, err = _applicant_or_404(aid)
         if err is not None:
             return err
+        return return_Response(
+            message="OK", status=200, data=_build_progress_payload(rec),
+        )
 
-        stage_enum = _stage_to_enum(rec.stage_id.name if rec.stage_id else "")
-        is_rejected = bool(rec.refuse_reason_id) or stage_enum == "resume_rejected"
-        is_archived = not rec.active
 
-        buckets = [
-            ("applied",     "Applied",     {"new_application", "source_tagged", "resume_uploaded", "resume_screening_pending"}),
-            ("shortlisted", "Shortlisted", {"resume_shortlisted"}),
-            ("evaluation",  "Evaluation",  {"evaluation_assigned", "evaluation_in_progress", "evaluation_passed", "evaluation_failed"}),
-            ("submission",  "Submission",  {"selection_form_sent", "selection_form_submitted", "selection_form_validated"}),
-            ("contract",    "Contract",    {"contract_sent", "contract_signed"}),
-            ("compliance",  "Compliance",  {"statutory_forms_sent", "statutory_forms_submitted", "compliance_verified"}),
-            ("email_id",    "Email ID",    {"it_email_created", "welcome_mail_sent", "induction_completed"}),
-            ("onboarded",   "Onboarded",   {"onboarding_completed"}),
-        ]
+def _build_progress_payload(rec):
+    stage_enum = _stage_to_enum(rec.stage_id.name if rec.stage_id else "")
+    is_rejected = bool(rec.refuse_reason_id) or stage_enum == "resume_rejected"
+    is_archived = not rec.active
 
-        # Source of truth: hr.applicant.pipeline_status. Do NOT infer from
-        # stage_id — kanban drag or manual override moves stage_id without
-        # actually advancing the pipeline.
-        status_field = rec.pipeline_status or 'applied'
-        if status_field == 'rejected':
-            is_rejected = True
-            current_idx = 1
-        else:
-            current_idx = 0
-            for i, (key, _label, _stages) in enumerate(buckets):
-                if key == status_field:
-                    current_idx = i
-                    break
+    buckets = [
+        ("applied",     "Applied",     {"new_application", "source_tagged", "resume_uploaded", "resume_screening_pending"}),
+        ("shortlisted", "Shortlisted", {"resume_shortlisted"}),
+        ("evaluation",  "Evaluation",  {"evaluation_assigned", "evaluation_in_progress", "evaluation_passed", "evaluation_failed"}),
+        ("submission",  "Submission",  {"selection_form_sent", "selection_form_submitted", "selection_form_validated"}),
+        ("contract",    "Contract",    {"contract_sent", "contract_signed"}),
+        ("compliance",  "Compliance",  {"statutory_forms_sent", "statutory_forms_submitted", "compliance_verified"}),
+        ("email_id",    "Email ID",    {"it_email_created", "welcome_mail_sent", "induction_completed"}),
+        ("onboarded",   "Onboarded",   {"onboarding_completed"}),
+    ]
 
-        rec_out = _REC_OUT.get(rec.resume_recommendation) if rec.resume_recommendation else None
+    # Source of truth: hr.applicant.pipeline_status. Do NOT infer from
+    # stage_id — kanban drag or manual override moves stage_id without
+    # actually advancing the pipeline.
+    status_field = rec.pipeline_status or 'applied'
+    if status_field == 'rejected':
+        is_rejected = True
+        current_idx = 1
+    else:
+        current_idx = 0
+        for i, (key, _label, _stages) in enumerate(buckets):
+            if key == status_field:
+                current_idx = i
+                break
 
-        # Per-step evidence: (timestamp, detail-string) or (None, None) when no
-        # concrete data proves the step happened. A step past the current
-        # bucket with no evidence is `skipped`, not `completed` — because the
-        # applicant was moved forward manually (kanban drag or auto-advance)
-        # without the step actually producing data.
-        evidence = {
-            "applied":     (_iso(rec.create_date), "Registered as candidate"),
-            "shortlisted": (
-                _iso(rec.resume_screened_at),
-                (
-                    ("Rejected · Score %s" % int(rec.resume_score or 0))
-                    if is_rejected else
-                    ("Score %s · %s" % (int(rec.resume_score or 0),
-                                        rec_out.replace("_", " ").title()))
-                    if rec_out else None
-                ),
-            ) if rec.resume_screened_at else (None, None),
-            "evaluation":  (None, None),
-            "submission":  (None, None),
-            "contract":    (None, None),
-            "compliance":  (None, None),
-            "email_id":    (None, None),
-            "onboarded":   (None, None),
-        }
+    rec_out = _REC_OUT.get(rec.resume_recommendation) if rec.resume_recommendation else None
 
-        steps = []
-        for i, (key, label, _stages) in enumerate(buckets):
-            ev_at, ev_detail = evidence.get(key, (None, None))
+    # Per-step evidence: (timestamp, detail-string) or (None, None) when no
+    # concrete data proves the step happened. A step past the current
+    # bucket with no evidence is `skipped`, not `completed` — because the
+    # applicant was moved forward manually (kanban drag or auto-advance)
+    # without the step actually producing data.
+    evidence = {
+        "applied":     (_iso(rec.create_date), "Registered as candidate"),
+        "shortlisted": (
+            _iso(rec.resume_screened_at),
+            (
+                ("Rejected · Score %s" % int(rec.resume_score or 0))
+                if is_rejected else
+                ("Score %s · %s" % (int(rec.resume_score or 0),
+                                    rec_out.replace("_", " ").title()))
+                if rec_out else None
+            ),
+        ) if rec.resume_screened_at else (None, None),
+        "evaluation":  (None, None),
+        "submission":  (None, None),
+        "contract":    (None, None),
+        "compliance":  (None, None),
+        "email_id":    (None, None),
+        "onboarded":   (None, None),
+    }
 
-            if is_rejected:
-                if i == 0:
-                    status = "completed"
-                elif i == 1:
-                    status = "rejected"
-                else:
-                    status = "pending"
-            elif i == current_idx:
-                status = "current"
-            elif i < current_idx:
-                status = "completed" if ev_at else "skipped"
+    steps = []
+    for i, (key, label, _stages) in enumerate(buckets):
+        ev_at, ev_detail = evidence.get(key, (None, None))
+
+        if is_rejected:
+            if i == 0:
+                status = "completed"
+            elif i == 1:
+                status = "rejected"
             else:
                 status = "pending"
+        elif i == current_idx:
+            status = "current"
+        elif i < current_idx:
+            status = "completed" if ev_at else "skipped"
+        else:
+            status = "pending"
 
-            steps.append({
-                "key": key,
-                "label": label,
-                "status": status,
-                "at": ev_at,
-                "detail": ev_detail,
-            })
+        steps.append({
+            "key": key,
+            "label": label,
+            "status": status,
+            "at": ev_at,
+            "detail": ev_detail,
+        })
 
-        override_block = None
-        if rec.resume_manual_override_reason:
-            override_block = {
-                "reason": rec.resume_manual_override_reason,
-                "at":     _iso(rec.resume_manual_override_at),
-                "by":     rec.resume_manual_override_by_id.name if rec.resume_manual_override_by_id else None,
-            }
-
-        screening_block = {
-            "llmStatus":       rec.resume_llm_status or "pending",
-            "score":           float(rec.resume_score or 0),
-            "recommendation":  rec_out,
-            "screenedAt":      _iso(rec.resume_screened_at),
-            "model":           rec.resume_llm_model_used or None,
-            "override":        override_block,
+    override_block = None
+    if rec.resume_manual_override_reason:
+        override_block = {
+            "reason": rec.resume_manual_override_reason,
+            "at":     _iso(rec.resume_manual_override_at),
+            "by":     rec.resume_manual_override_by_id.name if rec.resume_manual_override_by_id else None,
         }
 
-        total = len(buckets)
-        progress_percent = int(round((current_idx / max(total - 1, 1)) * 100))
+    screening_block = {
+        "llmStatus":       rec.resume_llm_status or "pending",
+        "score":           float(rec.resume_score or 0),
+        "recommendation":  rec_out,
+        "screenedAt":      _iso(rec.resume_screened_at),
+        "model":           rec.resume_llm_model_used or None,
+        "override":        override_block,
+    }
 
-        return return_Response(
-            message="OK",
-            status=200,
-            data={
-                "candidateId":     rec.id,
-                "candidateName":   rec.partner_name or (rec.partner_id.name if rec.partner_id else None),
-                "currentStage":    stage_enum,
-                "currentStatus":   _current_status(rec),
-                "currentBucket":   buckets[current_idx][0],
-                "currentIndex":    current_idx,
-                "totalSteps":      total,
-                "progressPercent": progress_percent,
-                "steps":           steps,
-                "screening":       screening_block,
-                "isRejected":      is_rejected,
-                "isArchived":      is_archived,
-            },
-        )
+    total = len(buckets)
+    progress_percent = int(round((current_idx / max(total - 1, 1)) * 100))
+
+    return {
+        "candidateId":     rec.id,
+        "candidateName":   rec.partner_name or (rec.partner_id.name if rec.partner_id else None),
+        "currentStage":    stage_enum,
+        "currentStatus":   _current_status(rec),
+        "currentBucket":   buckets[current_idx][0],
+        "currentIndex":    current_idx,
+        "totalSteps":      total,
+        "progressPercent": progress_percent,
+        "steps":           steps,
+        "screening":       screening_block,
+        "isRejected":      is_rejected,
+        "isArchived":      is_archived,
+    }
