@@ -6,7 +6,6 @@ from odoo.http import request
 
 DEFAULT_GITHUB_URL = "https://github.com/EtharaOrion/milo-bench-samples"
 DEFAULT_HUGGINGFACE_URL = "https://huggingface.co/datasets/ethara/milo-bench-samples"
-DEFAULT_PAPER_URL = "https://github.com/EtharaOrion/milo-bench-samples#readme"
 
 
 class MilobenchController(http.Controller):
@@ -25,7 +24,6 @@ class MilobenchController(http.Controller):
             {
                 "github_url": param.get_param("milobench_dashboard.github_url", DEFAULT_GITHUB_URL),
                 "huggingface_url": param.get_param("milobench_dashboard.huggingface_url", DEFAULT_HUGGINGFACE_URL),
-                "paper_url": param.get_param("milobench_dashboard.paper_url", DEFAULT_PAPER_URL),
                 "asset_version": asset_version,
             },
         )

@@ -1,9 +1,9 @@
 .mb-showcase {
-    max-width: 960px;
+    max-width: 900px;
     margin: 24px auto;
     padding: 24px;
-    color: #0B0E14;
-    font-family: 'Inter', 'DM Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    color: #1a1a2e;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
     .mb-showcase-header {
         text-align: center;
@@ -55,15 +55,14 @@
 
     .mb-metric-grid {
         display: grid;
-        grid-template-columns: repeat(6, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         gap: 12px;
     }
 
     .mb-metric-card {
         padding: 16px;
-        background: #F9FAFB;
+        background: #f8f9fa;
         border: 1px solid #E5E7EB;
-        border-radius: 12px;
         text-align: center;
     }
 
@@ -157,10 +156,10 @@
 }
 
 @media (max-width: 900px) {
-    .mb-showcase .mb-metric-grid { grid-template-columns: repeat(3, 1fr); }
+    .mb-showcase .mb-metric-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 600px) {
-    .mb-showcase .mb-metric-grid { grid-template-columns: repeat(2, 1fr); }
+    .mb-showcase .mb-metric-grid { grid-template-columns: repeat(1, 1fr); }
     .mb-showcase .mb-title { font-size: 36px; }
 }

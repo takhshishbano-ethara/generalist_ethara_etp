@@ -8,6 +8,7 @@ _logger = logging.getLogger(__name__)
 
 RUN_STATUS_SELECTION = [
     ("scored", "Scored"),
+    ("invalid", "Invalid"),  # source status for legitimate model-side run failures
     ("failed", "Failed"),
     ("error", "Error"),
     ("unknown", "Unknown"),
@@ -136,7 +137,11 @@ class MilobenchRun(models.Model):
                 "score": entry.get("score") or 0.0,
                 "score_binary": bool(entry.get("score_binary")),
                 "recall": entry.get("recall") or 0.0,
-                "regression_factor": entry.get("regression_factor") or 1.0,
+                "regression_factor": (
+                    entry.get("regression_factor")
+                    if entry.get("regression_factor") is not None
+                    else 1.0
+                ),  # keep a legitimate 0.0 (all preserve-tests broken); `or 1.0` would corrupt it
                 "targets_total": entry.get("targets_total") or 0,
                 "targets_hit": entry.get("targets_hit") or 0,
                 "preserve_set_total": entry.get("preserve_set_total") or 0,
