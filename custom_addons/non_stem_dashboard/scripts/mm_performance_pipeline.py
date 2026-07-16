@@ -1315,6 +1315,11 @@ tr:hover>td{background:#FFF8F5}
 
 <div id="pane-ov" class="pane active"><div class="wrap">
   <div class="g5" style="margin-top:2px" id="kpiRow"></div>
+  <div class="card" style="margin-top:14px">
+    <div class="card-h">Daily Performance — Total Hours, Target &amp; Unique Annotators</div>
+    <div style="font-size:.73rem;color:#64748B;margin-bottom:10px">Team-wide trend across the full period. Gap between the Total Hours and Target lines shows over/under-delivery day to day.</div>
+    <div class="ch" style="height:320px"><canvas id="ovPerfCh"></canvas></div>
+  </div>
   <div class="g2">
     <div class="card">
       <div class="card-h">Performance Tier Distribution</div>
@@ -1824,6 +1829,41 @@ function initHealth(){
   document.querySelectorAll("#healthTbl th").forEach((th,i)=>{if(i===HTC)th.classList.add(HTA?"sa":"sd");});
 }
 
+function initOvPerf(){
+  const D=DATA.daily;
+  new Chart(document.getElementById("ovPerfCh").getContext("2d"),{
+    type:"line",
+    data:{labels:D.map(d=>d.dt.slice(5)),datasets:[
+      {label:"Total Hours",data:D.map(d=>d.hrs),
+        borderColor:"#2563EB",backgroundColor:"transparent",pointRadius:2,pointHoverRadius:5,tension:0.25,borderWidth:2},
+      {label:"Target",data:D.map(d=>d.tgt),
+        borderColor:"#94A3B8",backgroundColor:"transparent",pointRadius:0,borderDash:[6,4],tension:0.25,borderWidth:2},
+      {label:"Unique Annotators",data:D.map(d=>d.n),
+        borderColor:"#F59E0B",backgroundColor:"transparent",pointRadius:2,pointHoverRadius:5,tension:0.25,borderWidth:2}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"bottom",labels:{boxWidth:9,font:{size:10}}},
+        tooltip:{mode:"index",intersect:false,callbacks:{
+          title:ctx=>D[ctx[0].dataIndex].dt,
+          label:ctx=>{
+            const l=ctx.dataset.label,v=ctx.parsed.y;
+            if(l==="Unique Annotators")return ` ${l}: ${v}`;
+            return ` ${l}: ${v.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1})}h`;
+          },
+          afterBody:ctx=>{
+            const d=D[ctx[0].dataIndex];
+            const lines=[`% of Target: ${d.pct}%`];
+            if(d.anom)lines.push("⚠ Anomaly day — excluded from scoring");
+            return lines;
+          }
+        }}},
+      scales:{
+        y:{beginAtZero:true,title:{display:true,text:"Hours / Taskers",font:{size:10}}}
+      }}
+  });
+}
+
 let PRC=3,PRA=false;
 const PRKEYS=["nm","days","taskers","hrs","subs","aht",null,"start"];
 function renderPr(){
@@ -2085,7 +2125,7 @@ function initSp(){
   document.querySelectorAll('#spTbl th').forEach((th,i) => { if(i===SPC) th.classList.add(SPA?'sa':'sd'); });
 }
 
-initOv(); renderLB();
+initOv(); initOvPerf(); renderLB();
 document.querySelectorAll("#lbTbl th").forEach((th,i)=>{if(i===LBC)th.classList.add(LBA?"sa":"sd");});
 initQd(); initFlags(); initHealth(); renderPr();
 document.querySelectorAll("#prTbl th").forEach((th,i)=>{if(i===PRC)th.classList.add(PRA?"sa":"sd");});
@@ -2553,7 +2593,7 @@ if __name__ == "__main__":
         print(f"File not found: {input_csv}")
         sys.exit(1)
 
-    all_dates = sorted({row['Date From'].strip() for row in _peek_dates(input_csv)})
+    all_dates = sorted({row['Date From'].strip() for row in _peek_dates(input_csv) if row['Date From'].strip()})
     date_from = all_dates[0].replace('-', '')
     date_to   = all_dates[-1].replace('-', '')
     run_dir   = os.path.join(
