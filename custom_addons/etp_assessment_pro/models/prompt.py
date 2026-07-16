@@ -700,6 +700,14 @@ class EtpAssessmentPrompt(models.Model):
         my_tags = self.tag_ids
         if not my_tags:
             return []
+        # Onchange/new records carry a virtual NewId that psycopg2 can't adapt
+        # into the raw self-join below ("can't adapt type 'NewId'"). Fall back to
+        # the persisted origin so a SAVED record being edited still ranks against
+        # its committed tag links, and bail for a brand-new unsaved generator
+        # (no DB row to join against yet — similarity needs a save first).
+        rec_id = self.id if isinstance(self.id, int) else self._origin.id
+        if not isinstance(rec_id, int) or not rec_id:
+            return []
         field = self._fields["tag_ids"]
         rel, col_prompt, col_tag = (
             field.relation, field.column1, field.column2)
@@ -714,7 +722,7 @@ class EtpAssessmentPrompt(models.Model):
              WHERE mine.{col_prompt} = %s
              GROUP BY other.{col_prompt}
             """.format(rel=rel, col_prompt=col_prompt, col_tag=col_tag),
-            (self.id,),
+            (rec_id,),
         )
         rows = self.env.cr.fetchall()
         if not rows:
@@ -857,6 +865,48 @@ class EtpAssessmentPrompt(models.Model):
                 "<p class='o_view_nocontent_smiling_face'>No similar generators"
                 "</p><p>Similarity ranks other generators by the weight of the "
                 "SOP tags they share with this one.</p>"),
+        }
+
+    def action_normalize_tags(self):
+        """Re-extract semantic tags for the SELECTED generators so their tags
+        converge on the shared live vocabulary — the fix for historic drift
+        (one bank tagged modality:ui-screenshot, its twin modality:image, so
+        identical SOPs ranked as unrelated). Unlike action_backfill_all_tags
+        (which only fills UN-tagged idle banks), this RE-RUNS extraction on the
+        chosen banks even when they already carry tags, feeding the current
+        vocabulary so the model reuses canonical values. Bound to the generator
+        list 'Actions' menu; each bank is isolated so one 429/failure records its
+        own state without aborting the batch, and a bank with no SOP is skipped
+        (nothing to extract from) rather than erroring the whole run."""
+        targets = self.filtered(
+            lambda p: p.resource_ids.filtered(lambda r: r.category == "sop")
+            or (p.source_text or "").strip())
+        skipped = len(self) - len(targets)
+        done = 0
+        failed = 0
+        for prompt in targets:
+            try:
+                prompt._run_tag_extract_inline()
+                done += 1
+            except UserError:
+                failed += 1
+                _logger.exception(
+                    "Tag normalize failed for generator %s", prompt.id)
+        msg = "Re-extracted tags for %d of %d selected generator(s)." % (
+            done, len(targets))
+        if failed:
+            msg += " %d failed (see the generator's Tag Extraction error)." % failed
+        if skipped:
+            msg += " %d skipped (no SOP document)." % skipped
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Tags Normalized",
+                "message": msg,
+                "type": "warning" if failed else "success",
+                "sticky": bool(failed),
+            },
         }
 
     @api.model
@@ -2037,6 +2087,101 @@ class EtpAssessmentPromptQuestion(models.Model):
             spec["detections_json"] = _json.dumps(label_key, ensure_ascii=False)
         return images
 
+    def _capture_source_url_on_render(self, images):
+        """Live DOM capture for a source_url image_label draft at render time.
+
+        Drives dom_capture.capture_and_annotate on the draft's real source_url
+        (threading its authored capture_config / omit directives) and stashes the
+        REAL captured screenshot + numbered boxes + behavioural key into the
+        'single' spec, so the draft preview shows the true labelled page — the
+        same accurate result the "Capture URL" detect button produces, made the
+        default. Returns True when a live capture with >=1 box was stored; False
+        when Playwright is absent, the capture fails, or it yields zero boxes (the
+        caller then falls back to the model's guessed dense preview). Never
+        raises — capture must never break the render."""
+        import base64 as _b64
+        import json as _json
+        self.ensure_one()
+        src = (self.source_url or "").strip()
+        if not src:
+            return False
+        from ..services import dom_capture
+        if not dom_capture.PLAYWRIGHT_AVAILABLE:
+            return False
+        single = next((s for s in images if isinstance(s, dict)
+                       and (s.get("slot") or "single") == "single"), None)
+        if single is None:
+            return False
+        # Thread the authored capture directives (viewport / wait / dismiss /
+        # omit) the same way question_image._capture_kwargs does.
+        kwargs = {}
+        try:
+            cfg = _json.loads(self.capture_config_json or "{}")
+            if isinstance(cfg, dict):
+                vp = cfg.get("viewport")
+                if isinstance(vp, dict) and vp.get("width") and vp.get("height"):
+                    kwargs["viewport"] = (int(vp["width"]), int(vp["height"]))
+                if cfg.get("wait_ms"):
+                    kwargs["wait_ms"] = int(cfg["wait_ms"])
+                if cfg.get("dismiss"):
+                    kwargs["dismiss"] = cfg["dismiss"]
+        except (ValueError, TypeError):
+            pass
+        try:
+            omit = _json.loads(self.omit_spec_json or "null")
+            if isinstance(omit, dict) and omit:
+                kwargs["omit"] = omit
+        except (ValueError, TypeError):
+            pass
+        try:
+            result = dom_capture.capture_and_annotate(src, **kwargs)
+        except Exception:  # noqa: BLE001 - capture must never break the render
+            _logger.exception(
+                "Render-time DOM capture failed for draft %s (%s); falling back "
+                "to the dense guessed preview", self.id, src)
+            return False
+        if not (result and result.get("dom_manifest")):
+            return False
+        annotated_png = result.get("annotated_png")
+        if not annotated_png:
+            return False
+        # Persist the annotated screenshot + real key into the single spec so the
+        # draft renders the TRUE captured page (bytes -> data-URL b64).
+        single["annotated_data"] = (
+            "data:image/png;base64,%s"
+            % _b64.b64encode(annotated_png).decode())
+        base_png = result.get("screenshot_png")
+        if base_png:
+            single["data"] = (
+                "data:image/png;base64,%s"
+                % _b64.b64encode(base_png).decode())
+        label_key = result.get("label_key")
+        if label_key:
+            single["detections_json"] = _json.dumps(
+                label_key, ensure_ascii=False)
+        # Carry the captured source_url + behavioural key onto the draft so the
+        # answer key at approve is the live-captured ground truth, not guessed.
+        vals = {"source_url": src}
+        bkey = result.get("behavioural_key")
+        if bkey:
+            vals["behavioural_key_json"] = _json.dumps(
+                bkey, ensure_ascii=False)
+        manifest = result.get("dom_manifest")
+        if manifest:
+            vals["label_boxes_json"] = _json.dumps(
+                manifest, ensure_ascii=False)
+        if result.get("omitted_element"):
+            vals["omitted_element_json"] = _json.dumps(
+                result["omitted_element"], ensure_ascii=False)
+        if result.get("coverage_expected"):
+            vals["coverage_expected"] = result["coverage_expected"]
+        try:
+            self.write(vals)
+        except Exception:  # noqa: BLE001 - never fail the render on a write
+            _logger.exception(
+                "Failed to persist capture key on draft %s", self.id)
+        return True
+
     def _detect_label_on_render(self, images):
         """RENDER-TIME image_label detection: the moment a draft's 'single'
         image is rendered, run element detection on the JUST-rendered in-memory
@@ -2060,9 +2205,19 @@ class EtpAssessmentPromptQuestion(models.Model):
         self.ensure_one()
         if self.question_type != "image_label" or not isinstance(images, list):
             return images
-        images = self._draw_dense_preview(images)
+        # PRIMARY (accurate): when the draft names a real source_url and
+        # Playwright is available, capture the LIVE page now — real element
+        # geometry + behavioural key, the same path the "Capture URL" / detect
+        # button uses — so the reviewer sees the TRUE labelled page on the draft,
+        # not the model's guessed box coordinates. Only if capture is
+        # unavailable / fails / yields nothing do we fall back to the
+        # model-authored dense preview (guessed boxes) or Gemini detect.
         if (self.source_url or "").strip():
-            return images
+            if self._capture_source_url_on_render(images):
+                return images
+            # capture unavailable/failed: fall back to the dense guessed preview
+            return self._draw_dense_preview(images)
+        images = self._draw_dense_preview(images)
         if (self.behavioural_key_json or "").strip():
             return images
         QImage = self.env["etp.assessment.pro.question.image"]

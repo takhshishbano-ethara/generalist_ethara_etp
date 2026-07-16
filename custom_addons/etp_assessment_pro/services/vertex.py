@@ -110,8 +110,13 @@ def _vertex_creds(env):
 
 
 def _vertex_image_model(env):
-    """The single configured model (image rendering is unified with every other task)."""
-    return _vertex_creds(env)[2]
+    """The model used to RENDER images. Prefers a dedicated ``image_model``
+    config key so the bare ``vertex_model`` default can be a cheap TEXT model
+    without ever routing image rendering onto it (and vice-versa). Falls back to
+    ``vertex_model`` for backward compatibility with deployments that set only
+    the single Default Model field."""
+    return _param(env, "etp_assessment_pro.image_model") \
+        or _vertex_creds(env)[2]
 
 
 _HTTPX_CLIENT = None
@@ -1271,6 +1276,18 @@ def _build_flaw_injected_ab_fields(plan):
         }, ensure_ascii=False),
         "official_reasoning": reasoning,
     }
+    # DERIVE the golden solution verdicts FROM the authoritative construction_keys
+    # (which are slot-aligned, and flipped above when the flawed side was swapped),
+    # so the stored golden answer can NEVER contradict the rendered images. The
+    # model's separately-written solution verdicts are NOT trusted here — a
+    # thinking model sometimes writes them for the pre-swap side or self-
+    # contradicts, which would grade a worker against a wrong key (observed:
+    # ~40% of flaw drafts had an A/B label mismatch). rationale is preserved when
+    # the model supplied one; the verdicts are always the construction ground truth.
+    _CK2SOL = {"IF": "instruction_following", "VQ": "visual_quality",
+               "LAI": "less_ai_generated", "OC": "overall_preference"}
+    derived = {_CK2SOL[k]: v for k, v in keys.items() if k in _CK2SOL}
+    vals["_derived_ab_solution"] = derived
     if worker_prompt:
         vals["question_prompt"] = worker_prompt
     return vals
@@ -1453,6 +1470,11 @@ def _apply_capture_directives(specs, vals):
     if not src:
         return
     vals["source_url"] = src[:2000]
+    # A source_url means the label target is a live web page / app UI, so the
+    # detection prompt must be the UI-element one (not the physical-object one).
+    # This makes the synthetic fallback + any Gemini detect use the right prompt,
+    # and matches the live DOM capture that is now the render-time default.
+    vals["detection_mode"] = "ui"
     cfg: dict = {}
     vp = specs.get("viewport")
     if isinstance(vp, dict):
@@ -1853,6 +1875,37 @@ def _answer_resolves(ca, options, single):
     return bool(vals) and all(one_ok(v) for v in vals)
 
 
+def _resolved_correct_count(ca, options):
+    """How many DISTINCT options ``ca`` marks correct (string match or 0-based
+    index). Used to reject an msq that marks every option correct — a
+    non-discriminating question."""
+    n = len(options)
+    opt_strs = [str(o) for o in options]
+    idxs = set()
+    vals = ca if isinstance(ca, list) else ([ca] if ca is not None else [])
+    for v in vals:
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, str):
+            if v in opt_strs:
+                idxs.add(opt_strs.index(v))
+            else:
+                s = v.strip()
+                if s.lstrip("-").isdigit() and 0 <= int(s) < n:
+                    idxs.add(int(s))
+        elif isinstance(v, int) and 0 <= v < n:
+            idxs.add(v)
+    return len(idxs)
+
+
+def _is_decisive_ab_winner(winner):
+    """True when an image_ab dimension verdict decides a side (Response A/B),
+    as opposed to a tie (Both Good / Both Bad). Used to reject a flaw-free A/B
+    where every dimension is a tie (no discriminating ground truth)."""
+    w = str(winner or "").strip().lower()
+    return w in ("response a", "response b", "a", "b")
+
+
 def _validate_question_item(it, qtype, ab_dims=None):
     """Return contract violations for one generated item (empty == valid), so malformed items are skipped."""
     errs = []
@@ -1872,12 +1925,27 @@ def _validate_question_item(it, qtype, ab_dims=None):
             errs.append("msq needs >=2 options")
         elif not _answer_resolves(ca, opts, single=False):
             errs.append("msq correct_answer must be a non-empty subset of options")
+        elif _resolved_correct_count(ca, opts) >= len(opts):
+            # EVERY option marked correct = no discrimination (a non-question).
+            errs.append("msq correct_answer marks ALL options correct "
+                        "(needs at least one wrong option)")
     elif qtype == "subjective_rubric":
         r = it.get("rubric")
         if not isinstance(r, dict) or not all(
                 k in r for k in ("checklist", "constraints", "pass_condition")):
             errs.append("subjective_rubric needs rubric "
                         "{checklist,constraints,pass_condition}")
+        else:
+            # Keys present is not enough: an empty checklist or blank
+            # pass_condition gives the judge nothing to anchor on (P1).
+            checklist = r.get("checklist")
+            has_checklist = bool(checklist) if isinstance(
+                checklist, (list, str)) else bool(checklist)
+            if not has_checklist:
+                errs.append("subjective_rubric checklist is empty "
+                            "(needs at least one gradable criterion)")
+            if not str(r.get("pass_condition") or "").strip():
+                errs.append("subjective_rubric pass_condition is blank")
     elif qtype == "image_ab":
         specs = it.get("image_specs") or {}
         plan = specs.get("flaw_plan") or {}
@@ -1902,6 +1970,18 @@ def _validate_question_item(it, qtype, ab_dims=None):
                                     % (label, winner, sorted(allowed)))
             if not (specs.get("official_reasoning") or "").strip():
                 errs.append("image_ab needs official_reasoning")
+            # A flaw-free A/B whose EVERY dimension is a tie (both-good/both-bad)
+            # has no discriminating ground truth — the 75%-objective verdict path
+            # can't grade it. Require at least one decisive (A or B) verdict when
+            # there is no planted flaw plan (P1).
+            decisive = [
+                w for w in (specs.get("dimensions") or {}).values()
+                if _is_decisive_ab_winner(w)]
+            if isinstance(specs.get("dimensions"), dict) and \
+                    specs.get("dimensions") and not decisive:
+                errs.append("image_ab has no planted flaw and every dimension is "
+                            "a tie (needs at least one decisive A/B winner or a "
+                            "flaw_plan)")
     elif qtype == "image_prompt":
         specs = it.get("image_specs") or {}
         imgs = specs.get("images") or []
@@ -2066,6 +2146,34 @@ _ENVELOPE_REMINDER = (
     "'}', no markdown.")
 
 
+def _facet_vocabulary_note(env):
+    """Build the controlled-vocabulary instruction from the LIVE tag table so the
+    model REUSES an existing facet value when one fits, instead of coining a
+    synonym that would make two runs of the same SOP look unrelated. The
+    vocabulary is data (existing tags), not a hardcoded map: a genuinely novel
+    concept is still allowed a NEW kebab-case value, which then joins the list
+    for the next SOP. Returns '' when the tag table is empty (cold start), so the
+    first extractions simply seed the vocabulary."""
+    try:
+        vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
+    except Exception:  # noqa: BLE001 - vocabulary is an optimization, never fatal
+        return ""
+    if not vocab:
+        return ""
+    lines = "; ".join(
+        "%s: [%s]" % (facet, ", ".join(vals))
+        for facet, vals in vocab.items() if vals)
+    return (
+        " MAPPING VOCABULARY (important for cross-project matching): the platform "
+        "already uses these faceted mapping values across existing projects — "
+        + lines
+        + ". When a facet of THIS SOP means the same thing as one of these, REUSE "
+        "the exact existing value (e.g. do not write modality:ui-screenshot if "
+        "modality:image already exists for the same idea). Only coin a NEW "
+        "kebab-case value when this SOP introduces a genuinely new concept none of "
+        "the above covers. Keep each mapping entry as facet:value.")
+
+
 def _forced_type_directive(force_type, count, ab_dims=None):
     """An EXCLUSIVE directive that pins every generated item to one question_type
     (with that type's required shape), used when the admin forces a type. An image
@@ -2110,6 +2218,68 @@ def _extract_solutions(raw):
         return []
     except Exception:  # noqa: BLE001
         return []
+
+
+def _attach_solutions(items, sols, prompt_id):
+    """Attach each solution dict to its question as ``it["_solution"]`` WITHOUT
+    ever mis-keying it onto the wrong question (P0). Strategy, in order:
+
+    1. REFERENCE MATCH — if solutions carry a "question_ref"/"name"/"id" that
+       matches a question's name (case/space-insensitive), pair by that. This
+       survives any reordering or a dropped question.
+    2. POSITIONAL 1:1 — only when every solution lacks a usable ref AND the two
+       arrays are the SAME length, pair by index (the documented same-order
+       contract).
+    3. SKIP — on a length mismatch with no refs, attach NOTHING and log, so a
+       question is graded against NO key rather than the WRONG key.
+    """
+    if not (items and sols):
+        return
+
+    def _norm(v):
+        return " ".join(str(v or "").strip().lower().split())
+
+    by_name = {}
+    for it in items:
+        key = _norm(it.get("name") or it.get("title"))
+        if key and key not in by_name:
+            by_name[key] = it
+
+    matched = 0
+    unref = []
+    for sol in sols:
+        if not isinstance(sol, dict):
+            continue
+        ref = _norm(sol.get("question_ref") or sol.get("name")
+                    or sol.get("question") or sol.get("id"))
+        if ref and ref in by_name:
+            by_name[ref]["_solution"] = sol
+            matched += 1
+        else:
+            unref.append(sol)
+
+    if matched:
+        # reference matching worked for at least some; do NOT positionally guess
+        # the remainder (that is exactly where mis-keying creeps in).
+        if unref:
+            _logger.warning(
+                "etp_assessment (SOP prompt %s): %d solution(s) had no matching "
+                "question_ref and were left unattached (kept answer-key integrity "
+                "over guessing).", prompt_id, len(unref))
+        return
+
+    # No references at all -> positional, but ONLY on an exact 1:1 length match.
+    if len(sols) == len(items):
+        for it, sol in zip(items, sols):
+            if isinstance(sol, dict):
+                it["_solution"] = sol
+        return
+
+    _logger.warning(
+        "etp_assessment (SOP prompt %s): %d solutions vs %d questions with no "
+        "question_ref to match on — SKIPPED solution attachment to avoid "
+        "mis-keying golden answers to the wrong questions.",
+        prompt_id, len(sols), len(items))
 
 
 def _capture_sop_metadata(env, prompt_record, raw):
@@ -2292,8 +2462,11 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "Unknown question type(s) in the generation allow-list: %s"
             % ", ".join(sorted(map(repr, unknown))))
     ab_dims = _ab_fallback_dims()
+    vocab_note = _facet_vocabulary_note(env)
     if allowed:
-        directive = _allowed_types_directive(allowed, count, ab_dims=ab_dims)
+        directive = (
+            _allowed_types_directive(allowed, count, ab_dims=ab_dims)
+            + vocab_note)
     else:
         directive = (
         "The attached document is a SOP that contains the test content, any "
@@ -2314,7 +2487,8 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
           "(definitions, rules, procedures needing no visual judgment). "
         + _ENVELOPE_REMINDER
         + _image_contracts_note(ab_dims)
-        + _SELF_CONTAINED_RULE)
+        + _SELF_CONTAINED_RULE
+        + vocab_note)
     user_parts = list(doc_parts)
     if notes:
         user_parts.append({"text": "ADDITIONAL NOTES:\n" + notes})
@@ -2342,13 +2516,17 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
         _capture_sop_metadata(env, prompt_record, raw)
         items = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
         # Research schema 1.5 also returns a top-level "solutions" array, one
-        # entry per question IN ORDER. Zip each solution onto its question so the
-        # golden answer + rationale ride with the item into draft creation.
+        # entry per question. Attach each solution to its question. PREFER an
+        # explicit reference (a solution's "question_ref"/"name"/"id" matching a
+        # question's name) so the answer key can NEVER land on the wrong question;
+        # fall back to positional zip ONLY when the two arrays are the same length
+        # (a safe 1:1). On a length mismatch with no usable refs we SKIP the zip
+        # entirely and log, rather than silently mis-key golden answers onto the
+        # wrong questions (P0: a mis-keyed solution grades a worker against another
+        # question's answer).
         sols = _extract_solutions(raw)
         if sols:
-            for idx, it in enumerate(items):
-                if idx < len(sols) and isinstance(sols[idx], dict):
-                    it["_solution"] = sols[idx]
+            _attach_solutions(items, sols, prompt_record.id)
         return items
 
     try:
@@ -2400,6 +2578,9 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "question_prompt": prompt_text or name,
             "question_type": qtype,
             "difficulty": difficulty,
+            # Candidate-facing description: use the model's when given, else leave
+            # blank (it's optional). Never silently duplicate the prompt.
+            "description": (it.get("description") or "").strip() or False,
         }
         ce = it.get("covers_elements")
         if isinstance(ce, list) and ce:
@@ -2414,11 +2595,27 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             if sol.get("rationale"):
                 vals["solution_rationale"] = str(sol["rationale"])
         if qtype in _IMAGE_OR_VIDEO_TYPES:
-            vals.update(_build_image_draft_fields(
+            img_fields = _build_image_draft_fields(
                 env, qtype, it, ab_dims=ab_dims,
                 usage_ctx={"operation": "generate_image",
                            "prompt_id": prompt_record.id,
-                           "note": prompt_record.name or "SOP"}))
+                           "note": prompt_record.name or "SOP"})
+            # image_ab: override the golden solution VERDICTS with the ones
+            # derived from the authoritative construction_keys (slot-aligned,
+            # swap-corrected), so the stored answer key always matches the
+            # rendered images. Keep the model's justification/rationale prose.
+            derived = img_fields.pop("_derived_ab_solution", None)
+            if isinstance(derived, dict) and derived:
+                model_ans = it.get("_solution") or {}
+                model_ans = model_ans.get("answers") if isinstance(
+                    model_ans, dict) else {}
+                justification = (model_ans.get("justification")
+                                 if isinstance(model_ans, dict) else "") or ""
+                merged = dict(derived)
+                if justification:
+                    merged["justification"] = justification
+                vals["solution_json"] = json.dumps(merged, ensure_ascii=False)
+            vals.update(img_fields)
             if vals.get("image_brief_json") or vals.get("video_brief_json"):
                 vals["image_state"] = "pending"
             if vals.get("video_brief_json"):
@@ -2454,15 +2651,22 @@ _TAG_SYSTEM_PROMPT = (
     "SMALL and DISTINCTIVE — tags that would apply to almost ANY SOP (generic "
     "filler like task:evaluation, skill:reading, domain:assessment) are "
     "FORBIDDEN. (3) NO duplicates and no two tags meaning the same thing. "
-    "(4) Prefer a specific label over a vague one. Output nothing but the JSON "
-    "array.\n\n"
+    "(4) Prefer a specific label over a vague one. (5) CROSS-PROJECT "
+    "CONSISTENCY IS CRITICAL: when an EXISTING TAG VOCABULARY is provided below, "
+    "you MUST reuse the existing value for any facet whose meaning matches — a UI "
+    "screenshot is modality:image (NOT modality:ui-screenshot or "
+    "modality:application-screenshot); labelling/annotating is task:annotation "
+    "(NOT task:image-annotation or task:labeling); a labels output is "
+    "output-format:labels (NOT output-format:text-labels). Coin a NEW value "
+    "ONLY for a concept the vocabulary genuinely lacks. Two runs on the same SOP "
+    "must produce the SAME tags. Output nothing but the JSON array.\n\n"
     "Example — an image A/B comparison SOP -> "
     '["domain:image-evaluation","task:pairwise-comparison",'
     '"skill:prompt-deconstruction","skill:defect-detection","modality:image"]. '
     "Example — a bounding-box UI labelling SOP -> "
-    '["domain:ui-annotation","task:bounding-box-labeling",'
-    '"skill:action-based-description","modality:image",'
-    '"modality:application-screenshot"].'
+    '["domain:ui-ux","task:annotation",'
+    '"skill:ui-element-identification","skill:functional-description",'
+    '"modality:image","output-format:labels"].'
 )
 
 
@@ -2479,15 +2683,20 @@ def extract_tags_from_sop(env, prompt_record):
     if not doc_parts and not notes:
         raise LLMRefusalError(
             "No SOP document or notes to tag — upload a SOP file first.")
-    existing = env["etp.assessment.pro.tag"].search([]).mapped("name")[:100]
     directive = (
         "Extract the semantic tags for THIS SOP now, following every rule. "
         "Return ONLY the JSON array.")
-    if existing:
+    vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
+    if vocab:
+        grouped = "\n".join(
+            "  %s: %s" % (facet, ", ".join(vals))
+            for facet, vals in vocab.items() if vals)
         directive += (
-            "\n\nEXISTING TAG VOCABULARY (reuse a tag from this list VERBATIM "
-            "when it fits the SOP; only invent a new tag when none matches):\n"
-            + ", ".join(existing))
+            "\n\nEXISTING TAG VOCABULARY, grouped by facet (reuse a value from "
+            "this list VERBATIM when it means the same thing for this SOP — e.g. "
+            "do not write modality:ui-screenshot if modality:image already "
+            "covers the idea; only invent a NEW kebab-case value when this SOP "
+            "introduces a concept none of these cover):\n" + grouped)
     user_parts = list(doc_parts)
     if notes:
         user_parts.append({"text": "ADDITIONAL NOTES:\n" + notes})

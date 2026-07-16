@@ -9,6 +9,18 @@
             <field name="key">etp_assessment_pro.vertex_model</field>
             <field name="value">gemini-3-pro-image</field>
         </record>
+        <record id="param_generation_model" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.generation_model</field>
+            <field name="value">gemini-3.1-pro-preview</field>
+        </record>
+        <record id="param_scoring_model" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.scoring_model</field>
+            <field name="value">gemini-3.1-pro-preview</field>
+        </record>
+        <record id="param_image_model" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.image_model</field>
+            <field name="value">gemini-3-pro-image</field>
+        </record>
         <record id="param_verify_flaw_render" model="ir.config_parameter">
             <field name="key">etp_assessment_pro.verify_flaw_render</field>
             <field name="value">1</field>

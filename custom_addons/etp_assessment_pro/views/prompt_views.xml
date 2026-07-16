@@ -5,6 +5,11 @@
         <field name="model">etp.assessment.pro.prompt</field>
         <field name="arch" type="xml">
             <list js_class="etp_prompt_import_list" class="o_etp_backend">
+                <header>
+                    <button name="action_normalize_tags" type="object"
+                            string="Normalize Tags"
+                            help="Re-extract SOP tags for the selected generators so drifted tags converge on the shared vocabulary and similarity ranking improves."/>
+                </header>
                 <field name="name"/>
                 <field name="tag_ids" widget="many2many_tags"
                        options="{'color_field': 'color'}" optional="hide"

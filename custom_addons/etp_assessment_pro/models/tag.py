@@ -14,6 +14,12 @@ _CANON_KEEP_RE = re.compile(r"[^a-z0-9:-]+")
 _CANON_DASH_RE = re.compile(r"-{2,}")
 _CANON_COLON_RE = re.compile(r":{2,}")
 
+# The five facets a mapping tag can carry. Used to group the live vocabulary
+# (the distinct values already in tag_ids) that the extraction prompt reuses so
+# two runs on the same SOP converge on ONE value per concept instead of drifting
+# to synonyms. This is a facet LIST, not a value map — no synonyms are hardcoded.
+_KNOWN_FACETS = ("domain", "task", "modality", "output-format", "skill")
+
 
 class EtpAssessmentTag(models.Model):
     _name = "etp.assessment.pro.tag"
@@ -73,7 +79,10 @@ class EtpAssessmentTag(models.Model):
     def _canonicalize(self, raw):
         """Normalize one raw tag string to the stored form: strip, lower,
         collapse whitespace to '-', keep only [a-z0-9:-], collapse repeated
-        '-'/':'. Returns '' when nothing usable remains."""
+        '-'/':'. Returns '' when nothing usable remains. Semantic convergence
+        (two runs on one SOP agreeing on the same value) is handled UPSTREAM by
+        feeding the live vocabulary into the extraction prompt, not by a
+        hardcoded synonym map here."""
         text = (raw or "").strip().lower()
         if not text:
             return ""
@@ -83,6 +92,25 @@ class EtpAssessmentTag(models.Model):
         text = _CANON_COLON_RE.sub(":", text)
         text = text.strip("-:")
         return text
+
+    @api.model
+    def _facet_vocabulary(self, limit_per_facet=40):
+        """The LIVE controlled vocabulary: the distinct values already in use per
+        facet, read straight from the tag table. Fed into the extraction prompt
+        so the model REUSES an existing value when it fits (killing drift like
+        ui-screenshot vs image) and only coins a new one for genuinely novel
+        concepts — which then joins the vocabulary for the next SOP. No synonyms
+        are hardcoded; the vocabulary is data and grows on its own. Returns
+        ``{facet: sorted([value, ...])}`` for the known facets that have values."""
+        vocab = {f: set() for f in _KNOWN_FACETS}
+        for name in self.search([]).mapped("name"):
+            if not name or ":" not in name:
+                continue
+            prefix, value = name.split(":", 1)
+            if prefix in vocab and value:
+                vocab[prefix].add(value)
+        return {f: sorted(vals)[:limit_per_facet]
+                for f, vals in vocab.items() if vals}
 
     @api.model
     def _get_or_create(self, names):

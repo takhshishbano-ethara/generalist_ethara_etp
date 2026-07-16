@@ -45,6 +45,24 @@ class ResConfigSettings(models.TransientModel):
              "stimulus for the numbered-box overlay. Leave empty to fall back "
              "to the Question Generation Model.",
     )
+    etp_assessment_pro_scoring_model = fields.Char(
+        string="Subjective Scoring Model",
+        config_parameter="etp_assessment_pro.scoring_model",
+        help="TEXT reasoning model the subjective judge uses to grade answers "
+             "against the golden key (e.g. gemini-2.5-pro). MUST be a text model, "
+             "never the image model. Leave empty to fall back to the Question "
+             "Generation Model.",
+    )
+    etp_assessment_pro_image_model = fields.Char(
+        string="Image Rendering Model",
+        config_parameter="etp_assessment_pro.image_model",
+        help="Model used to RENDER image_ab / image_prompt / image_label "
+             "pictures (e.g. gemini-3-pro-image = Nano Banana Pro, or the "
+             "cheaper gemini-3.1-flash-image = Nano Banana 2). Leave empty to "
+             "fall back to the Default Model. Keeping this separate means the "
+             "Default Model can be a cheap text model without misrouting image "
+             "rendering.",
+    )
     etp_assessment_pro_video_model = fields.Char(
         string="Video Generation Model (Veo)",
         config_parameter="etp_assessment_pro.video_model",
