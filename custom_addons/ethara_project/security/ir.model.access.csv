@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_ethara_project_user,ethara.project all users,model_ethara_project,base.group_user,1,1,1,1
+access_ethara_project_attachment_user,ethara.project.attachment all users,model_ethara_project_attachment,base.group_user,1,1,1,1

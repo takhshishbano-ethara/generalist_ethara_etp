@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_ethara_project_root"
+              name="Ethara Projects"
+              sequence="20"/>
+
+    <menuitem id="menu_ethara_project_list"
+              name="Projects"
+              parent="menu_ethara_project_root"
+              action="action_ethara_project"
+              sequence="10"/>
+
+</odoo>

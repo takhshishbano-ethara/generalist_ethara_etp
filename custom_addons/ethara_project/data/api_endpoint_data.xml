@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="endpoint_api_v1_ethara_project_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/create</field>
+            <field name="note">POST - Create an Ethara Project</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_update" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/update</field>
+            <field name="note">POST - Update an Ethara Project</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/list</field>
+            <field name="note">GET - List Ethara Projects</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_detail" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/detail</field>
+            <field name="note">GET - Get one Ethara Project with full detail</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_employees_by_role" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/employees_by_role</field>
+            <field name="note">GET - List employees whose api.role matches a given role key (tpm|pl|qc|qr|rnd|pl_ql). Optional work_status filter.</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_update_state" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/update_state</field>
+            <field name="note">POST - Update the state of an Ethara Project (start|pause|close|complete)</field>
+        </record>
+
+    </data>
+</odoo>

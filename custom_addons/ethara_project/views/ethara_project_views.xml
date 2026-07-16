@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_project_list" model="ir.ui.view">
+        <field name="name">ethara.project.list</field>
+        <field name="model">ethara.project</field>
+        <field name="arch" type="xml">
+            <list string="Ethara Projects">
+                <field name="name"/>
+                <field name="client_name"/>
+                <field name="internal_project_name"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'start'"
+                       decoration-warning="state == 'pause'"
+                       decoration-danger="state == 'close'"
+                       decoration-success="state == 'complete'"/>
+                <field name="attachment_count" string="Docs"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_form" model="ir.ui.view">
+        <field name="name">ethara.project.form</field>
+        <field name="model">ethara.project</field>
+        <field name="arch" type="xml">
+            <form string="Ethara Project">
+                <header>
+                    <button name="action_start" type="object" string="Start"
+                            class="oe_highlight"
+                            invisible="state == 'start'"/>
+                    <button name="action_pause" type="object" string="Pause"
+                            invisible="state != 'start'"/>
+                    <button name="action_close" type="object" string="Close"
+                            invisible="state in ('close', 'complete')"/>
+                    <button name="action_complete" type="object" string="Complete"
+                            invisible="state == 'complete'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="start,pause,close,complete"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" string="Project Name"/>
+                        <h1>
+                            <field name="name" placeholder="Project name shown to the client"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="client_name"/>
+                            <field name="internal_project_name"/>
+                        </group>
+                        <group>
+                            <field name="start_date"/>
+                            <field name="end_date"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="project_goal" placeholder="Short goal statement for this project"/>
+                    </group>
+                    <notebook>
+                        <page string="Team" name="team">
+                            <group>
+                                <field name="assigned_tpm_ids"
+                                       widget="many2many_tags"
+                                       options="{'no_create': True}"/>
+                                <field name="assigned_pl_ql_ids"
+                                       widget="many2many_tags"
+                                       options="{'no_create': True}"/>
+                                <field name="assigned_rnd_ids"
+                                       widget="many2many_tags"
+                                       options="{'no_create': True}"/>
+                            </group>
+                        </page>
+                        <page string="Documents" name="documents">
+                            <field name="attachment_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="file_upload" filename="file_name"/>
+                                    <field name="file_name" column_invisible="1"/>
+                                    <field name="attachment_url" widget="url"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_search" model="ir.ui.view">
+        <field name="name">ethara.project.search</field>
+        <field name="model">ethara.project</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="client_name"/>
+                <field name="internal_project_name"/>
+                <filter name="filter_state_start" string="Started"
+                        domain="[('state', '=', 'start')]"/>
+                <filter name="filter_state_pause" string="Paused"
+                        domain="[('state', '=', 'pause')]"/>
+                <filter name="filter_state_close" string="Closed"
+                        domain="[('state', '=', 'close')]"/>
+                <filter name="filter_state_complete" string="Completed"
+                        domain="[('state', '=', 'complete')]"/>
+                <separator/>
+                <group>
+                    <filter name="group_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_client" string="Client"
+                            context="{'group_by': 'client_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_project" model="ir.actions.act_window">
+        <field name="name">Ethara Projects</field>
+        <field name="res_model">ethara.project</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_project_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first Ethara Project.
+            </p>
+        </field>
+    </record>
+
+    <record id="view_hr_employee_form_ethara_project" model="ir.ui.view">
+        <field name="name">hr.employee.form.ethara_project</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="before">
+                <div class="alert alert-info text-center" role="alert"
+                     invisible="work_status != 'allocated'">
+                    Currently <strong>Allocated</strong> to at least one active Ethara Project.
+                </div>
+            </xpath>
+            <xpath expr="//field[@name='department_id']" position="after">
+                <field name="work_status" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_hr_employee_list_ethara_project" model="ir.ui.view">
+        <field name="name">hr.employee.list.ethara_project</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='department_id']" position="after">
+                <field name="work_status" widget="badge"
+                       decoration-success="work_status == 'allocated'"
+                       decoration-muted="work_status == 'unallocated'"
+                       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
