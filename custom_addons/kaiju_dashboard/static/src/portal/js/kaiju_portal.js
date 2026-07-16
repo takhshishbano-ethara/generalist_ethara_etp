@@ -653,28 +653,13 @@
   }
 
   // ============================================================
-  // §12 - CHARTS (Chart.js, data-driven, theme-aware)
-  // 3 charts from /kaiju/api/instances. Opus 4.8 = magenta (--accent).
-  // Grouped by language. Re-renders on data-theme change.
+  // §12 - CHARTS (Chart.js, interactive, theme-aware)
+  // Three interactive charts from the calibrated snapshot (matching
+  // the published pass-rate graphs). Opus 4.8 = magenta (--accent).
+  // Re-renders on data-theme toggle.
   // ============================================================
-  var rdCharts = {};
-  var rdChartData = null;
 
-  function rdCssVar(name, fallback) {
-    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return v || fallback;
-  }
-
-  function rdPalette() {
-    return {
-      opus: rdCssVar("--accent", "#EE00EE"),
-      ink: rdCssVar("--ink", "#0B0E14"),
-      muted: rdCssVar("--muted", "#8a8fa5"),
-      grid: rdCssVar("--border", "rgba(0,0,0,0.10)"),
-      surface: rdCssVar("--bg-2", "#ffffff")
-    };
-  }
-
+  // Reward helpers still used by the headline-stat injector (§10).
   function rdReward(d) {
     var v = mv(d, "stage3");
     if (v === "" || v == null) return null;
@@ -686,22 +671,14 @@
     return isNaN(n) ? 0 : n / 60;
   }
 
-  var LANGS = ["Go", "Python", "Rust"];
+  var kjCharts = {};
 
-  function rdLangAgg(data) {
-    return LANGS.map(function (L) {
-      var a = data.filter(function (d) { return d.language === L; });
-      var r = [], t = [];
-      a.forEach(function (d) {
-        var rr = rdReward(d); if (rr !== null) r.push(rr);
-        var tt = rdTimeMin(d); if (tt > 0) t.push(tt);
-      });
-      function mean(arr) { return arr.length ? arr.reduce(function (s, x) { return s + x; }, 0) / arr.length : 0; }
-      return { lang: L, n: a.length, reward: mean(r), graded: r.length, time: mean(t) };
-    });
+  function kjCssVar(name, fallback) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
   }
 
-  function rdAlpha(c, a) {
+  function kjAlpha(c, a) {
     c = (c || "").trim();
     if (c.charAt(0) === "#") {
       var h = c.slice(1);
@@ -715,198 +692,132 @@
     });
   }
 
-  function rdLegend(p) {
-    return { position: "top", align: "start", labels: { color: p.ink, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: "rectRounded", font: { family: "'DM Sans', sans-serif", size: 12 } } };
-  }
-
-  function rdTooltip(p, unit) {
+  function kjPalette() {
     return {
-      backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
-      callbacks: { label: function (ctx) {
-        var v = ctx.raw;
-        var val = unit === "min" ? Number(v).toFixed(1) + " min" : Number(v).toFixed(1) + "%";
-        return " " + ctx.dataset.label + ": " + val;
-      } }
+      accent: kjCssVar("--accent", "#EE00EE"),
+      ink: kjCssVar("--ink", "#0B0E14"),
+      grid: kjCssVar("--border", "rgba(0,0,0,0.10)"),
+      surface: kjCssVar("--bg-2", "#ffffff")
     };
   }
 
-  function rdAxes(p, valMax, valTitle, horizontal) {
-    var val = { grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: valTitle ? { display: true, text: valTitle, color: p.ink, font: { size: 11 } } : { display: false } };
-    if (valMax) { val.max = valMax; val.beginAtZero = true; }
-    var cat = { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: horizontal ? 10 : 12, family: horizontal ? "'SF Mono', monospace" : "'DM Sans', sans-serif" } } };
-    return horizontal ? { x: val, y: cat } : { y: val, x: cat };
+  // Calibrated snapshot data (matches the published graphs).
+  var KJ_TIERS = ["Trivial", "Easy", "Medium", "Hard", "Expert"];
+  var KJ_TIER_PASS = [100.0, 79.9, 50.0, 28.2, 0.7];
+  var KJ_TIER_N = [2, 3, 1, 4, 10];
+  var KJ_LANGS = ["Go", "Python", "Rust", "TypeScript"];
+  var KJ_LANG_PASS = [0.0, 53.9, 28.6, 0.0];
+  var KJ_LANG_N = [3, 6, 10, 1];
+  var KJ_TASKS_BY_TIER = {
+    "Trivial": [0, 1, 1, 0],
+    "Easy": [0, 2, 1, 0],
+    "Medium": [0, 0, 1, 0],
+    "Hard": [3, 2, 2, 1],
+    "Expert": [0, 1, 5, 0]
+  };
+  var KJ_TIER_COLORS_LIGHT = { "Trivial": "#0A8C46", "Easy": "#3CB464", "Medium": "#B4820A", "Hard": "#D2505A", "Expert": "#B4141E" };
+  var KJ_TIER_COLORS_DARK  = { "Trivial": "#5AE68C", "Easy": "#78E6AA", "Medium": "#FABE1E", "Hard": "#FA8C8C", "Expert": "#FA5A5A" };
+
+  function kjIsDark() {
+    var t = document.documentElement.getAttribute("data-theme");
+    if (t === "dark") return true;
+    if (t === "light") return false;
+    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  // Pass rate -> tier colour (green = high, red = low), matching the published graphs.
+  function kjPassColor(v, tc) {
+    if (v >= 90) return tc.Trivial;
+    if (v >= 70) return tc.Easy;
+    if (v >= 40) return tc.Medium;
+    if (v >= 15) return tc.Hard;
+    return tc.Expert;
   }
 
-  function rdBar(el, labels, vals, p, opts) {
+  function kjPassChart(el, labels, values, ns, colors, p) {
     return new Chart(el, {
       type: "bar",
-      data: { labels: labels, datasets: [
-        { label: "Opus 4.8", data: vals, backgroundColor: rdAlpha(p.opus, 0.5), borderColor: p.opus, borderWidth: 1, borderRadius: 3, categoryPercentage: opts.cat, barPercentage: 0.82 }
-      ] },
+      data: { labels: labels, datasets: [{
+        label: "Mean pass rate",
+        data: values,
+        backgroundColor: colors,
+        borderColor: colors,
+        borderWidth: 0,
+        borderRadius: 4,
+        maxBarThickness: 90
+      }] },
       options: {
-        indexAxis: opts.horizontal ? "y" : "x", responsive: true, maintainAspectRatio: false,
-        animation: { duration: 500 },
-        plugins: { legend: rdLegend(p), tooltip: rdTooltip(p, opts.unit) },
-        scales: rdAxes(p, opts.valMax, opts.valTitle, opts.horizontal)
-      }
-    });
-  }
-
-  function rdLineChart(el, labels, vals, p, opts) {
-    return new Chart(el, {
-      type: "line",
-      data: { labels: labels, datasets: [
-        { label: "Opus 4.8", data: vals, borderColor: p.opus, backgroundColor: rdAlpha(p.opus, 0.1), borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: p.opus, pointBorderColor: p.opus, tension: 0.3, fill: false }
-      ] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: { duration: 500 },
-        plugins: { legend: rdLegend(p), tooltip: rdTooltip(p, opts.unit) },
+        responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
+            callbacks: { label: function (ctx) { return " " + Number(ctx.parsed.y).toFixed(1) + "%  (n=" + ns[ctx.dataIndex] + ")"; } }
+          }
+        },
         scales: {
-          y: { beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: opts.valTitle, color: p.ink, font: { size: 11 } } },
+          y: { beginAtZero: true, suggestedMax: 100, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 }, callback: function (v) { return v + "%"; } }, title: { display: true, text: "Mean stage-3 pass rate", color: p.ink, font: { size: 11 } } },
           x: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 12, family: "'DM Sans', sans-serif" } } }
         }
       }
     });
   }
 
-  function rdRuns(arr, keyFn) {
-    var runs = [], cur = null;
-    arr.forEach(function (d, i) {
-      var k = keyFn(d);
-      if (!cur || cur.key !== k) { cur = { key: k, start: i, end: i }; runs.push(cur); }
-      else { cur.end = i; }
+  function kjTasksChart(el, tc, p) {
+    var datasets = KJ_TIERS.map(function (t) {
+      return { label: t, data: KJ_TASKS_BY_TIER[t], backgroundColor: tc[t], borderWidth: 0, borderRadius: 2, maxBarThickness: 90 };
     });
-    return runs;
-  }
-
-  function rdHalfBand(y) {
-    var band = Math.abs(y.getPixelForTick(1) - y.getPixelForTick(0));
-    if (!band) { band = (y.bottom - y.top) / Math.max(1, (y.ticks || []).length || 1); }
-    return band / 2;
-  }
-
-  function rdPerTaskChart(el, s, p) {
-    var labels = s.map(function (d) { return d.instance_id; });
-    var vals = s.map(function (d) { var r = rdReward(d); return r === null ? 0 : +r.toFixed(1); });
-    var langRuns = rdRuns(s, function (d) { return d.language; });
-    var BAND = { Go: "rgba(94,230,149,0.10)", Python: "rgba(251,191,36,0.10)", Rust: "rgba(255,143,143,0.12)" };
-    var TXT = { Go: "#3FB768", Python: "#B8860B", Rust: "#D2555A" };
-    var groups = {
-      id: "rdGroups",
-      beforeDatasetsDraw: function (chart) {
-        var y = chart.scales.y, area = chart.chartArea, ctx = chart.ctx;
-        if (!y || !area) { return; }
-        var half = rdHalfBand(y);
-        langRuns.forEach(function (g) {
-          var top = y.getPixelForTick(g.start) - half, bot = y.getPixelForTick(g.end) + half;
-          ctx.save(); ctx.fillStyle = BAND[g.key] || "transparent";
-          ctx.fillRect(area.left, top, area.right - area.left, bot - top); ctx.restore();
-        });
-      },
-      afterDatasetsDraw: function (chart) {
-        var y = chart.scales.y, area = chart.chartArea, ctx = chart.ctx;
-        if (!y || !area) { return; }
-        var half = rdHalfBand(y);
-        ctx.save();
-        ctx.textBaseline = "middle";
-        langRuns.forEach(function (g, i) {
-          var topPix = y.getPixelForTick(g.start) - half;
-          if (i > 0) {
-            ctx.strokeStyle = p.ink; ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.moveTo(area.left, topPix); ctx.lineTo(area.right, topPix); ctx.stroke(); ctx.globalAlpha = 1;
-          }
-          var midY = (y.getPixelForTick(g.start) + y.getPixelForTick(g.end)) / 2;
-          ctx.font = "700 11px 'SF Mono', monospace"; ctx.textAlign = "left";
-          ctx.fillStyle = TXT[g.key] || p.ink;
-          ctx.fillText(g.key.toUpperCase(), area.right + 12, midY);
-        });
-        ctx.restore();
-      }
-    };
     return new Chart(el, {
       type: "bar",
-      data: { labels: labels, datasets: [
-        { label: "Opus 4.8", data: vals, backgroundColor: rdAlpha(p.opus, 0.5), borderColor: p.opus, borderWidth: 1, borderRadius: 3, minBarLength: 2, categoryPercentage: 0.82, barPercentage: 0.96 }
-      ] },
+      data: { labels: KJ_LANGS, datasets: datasets },
       options: {
-        indexAxis: "y", responsive: true, maintainAspectRatio: false,
-        layout: { padding: { right: 84, top: 4 } },
-        animation: { duration: 500 },
+        responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
         plugins: {
-          legend: rdLegend(p),
-          tooltip: {
-            backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
-            callbacks: {
-              title: function (items) { var d = s[items[0].dataIndex]; return d.instance_id + "  ·  " + d.language + "  ·  " + d.difficulty; },
-              label: function (ctx) { var d = s[ctx.dataIndex]; var r = rdReward(d); return " Opus 4.8: " + (r === null ? "ungraded" : Number(ctx.parsed.x).toFixed(1) + "%"); }
-            }
-          }
+          legend: { position: "top", align: "start", labels: { color: p.ink, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: "rectRounded", font: { family: "'DM Sans', sans-serif", size: 12 } } },
+          tooltip: { backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink, borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8 }
         },
         scales: {
-          x: { max: 100, beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 } }, title: { display: true, text: "Reward (%)", color: p.ink, font: { size: 11 } } },
-          y: { grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 10, family: "'SF Mono', monospace" } } }
+          x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: p.ink, font: { size: 12, family: "'DM Sans', sans-serif" } } },
+          y: { stacked: true, beginAtZero: true, grid: { color: p.grid }, border: { display: false }, ticks: { color: p.ink, font: { size: 11 }, precision: 0 }, title: { display: true, text: "Task count", color: p.ink, font: { size: 11 } } }
         }
-      },
-      plugins: [groups]
+      }
     });
   }
 
-  function rdRenderCharts() {
-    if (typeof Chart === "undefined" || !rdChartData) return;
-    var p = rdPalette();
-    var data = rdChartData;
+  function kjRenderCharts() {
+    if (typeof Chart === "undefined") return;
+    var p = kjPalette();
+    var tc = kjIsDark() ? KJ_TIER_COLORS_DARK : KJ_TIER_COLORS_LIGHT;
     Chart.defaults.font.family = "'DM Sans', system-ui, sans-serif";
     Chart.defaults.color = p.ink;
-
-    var elPT = document.getElementById("rd-chart-pertask");
-    if (elPT) {
-      var langOrd = { Go: 0, Python: 1, Rust: 2 };
-      var s = data.slice().sort(function (a, b) {
-        var lo = (langOrd[a.language] || 0) - (langOrd[b.language] || 0); if (lo) { return lo; }
-        var ra = rdReward(a), rb = rdReward(b);
-        return (rb === null ? -1 : rb) - (ra === null ? -1 : ra);
-      });
-      rdCharts.pertask = rdPerTaskChart(elPT, s, p);
+    var elTier = document.getElementById("kj-chart-tier");
+    if (elTier) {
+      var tierColors = KJ_TIERS.map(function (t) { return tc[t]; });
+      kjCharts.tier = kjPassChart(elTier, KJ_TIERS, KJ_TIER_PASS, KJ_TIER_N, tierColors, p);
     }
-
-    var agg = rdLangAgg(data);
-    var ll = agg.map(function (t) { return t.lang + " (" + t.n + ")"; });
-    var elR = document.getElementById("rd-chart-reward-tier");
-    if (elR) {
-      rdCharts.rewardTier = rdBar(elR, ll,
-        agg.map(function (t) { return +t.reward.toFixed(1); }),
-        p, { horizontal: false, valMax: 100, valTitle: "Mean reward (%)", unit: "%", cat: 0.62 });
+    var elLang = document.getElementById("kj-chart-language");
+    if (elLang) {
+      var langColors = KJ_LANG_PASS.map(function (v) { return kjPassColor(v, tc); });
+      kjCharts.lang = kjPassChart(elLang, KJ_LANGS, KJ_LANG_PASS, KJ_LANG_N, langColors, p);
     }
-    var elC = document.getElementById("rd-chart-cost-tier");
-    if (elC) {
-      rdCharts.costTier = rdLineChart(elC, ll,
-        agg.map(function (t) { return +t.time.toFixed(1); }),
-        p, { valTitle: "Mean gen time / run (min)", unit: "min" });
-    }
+    var elTasks = document.getElementById("kj-chart-tasks");
+    if (elTasks) kjCharts.tasks = kjTasksChart(elTasks, tc, p);
   }
 
-  function rdReRenderCharts() {
-    Object.keys(rdCharts).forEach(function (k) { if (rdCharts[k]) { rdCharts[k].destroy(); } });
-    rdCharts = {};
-    rdRenderCharts();
+  function kjReRenderCharts() {
+    Object.keys(kjCharts).forEach(function (k) { if (kjCharts[k]) { kjCharts[k].destroy(); } });
+    kjCharts = {};
+    kjRenderCharts();
   }
 
   function initCharts() {
-    if (!document.getElementById("rd-chart-pertask")) return;
-    fetch("/kaiju/api/instances")
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        rdChartData = data;
-        if (typeof Chart === "undefined") {
-          window.addEventListener("load", rdRenderCharts, { once: true });
-        } else {
-          rdRenderCharts();
-        }
-      })
-      .catch(function () {});
+    if (!document.getElementById("kj-chart-tier") && !document.getElementById("kj-chart-language") && !document.getElementById("kj-chart-tasks")) return;
+    if (typeof Chart === "undefined") {
+      window.addEventListener("load", kjRenderCharts, { once: true });
+    } else {
+      kjRenderCharts();
+    }
     if (window.MutationObserver) {
-      new MutationObserver(function () { if (rdChartData) rdReRenderCharts(); })
+      new MutationObserver(function () { kjReRenderCharts(); })
         .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     }
   }
@@ -918,6 +829,7 @@
     initScrollAnimations();
     initLightbox();
     initEvalViewer();
+    initCharts();
   }
 
   if (document.readyState === "loading") {
