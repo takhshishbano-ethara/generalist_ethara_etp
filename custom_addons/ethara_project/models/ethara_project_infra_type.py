@@ -11,6 +11,14 @@ class EtharaProjectInfraType(models.Model):
     sequence = fields.Integer(default=10)
     active = fields.Boolean(default=True)
 
+    provider_id = fields.Many2one(
+        'ethara.project.infra.provider',
+        string='Provider',
+        index=True,
+        ondelete='set null',
+        help='The cloud provider this service belongs to (AWS, Microsoft, ...).',
+    )
+
     is_aws_managed = fields.Boolean(string='AWS-Managed', default=False, index=True)
     aws_service_code = fields.Char(string='AWS Service Code', index=True)
     primary_attr = fields.Char(string='Primary Attribute')

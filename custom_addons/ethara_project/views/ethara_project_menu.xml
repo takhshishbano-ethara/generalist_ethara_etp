@@ -62,6 +62,12 @@
               action="action_ethara_project_ai_model"
               sequence="30"/>
 
+    <menuitem id="menu_ethara_project_infra_provider"
+              name="Infrastructure Providers"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_infra_provider"
+              sequence="35"/>
+
     <menuitem id="menu_ethara_project_infra_type"
               name="Infrastructure Types"
               parent="menu_ethara_project_aws_root"

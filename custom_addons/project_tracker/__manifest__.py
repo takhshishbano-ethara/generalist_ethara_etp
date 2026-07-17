@@ -1,6 +1,6 @@
 {
     "name": "Project Tracker",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.3.0",
     "category": "Tools",
     "summary": "Project Tracker — task allocation pipeline, team management and dashboards for every project",
     "description": """

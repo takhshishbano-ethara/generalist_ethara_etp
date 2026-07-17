@@ -50,6 +50,20 @@
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="10"/>
 
+    <menuitem id="menu_etp_assessment_pro_tags"
+              name="Tags"
+              parent="menu_etp_assessment_pro_config_root"
+              action="action_etp_assessment_pro_tag"
+              groups="etp_assessment_pro.group_assessment_manager"
+              sequence="20"/>
+
+    <menuitem id="menu_etp_assessment_pro_llm_budget"
+              name="LLM Budget"
+              parent="menu_etp_assessment_pro_config_root"
+              action="action_etp_assessment_pro_llm_dashboard"
+              groups="etp_assessment_pro.group_assessment_manager"
+              sequence="30"/>
+
 
     <record id="action_my_assessments_url" model="ir.actions.act_url">
         <field name="name">My Assessments</field>

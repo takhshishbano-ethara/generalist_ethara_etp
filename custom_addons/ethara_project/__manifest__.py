@@ -1,6 +1,6 @@
 {
     'name': 'Ethara Project',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.1.0',
     'category': 'Project',
     'summary': 'Ethara project registry with role-scoped team assignment and S3-backed attachments',
     'description': """
@@ -34,6 +34,7 @@ Standalone project registry (model: ethara.project) with:
         'data/hr_department_master.xml',
         'data/sequence_data.xml',
         'data/aws_pricing_config_data.xml',
+        'data/infra_provider_data.xml',
         'data/ir_cron_data.xml',
         'views/ethara_project_views.xml',
         'views/ethara_project_catalog_views.xml',

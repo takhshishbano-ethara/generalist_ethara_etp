@@ -3,33 +3,28 @@
     <menuitem name="Project Tracker" id="menu_project_tracker_root"
               groups="project_tracker.group_project_tracker_tasker,base.group_system"/>
 
-    <!-- Single Dashboard entry — the client action renders the org overview for
-         QL/PL/admin and the personal dashboard for plain taskers. -->
+    <!-- Landing for QL/PL/admin: the project cards. Opening a card drops you
+         INTO that project (allocations, personas, team, dashboard all scoped).
+         First in sequence, so the app opens here. -->
+    <menuitem name="Projects" id="menu_project_tracker_projects"
+              parent="menu_project_tracker_root"
+              action="project_tracker_project_action" sequence="5"
+              groups="project_tracker.group_project_tracker_ql,base.group_system"/>
+
+    <!-- Cross-project overview. For a plain tasker this is their landing (they
+         can't see Projects) and renders their personal dashboard; for QL/PL/admin
+         it's the all-projects org view (filter by project inside it). -->
     <menuitem name="Dashboard" id="menu_project_tracker_dashboard"
               parent="menu_project_tracker_root"
               action="project_tracker_main_dashboard_action" sequence="10"
-              groups="project_tracker.group_project_tracker_tasker,base.group_system"/>
-    <menuitem name="Task Allocation" id="menu_project_tracker_allocation"
-              parent="menu_project_tracker_root"
-              action="project_tracker_allocation_action" sequence="20"
               groups="project_tracker.group_project_tracker_tasker,base.group_system"/>
     <menuitem name="Daily Tracker" id="menu_project_tracker_daily"
               parent="menu_project_tracker_root"
               action="project_tracker_daily_action" sequence="25"
               groups="project_tracker.group_project_tracker_ql,base.group_system"/>
-    <!-- Persona inventory for the Tracker: what exists, what is assigned, to whom,
-         and where it is in the pipeline. Also the home of Bulk Upload Personas. -->
-    <menuitem name="Personas" id="menu_project_tracker_personas"
-              parent="menu_project_tracker_root"
-              action="project_tracker_persona_action" sequence="30"
-              groups="project_tracker.group_project_tracker_ql,base.group_system"/>
-    <menuitem name="Team Management" id="menu_project_tracker_team"
-              parent="menu_project_tracker_root"
-              action="project_tracker_team_member_action" sequence="35"
-              groups="project_tracker.group_project_tracker_ql,base.group_system"/>
-    <menuitem name="Projects" id="menu_project_tracker_projects"
-              parent="menu_project_tracker_root"
-              action="project_tracker_project_action" sequence="40"
-              groups="project_tracker.group_project_tracker_ql,base.group_system"/>
+
+    <!-- Task Allocation, Personas and Team Management are no longer flat
+         top-level entries — they live INSIDE a project (its workspace tabs and
+         smart buttons), so work can never span projects by accident. -->
 
 </odoo>

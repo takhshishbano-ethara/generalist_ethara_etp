@@ -8,6 +8,15 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Ethara Projects" string="Ethara Projects" name="ethara_project" logo="/base/static/description/settings.png">
+                    <block title="Project Budget Approvals" name="ethara_project_budget_approvals"
+                           help="Defaults applied when a new Project Budget is created.">
+                        <setting string="Default Approvers"
+                                 help="Users automatically added as approvers on every new Project Budget (form view and API). API callers can supply additional approver_ids — they are merged with this list.">
+                            <field name="ethara_default_approver_user_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True, 'no_create_edit': True}"/>
+                        </setting>
+                    </block>
                     <block title="AWS Pricing" name="ethara_aws_pricing">
                         <setting id="setting_ethara_aws_pricing_region" string="AWS Pricing Region"
                                  help="AWS region used for the pricing service and Cost Explorer.">
@@ -35,7 +44,7 @@
                         <setting id="setting_ethara_aws_sync" string="AWS Pricing Sync"
                                  help="Fetch the AWS service catalog into Odoo. Runs automatically every day.">
                             <div class="d-flex align-items-center gap-2">
-                                <button name="action_trigger_aws_sync" type="object"
+                                <button name="action_trigger_ethara_aws_sync" type="object"
                                         string="Sync AWS Pricing Now" class="btn btn-primary"/>
                             </div>
                             <field name="ethara_aws_synced_service_count" invisible="1"/>

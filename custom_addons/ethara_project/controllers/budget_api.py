@@ -29,11 +29,13 @@ import logging
 
 from odoo import http, fields
 from odoo.http import request
+from odoo.exceptions import UserError, ValidationError
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response,
     validate_token,
 )
+from odoo.addons.ethara_project.services import aws_pricing_service
 
 _logger = logging.getLogger(__name__)
 
@@ -46,6 +48,7 @@ PROJECT_MODEL = 'ethara.project'
 BUDGET_MODEL = 'ethara.project.budget'
 AI_MODEL = 'ethara.project.ai.model'
 INFRA_MODEL = 'ethara.project.infra.type'
+INFRA_PROVIDER_MODEL = 'ethara.project.infra.provider'
 SUBSCRIPTION_MODEL = 'ethara.project.subscription'
 
 VALID_BUDGET_TYPES = ('rnd', 'operations')
@@ -578,6 +581,15 @@ class EtharaBudgetController(http.Controller):
             aws_only = _coerce_int(params.get('aws_only'), 0)
             if aws_only:
                 domain.append(('is_aws_managed', '=', True))
+            # Filter to a single provider (used by the manual infra picker to
+            # list a non-AWS provider's services). Accepts either the numeric
+            # provider id or the provider code (e.g. 'microsoft').
+            provider_id = _coerce_int(params.get('provider_id'), 0)
+            if provider_id:
+                domain.append(('provider_id', '=', provider_id))
+            provider_code = (params.get('provider_code') or '').strip().lower()
+            if provider_code:
+                domain.append(('provider_id.code', '=', provider_code))
             Model = request.env[INFRA_MODEL].sudo()
             total = Model.search_count(domain)
             records = Model.search(
@@ -590,6 +602,11 @@ class EtharaBudgetController(http.Controller):
                     'code': r.code or '',
                     'aws_service_code': r.aws_service_code or '',
                     'is_aws_managed': bool(r.is_aws_managed),
+                    'provider_id': r.provider_id.id or None,
+                    'provider_code': r.provider_id.code or '',
+                    'pricing_source': (
+                        r.provider_id.pricing_source or ''
+                    ),
                     'active': r.active,
                 }
                 for r in records
@@ -605,6 +622,65 @@ class EtharaBudgetController(http.Controller):
             _logger.exception('ethara_project budget/infra_types failed')
             return return_Response(
                 message='Failed to list infrastructure types.',
+                status=400, errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/budget/infra/providers
+    #
+    # Returns the cloud infrastructure provider catalog
+    # (`ethara.project.infra.provider`) used to populate the Provider selector
+    # on the Infrastructure step. Providers are managed from the Odoo backend
+    # (Ethara Projects -> AWS Budgets -> Infrastructure Providers). Each row's
+    # `pricing_source` tells the client which pricing UI to show: `aws_live`
+    # for the live AWS configurator, `manual` for a plain unit-price form.
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/budget/infra/providers',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def list_infra_providers(self, **params):
+        try:
+            limit, offset, err = _pagination(params)
+            if err:
+                return err
+            domain = []
+            if not _coerce_int(params.get('include_inactive'), 0):
+                domain.append(('active', '=', True))
+            search = (params.get('search') or '').strip()
+            if search:
+                domain += [
+                    '|',
+                    ('name', 'ilike', search),
+                    ('code', 'ilike', search),
+                ]
+            Model = request.env[INFRA_PROVIDER_MODEL].sudo()
+            total = Model.search_count(domain)
+            records = Model.search(
+                domain, limit=limit, offset=offset, order='sequence, name',
+            )
+            items = [
+                {
+                    'id': r.id,
+                    'name': r.name,
+                    'code': r.code or '',
+                    'pricing_source': r.pricing_source or '',
+                    'active': r.active,
+                }
+                for r in records
+            ]
+            return return_Response(
+                message='Infrastructure providers fetched.', status=200,
+                data={
+                    'total': total, 'limit': limit, 'offset': offset,
+                    'providers': items,
+                },
+            )
+        except Exception as e:
+            _logger.exception('ethara_project budget/infra/providers failed')
+            return return_Response(
+                message='Failed to list infrastructure providers.',
                 status=400, errors=[str(e)],
             )
 
@@ -635,8 +711,285 @@ class EtharaBudgetController(http.Controller):
     #
     # Response: full budget dict envelope
     #   {message, status_code, data: {id, name, project_id, budget_type,
-    #    state, budget_amount, total_tasks, approver_ids, ...}}
+    #    state, budget_amount, total_tasks, approver_ids, ..., phase_ids,
+    #    request_id}}
     # -----------------------------------------------------------------------
+    @staticmethod
+    def _create_phases_and_submit_request(budget, jdata):
+        """Create phase(s) from `batches[]` and auto-submit the first request.
+
+        For each `batches[]` entry an `ethara.project.phase` is created and the
+        budget's model/infra/subscription lines are cloned onto it. The FIRST
+        phase additionally gets an `ethara.project.phase.request` that is
+        immediately pushed through `action_submit_for_approval()` so it appears
+        on the CTO -> CFO approvals queue. The requester is the current token
+        user (TPM/R&D/etc. who raised the budget).
+
+        Every step is wrapped in its own `cr.savepoint()` so a failure here
+        never rolls back the already-committed budget. Failures are logged via
+        `_logger.exception(...)` and swallowed. If `action_submit_for_approval`
+        cannot run (e.g. the raiser lacks the PL/TPM role, or the budget has no
+        approvers) the request is simply left in draft.
+
+        Returns (list_of_phase_ids, first_request_id_or_None).
+        """
+        PHASE_MODEL = 'ethara.project.phase'
+        REQUEST_MODEL = 'ethara.project.phase.request'
+
+        raw_batches = jdata.get('batches') or []
+        if not isinstance(raw_batches, list) or not raw_batches:
+            # No batches -> behave exactly as before (budget only).
+            return [], None
+
+        # Parse batch specs. A bad entry is skipped (logged) rather than
+        # aborting the whole budget.
+        budget_buffer = budget.buffer_pct or 0.0
+        specs = []
+        for idx, entry in enumerate(raw_batches):
+            if not isinstance(entry, dict):
+                _logger.warning('batches[%s] is not an object; skipped.', idx)
+                continue
+            no_of_task = _coerce_int(
+                entry.get('no_of_task')
+                if entry.get('no_of_task') is not None
+                else entry.get('total_tasks'),
+                0,
+            ) or 0
+            start_date = _coerce_date(entry.get('start_date'))
+            end_date = _coerce_date(entry.get('end_date'))
+            if no_of_task <= 0 or not start_date or not end_date:
+                _logger.warning(
+                    'batches[%s] missing no_of_task/start_date/end_date; '
+                    'skipped.', idx,
+                )
+                continue
+            if end_date < start_date:
+                _logger.warning(
+                    'batches[%s].end_date precedes start_date; skipped.', idx,
+                )
+                continue
+            spec = {
+                'budget_id': budget.id,
+                'total_tasks': no_of_task,
+                'start_date': start_date,
+                'end_date': end_date,
+                'buffer_pct': _coerce_float(
+                    entry.get('buffer_pct'), budget_buffer,
+                ),
+            }
+            name = (str(entry.get('name') or '')).strip()
+            if name:
+                spec['name'] = name
+            specs.append(spec)
+
+        if not specs:
+            return [], None
+
+        # Clone budget lines onto each phase. The phase model's create() hook
+        # only auto-copies MODEL lines when none are supplied, so we pass all
+        # three explicitly for deterministic, complete phases.
+        phase_model_clone = [
+            (0, 0, {
+                'ai_model_id': ln.ai_model_id.id,
+                'ai_model_name': ln.ai_model_name or False,
+                'cost_type': ln.cost_type or 'per_task',
+                'per_trajectory_cost': ln.per_trajectory_cost or 0.0,
+                'iterations': ln.iterations or 0,
+                'per_task_cost': ln.per_task_cost or 0.0,
+            })
+            for ln in budget.model_line_ids
+        ]
+        phase_infra_clone = [
+            (0, 0, {
+                'infra_type_id': ln.infra_type_id.id,
+                'description': ln.description or False,
+                'budget_amount': ln.budget_amount or 0.0,
+                'instance_type': ln.instance_type or False,
+                'unit_price_usd': ln.unit_price_usd or 0.0,
+                'price_unit': ln.price_unit or False,
+                'quantity': ln.quantity or 1.0,
+                'duration_hours': ln.duration_hours or 730.0,
+                'ebs_storage_gb': ln.ebs_storage_gb or 0.0,
+                'volume_type': ln.volume_type or 'gp3',
+                'volume_rate_usd_per_gb_mo': ln.volume_rate_usd_per_gb_mo or 0.0,
+            })
+            for ln in budget.infra_line_ids
+        ]
+        phase_sub_clone = [
+            (0, 0, {
+                'subscription_id': ln.subscription_id.id,
+                'assigned_user_ids': [(6, 0, ln.assigned_user_ids.ids)],
+            })
+            for ln in budget.subscription_line_ids
+        ]
+
+        create_env = request.env(context=dict(
+            request.env.context,
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_create_nosubscribe=True,
+            mail_notrack=True,
+        ))
+        Phase = create_env[PHASE_MODEL].sudo()
+
+        created_phases = Phase.browse()
+        for spec in specs:
+            vals = dict(spec)
+            if phase_model_clone:
+                vals['model_line_ids'] = phase_model_clone
+            if phase_infra_clone:
+                vals['infra_line_ids'] = phase_infra_clone
+            if phase_sub_clone:
+                vals['subscription_line_ids'] = phase_sub_clone
+            try:
+                with request.env.cr.savepoint():
+                    created_phases |= Phase.create(vals)
+            except Exception:
+                _logger.exception(
+                    'Phase creation failed for budget %s spec %s',
+                    budget.id, spec,
+                )
+
+        if not created_phases:
+            return [], None
+
+        phase_ids = created_phases.ids
+
+        # Only auto-submit a request when there is something to fund.
+        is_rnd = (budget.project_type == 'rnd')
+        has_lines = bool(
+            budget.model_line_ids
+            or budget.infra_line_ids
+            or budget.subscription_line_ids
+        )
+        if not (is_rnd or has_lines):
+            return phase_ids, None
+
+        first_phase = created_phases.sorted(
+            key=lambda p: (p.start_date or fields.Date.today(), p.id)
+        )[:1]
+        if not first_phase:
+            return phase_ids, None
+
+        duration_days = 0
+        if (
+            first_phase.start_date
+            and first_phase.end_date
+            and first_phase.end_date >= first_phase.start_date
+        ):
+            duration_days = (
+                first_phase.end_date - first_phase.start_date
+            ).days
+
+        req_total_tasks = first_phase.total_tasks or 0
+        req_buffer_pct = first_phase.buffer_pct or 0.0
+
+        # Build request line commands mirroring the budget's lines, with
+        # requested_amount derived the same way the etp flow did.
+        req_model_cmds = [
+            (0, 0, {
+                'ai_model_id': ln.ai_model_id.id,
+                'ai_model_name': ln.ai_model_name or False,
+                'cost_type': ln.cost_type or 'per_task',
+                'per_task_cost': ln.per_task_cost or 0.0,
+                'per_trajectory_cost': ln.per_trajectory_cost or 0.0,
+                'iterations': ln.iterations or 0,
+                'requested_amount': req_total_tasks * (ln.per_task_cost or 0.0),
+            })
+            for ln in budget.model_line_ids
+        ]
+        req_infra_cmds = [
+            (0, 0, {
+                'infra_type_id': ln.infra_type_id.id,
+                'description': ln.description or False,
+                'start_date': first_phase.start_date or False,
+                'end_date': first_phase.end_date or False,
+                'requested_amount': duration_days * ((ln.budget_amount or 0.0) / 30.0),
+                'instance_type': ln.instance_type or False,
+                'unit_price_usd': ln.unit_price_usd or 0.0,
+                'price_unit': ln.price_unit or False,
+                'quantity': ln.quantity or 1.0,
+                'duration_hours': ln.duration_hours or 730.0,
+                'ebs_storage_gb': ln.ebs_storage_gb or 0.0,
+                'volume_type': ln.volume_type or 'gp3',
+                'volume_rate_usd_per_gb_mo': ln.volume_rate_usd_per_gb_mo or 0.0,
+            })
+            for ln in budget.infra_line_ids
+        ]
+        req_sub_cmds = [
+            (0, 0, {
+                'subscription_id': ln.subscription_id.id,
+                'assigned_user_ids': [(6, 0, ln.assigned_user_ids.ids)],
+                'requested_amount': (
+                    (ln.cost_per_subscription or 0.0)
+                    * len(ln.assigned_user_ids)
+                ),
+            })
+            for ln in budget.subscription_line_ids
+        ]
+
+        buffer_factor = 1.0 + (req_buffer_pct / 100.0)
+        model_total = sum(c[2]['requested_amount'] for c in req_model_cmds)
+        infra_total = sum(c[2]['requested_amount'] for c in req_infra_cmds)
+        sub_total = sum(c[2]['requested_amount'] for c in req_sub_cmds)
+        if is_rnd and (budget.budget_amount or 0.0) > 0.0:
+            requested_total = budget.budget_amount
+        else:
+            requested_total = (
+                (model_total + infra_total) * buffer_factor + sub_total
+            )
+
+        justification = (jdata.get('justification') or '').strip() or (
+            "Auto-generated from project budget '%s' creation."
+            % (budget.name or '')
+        )
+
+        req_vals = {
+            'phase_id': first_phase.id,
+            'requester_id': request.env.user.id,
+            'request_type': 'budget',
+            'justification': justification,
+            'priority': budget.priority or 'normal',
+            'total_tasks': req_total_tasks,
+            'buffer_pct': req_buffer_pct,
+            'requested_total': requested_total,
+        }
+        if req_model_cmds:
+            req_vals['model_line_ids'] = req_model_cmds
+        if req_infra_cmds:
+            req_vals['infra_line_ids'] = req_infra_cmds
+        if req_sub_cmds:
+            req_vals['subscription_line_ids'] = req_sub_cmds
+
+        request_id = None
+        try:
+            with request.env.cr.savepoint():
+                Request = create_env[REQUEST_MODEL].sudo()
+                req = Request.create(req_vals)
+                request_id = req.id
+                # Nested savepoint: if submit fails (missing role/approvers,
+                # zero total, etc.) the request stays in draft but survives.
+                try:
+                    with request.env.cr.savepoint():
+                        req.action_submit_for_approval()
+                except (UserError, ValidationError) as e:
+                    _logger.info(
+                        'Auto-submit left request %s in draft for budget %s: %s',
+                        req.id, budget.id, e,
+                    )
+                except Exception:
+                    _logger.exception(
+                        'Auto-submit failed for request %s (budget %s); '
+                        'left in draft.', req.id, budget.id,
+                    )
+        except Exception:
+            _logger.exception(
+                'Auto phase request creation failed for budget %s.', budget.id,
+            )
+            request_id = None
+
+        return phase_ids, request_id
+
     @http.route(
         '/api/v1/ethara_project/budget/create',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',
@@ -834,6 +1187,11 @@ class EtharaBudgetController(http.Controller):
             if sub_cmds:
                 vals['subscription_line_ids'] = sub_cmds
 
+            # R&D sub-type (testing | sampling) — only stored for R&D budgets.
+            sub_type = (jdata.get('budget_sub_type') or '').strip().lower()
+            if budget_type == 'rnd' and sub_type in ('testing', 'sampling'):
+                vals['budget_sub_type'] = sub_type
+
             budget = request.env[BUDGET_MODEL].sudo().create(vals)
 
             attachment_urls = []
@@ -855,6 +1213,22 @@ class EtharaBudgetController(http.Controller):
                 })
                 attachment_urls.append(f'/web/content/{att.id}?download=1')
 
+            # ---------------------------------------------------------------
+            # Phase(s) + auto-submitted first budget request.
+            #
+            # `batches[]` (when present) drives creation of one
+            # `ethara.project.phase` per entry, cloning the budget's
+            # model/infra/subscription lines into each phase. The FIRST phase
+            # gets an `ethara.project.phase.request` that is immediately
+            # submitted for approval (requester = the token user who raised the
+            # budget), landing it on the CTO -> CFO approvals queue. All of this
+            # is best-effort: any failure is logged and swallowed so the
+            # already-created budget survives (its own cr is not rolled back).
+            # ---------------------------------------------------------------
+            phase_ids, request_id = self._create_phases_and_submit_request(
+                budget, jdata,
+            )
+
             return return_Response(
                 message='Ethara project budget created.', status=200,
                 data={'data': {
@@ -874,12 +1248,283 @@ class EtharaBudgetController(http.Controller):
                     'infra_line_ids': budget.infra_line_ids.ids,
                     'subscription_line_ids': budget.subscription_line_ids.ids,
                     'attachment_urls': attachment_urls,
+                    'phase_ids': phase_ids,
+                    'request_id': request_id,
                 }},
             )
         except Exception as e:
             _logger.exception('ethara_project budget/create failed')
             return return_Response(
                 message='Failed to create Ethara project budget.',
+                status=400, errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/budget/project_members?project_id=<int>
+    #
+    # Users assigned to a specific ethara.project — feeds the create-budget
+    # Step-2 subscription seat picker. Unions the project's three team M2Ms
+    # (assigned_tpm_ids / assigned_pl_ql_ids / assigned_rnd_ids, all
+    # hr.employee) mapped through user_id to res.users. Returns the historical
+    # nested `data.options[]` shape the Flutter ApproverOptionsResponseModel
+    # was built to parse.
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/budget/project_members',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def list_project_members(self, **params):
+        try:
+            pid = _coerce_int(params.get('project_id'))
+            if not pid:
+                return return_Response(
+                    message="'project_id' query parameter is required.",
+                    status=400, data={},
+                )
+            Project = request.env[PROJECT_MODEL].sudo()
+            project = Project.browse(pid).exists()
+            if not project:
+                return return_Response(
+                    message='Project %s not found.' % pid,
+                    status=400, data={},
+                )
+            # Union every team M2M that exists on the schema (stays safe if a
+            # deployment lacks one of them).
+            team_fields = (
+                'assigned_tpm_ids', 'assigned_pl_ql_ids', 'assigned_rnd_ids',
+            )
+            employees = request.env['hr.employee'].sudo()
+            for fname in team_fields:
+                if fname in Project._fields:
+                    employees |= project[fname]
+            users = employees.mapped('user_id').filtered(
+                lambda u: u.active and not u.share
+            ).sorted(key=lambda u: (u.name or '').lower())
+            options = [_serialize_user(u) for u in users]
+            return return_Response(
+                message='Project members fetched.', status=200,
+                data={'data': {'total': len(options), 'options': options}},
+            )
+        except Exception as e:
+            _logger.exception('ethara_project budget/project_members failed')
+            return return_Response(
+                message='Failed to list project members.',
+                status=400, errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/budget/infra/services
+    #
+    # AWS-managed infrastructure catalog (rows in ethara.project.infra.type
+    # with is_aws_managed=True). Feeds the AWS service picker on the
+    # Infrastructure Lines tab. Query: search, limit, offset.
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/budget/infra/services',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def aws_pricing_services(self, **params):
+        try:
+            limit, offset, err = _pagination(params)
+            if err:
+                return err
+            domain = [('is_aws_managed', '=', True), ('active', '=', True)]
+            search = (params.get('search') or '').strip()
+            if search:
+                domain += [
+                    '|',
+                    ('name', 'ilike', search),
+                    ('aws_service_code', 'ilike', search),
+                ]
+            Infra = request.env[INFRA_MODEL].sudo()
+            total = Infra.search_count(domain)
+            records = Infra.search(
+                domain, limit=limit, offset=offset, order='sequence, name',
+            )
+            items = [
+                {
+                    'id': r.id,
+                    'service_code': r.aws_service_code or '',
+                    'name': r.name or '',
+                    'primary_attr': r.primary_attr or '',
+                    'item_count': r.item_count or 0,
+                    'last_synced_at': (
+                        r.last_synced_at.isoformat()
+                        if r.last_synced_at else None
+                    ),
+                }
+                for r in records
+            ]
+            return return_Response(
+                message='AWS pricing services fetched.', status=200,
+                data={
+                    'total': total, 'limit': limit, 'offset': offset,
+                    'services': items,
+                },
+            )
+        except Exception as e:
+            _logger.exception('ethara_project budget/infra/services failed')
+            return return_Response(
+                message='Failed to list AWS pricing services.',
+                status=400, errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/budget/infra/items
+    #
+    # Instance/item catalog for one AWS service (rows in
+    # ethara.project.aws.pricing.item). Auto-fetches from AWS on first call
+    # via aws_pricing_service.fetch_items_for_service (cached 24h).
+    # Query: type_id | service (aws_service_code), search, force_refresh.
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/budget/infra/items',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def aws_pricing_items(self, **params):
+        try:
+            Infra = request.env[INFRA_MODEL].sudo()
+            type_id = _coerce_int(params.get('type_id'))
+            service = (params.get('service') or '').strip()
+            infra = Infra
+            if type_id:
+                infra = Infra.browse(type_id).exists()
+            elif service:
+                infra = Infra.search(
+                    [('aws_service_code', '=ilike', service)], limit=1,
+                )
+            else:
+                return return_Response(
+                    message="'type_id' or 'service' is required.",
+                    status=400, data={},
+                )
+            if not infra:
+                return return_Response(
+                    message='Infrastructure type not found.',
+                    status=400, data={},
+                )
+            force_refresh = bool(_coerce_int(params.get('force_refresh'), 0))
+            from_cache = True
+            if infra.aws_service_code and infra.primary_attr:
+                stats = aws_pricing_service.fetch_items_for_service(
+                    request.env, infra, force_refresh=force_refresh,
+                )
+                from_cache = bool(stats.get('from_cache', True))
+            limit, offset, err = _pagination(params)
+            if err:
+                return err
+            Item = request.env['ethara.project.aws.pricing.item'].sudo()
+            idomain = [('infra_type_id', '=', infra.id), ('active', '=', True)]
+            search = (params.get('search') or '').strip()
+            if search:
+                idomain.append(('name', 'ilike', search))
+            total = Item.search_count(idomain)
+            records = Item.search(
+                idomain, limit=limit, offset=offset, order='name',
+            )
+            items = [
+                {
+                    'id': r.id,
+                    'name': r.name or '',
+                    'sku_count': r.sku_count or 0,
+                }
+                for r in records
+            ]
+            return return_Response(
+                message='AWS pricing items fetched.', status=200,
+                data={
+                    'infra_type_id': infra.id,
+                    'service_code': infra.aws_service_code or '',
+                    'primary_attr': infra.primary_attr or '',
+                    'total': total, 'limit': limit, 'offset': offset,
+                    'items': items,
+                    'from_cache': from_cache,
+                },
+            )
+        except Exception as e:
+            _logger.exception('ethara_project budget/infra/items failed')
+            return return_Response(
+                message='Failed to list AWS pricing items.',
+                status=400, errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/budget/infra/pricing
+    #
+    # On-demand pricing for one service+item+region via
+    # aws_pricing_service.fetch_pricing_cached. Response fields are returned
+    # FLAT at the envelope root (service_code, item, region, min_price, unit,
+    # specs, varying, rows) — Flutter AwsPricingResponseModel reads root-level.
+    # Query: service*, item*, region (label; default "US East (N. Virginia)"),
+    # force_refresh.
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/budget/infra/pricing',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def aws_pricing_detail(self, **params):
+        try:
+            service = (params.get('service') or '').strip()
+            item = (params.get('item') or '').strip()
+            if not service or not item:
+                return return_Response(
+                    message="'service' and 'item' are required.",
+                    status=400, data={},
+                )
+            region = (params.get('region') or '').strip() \
+                or 'US East (N. Virginia)'
+            force_refresh = bool(_coerce_int(params.get('force_refresh'), 0))
+            pricing = aws_pricing_service.fetch_pricing_cached(
+                request.env, service, item, region,
+                force_refresh=force_refresh,
+            )
+            if not pricing:
+                return return_Response(
+                    message='Pricing not found for %s / %s.' % (service, item),
+                    status=400, data={},
+                )
+            return return_Response(
+                message='Pricing fetched.', status=200, data=pricing,
+            )
+        except Exception as e:
+            _logger.exception('ethara_project budget/infra/pricing failed')
+            return return_Response(
+                message='Failed to fetch AWS pricing.',
+                status=400, errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/budget/infra/ebs_pricing
+    #
+    # EBS/volume list prices for a region via
+    # aws_pricing_service.fetch_ebs_pricing_cached. Returns top-level
+    # `volumes[]` (Flutter EbsVolumesResponseModel uses the tolerant parser).
+    # Query: region (label; default "US East (N. Virginia)"), force_refresh.
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/budget/infra/ebs_pricing',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def aws_ebs_pricing(self, **params):
+        try:
+            region = (params.get('region') or '').strip() \
+                or 'US East (N. Virginia)'
+            force_refresh = bool(_coerce_int(params.get('force_refresh'), 0))
+            result = aws_pricing_service.fetch_ebs_pricing_cached(
+                request.env, region, force_refresh=force_refresh,
+            )
+            return return_Response(
+                message='EBS pricing fetched.', status=200, data=result,
+            )
+        except Exception as e:
+            _logger.exception('ethara_project budget/infra/ebs_pricing failed')
+            return return_Response(
+                message='Failed to fetch EBS pricing.',
                 status=400, errors=[str(e)],
             )
 

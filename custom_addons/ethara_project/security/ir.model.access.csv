@@ -2,6 +2,7 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_ethara_project_user,ethara.project all users,model_ethara_project,base.group_user,1,1,1,1
 access_ethara_project_attachment_user,ethara.project.attachment all users,model_ethara_project_attachment,base.group_user,1,1,1,1
 access_ethara_project_ai_model_user,ethara.project.ai.model all users,model_ethara_project_ai_model,base.group_user,1,1,1,1
+access_ethara_project_infra_provider_user,ethara.project.infra.provider all users,model_ethara_project_infra_provider,base.group_user,1,1,1,1
 access_ethara_project_infra_type_user,ethara.project.infra.type all users,model_ethara_project_infra_type,base.group_user,1,1,1,1
 access_ethara_project_subscription_user,ethara.project.subscription all users,model_ethara_project_subscription,base.group_user,1,1,1,1
 access_ethara_project_aws_credentials_user,ethara.project.aws.credentials all users,model_ethara_project_aws_credentials,base.group_user,1,1,1,0

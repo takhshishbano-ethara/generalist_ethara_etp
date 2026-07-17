@@ -803,9 +803,14 @@
                                     <i class="fa fa-arrow-left me-1"/>Previous
                                 </button>
                                 <div class="d-flex align-items-center gap-2">
-                                    <a t-att-href="review_url" class="btn btn-link">
+                                    <!-- Must SUBMIT, never link: as a plain <a href>
+                                         GET inside this form it navigated away and
+                                         silently discarded the answer the candidate
+                                         had just typed. nav=review saves first. -->
+                                    <button type="submit" class="btn btn-link"
+                                            id="etp-review-btn">
                                         Review &amp; Submit
-                                    </a>
+                                    </button>
                                     <button type="submit" class="btn btn-primary" id="etp-next-btn">
                                         <t t-if="current_index &gt;= total_questions">Save &amp; Review</t>
                                         <t t-else="">Save &amp; Next</t>
@@ -825,6 +830,10 @@
                            id="etp-violation-reason" value=""/>
                 </form>
 
+                <div id="etp-violation-note"
+                     class="alert alert-warning etp-violation-note d-none"
+                     role="status" aria-live="polite"/>
+
                 <span id="etp-exam-config" class="d-none"
                       t-att-data-rules="rules_json"/>
 
@@ -835,10 +844,53 @@
                         try { RULES = JSON.parse(cfgEl.dataset.rules || '{}'); }
                         catch (e) { RULES = {}; }
                         function reportViolation(reason) {
+                            // Use sendBeacon: a synchronous form POST fired from
+                            // inside visibilitychange / unload is frequently
+                            // DROPPED by the browser when the tab backgrounds, so
+                            // the violation never reached the server and
+                            // auto-submit never triggered. sendBeacon is delivered
+                            // even while the page is being hidden/unloaded.
+                            var url = document.getElementById('etp-violation-form').action;
+                            var sent = false;
                             try {
-                                document.getElementById('etp-violation-reason').value = reason;
-                                document.getElementById('etp-violation-form').submit();
-                            } catch (e) { console.warn('violation post failed', e); }
+                                if (navigator.sendBeacon) {
+                                    var fd = new FormData();
+                                    fd.append('csrf_token',
+                                        document.querySelector('#etp-violation-form input[name=csrf_token]').value);
+                                    fd.append('violation_reason', reason);
+                                    sent = navigator.sendBeacon(url, fd);
+                                }
+                            } catch (e) { sent = false; }
+                            if (!sent) {
+                                // Fallback: hidden-form POST (navigates the page).
+                                try {
+                                    document.getElementById('etp-violation-reason').value = reason;
+                                    document.getElementById('etp-violation-form').submit();
+                                    return;
+                                } catch (e2) { console.warn('violation post failed', e2); }
+                            }
+                            // DO NOT reload here. Enforcement is entirely
+                            // server-side (_record_violation_single auto-submits
+                            // at max_violations, and every later POST is
+                            // is_locked-guarded), so a reload adds nothing to it
+                            // — it only destroyed whatever the candidate had
+                            // typed, on EVERY violation: a right-click, a paste
+                            // reflex, a tab switch. A terminated candidate simply
+                            // lands on the locked page at their next navigation.
+                            notifyViolation(reason);
+                        }
+                        // Non-destructive, self-clearing notice. Never touches
+                        // the form or navigates.
+                        function notifyViolation(reason) {
+                            var el = document.getElementById('etp-violation-note');
+                            if (!el) { return; }
+                            el.textContent = 'Proctoring: ' + reason +
+                                ' — this has been recorded.';
+                            el.classList.remove('d-none');
+                            clearTimeout(el._t);
+                            el._t = setTimeout(function () {
+                                el.classList.add('d-none');
+                            }, 4000);
                         }
                         if (RULES.right_click) {
                             document.addEventListener('contextmenu', function (e) {
@@ -864,11 +916,24 @@
                             });
                         }
                         if (RULES.devtools) {
+                            // ZOOM SAFETY: innerWidth is CSS pixels and SHRINKS as
+                            // the candidate zooms in, while outerWidth does not —
+                            // so the raw delta grew with zoom and a low-vision
+                            // candidate at 150% tripped the old 200px threshold
+                            // (delta ~480 on a 1440px window) and was auto-
+                            // submitted for cheating. devicePixelRatio moves with
+                            // zoom, so normalising by it cancels the zoom out.
+                            // Compare against the ratio captured at load rather
+                            // than assuming the candidate starts at 100%.
+                            var baseDpr = window.devicePixelRatio || 1;
                             var devtoolsReported = false;
                             setInterval(function () {
-                                var w = window.outerWidth - window.innerWidth;
-                                var h = window.outerHeight - window.innerHeight;
-                                if (!devtoolsReported &amp;&amp; (w > 200 || h > 200)) {
+                                var zoom = (window.devicePixelRatio || 1) / baseDpr;
+                                var w = window.outerWidth - window.innerWidth * zoom;
+                                var h = window.outerHeight - window.innerHeight * zoom;
+                                // Threshold raised: a docked panel is >=250px, and
+                                // guessing wrong here ENDS someone's exam.
+                                if (!devtoolsReported &amp;&amp; (w > 300 || h > 300)) {
                                     devtoolsReported = true;
                                     reportViolation('Developer tools detected');
                                 }
@@ -928,6 +993,14 @@
                         if (prevBtn) {
                             prevBtn.addEventListener('click', function () {
                                 document.getElementById('etp-nav').value = 'prev';
+                            });
+                        }
+                        // Review nav: save current answer THEN review. This was a
+                        // plain link, so the in-progress answer was lost on click.
+                        var reviewBtn = document.getElementById('etp-review-btn');
+                        if (reviewBtn) {
+                            reviewBtn.addEventListener('click', function () {
+                                document.getElementById('etp-nav').value = 'review';
                             });
                         }
 
@@ -1285,6 +1358,68 @@
                             <span class="etp-stat-label">Completed</span>
                         </div>
                     </div>
+
+                    <t t-if="kpis and kpis['scored'] &gt; 0">
+                        <section class="etp-my-analytics">
+                            <h2 class="etp-section-title">My Performance</h2>
+                            <div class="etp-my-hero">
+                                <div class="etp-my-rings">
+                                    <div t-attf-class="etp-acard-ring is-#{'pass' if kpis['pass_rate'] &gt;= 50 else 'fail'}"
+                                         t-attf-style="--etp-ring-pct: #{kpis['pass_rate']};"
+                                         role="img" t-attf-aria-label="Pass rate #{kpis['pass_rate']} percent">
+                                        <span class="etp-acard-ring-val"><b t-out="kpis['pass_rate']"/><small>%</small></span>
+                                    </div>
+                                    <div class="etp-my-ring-cap">Pass rate</div>
+                                </div>
+                                <div class="etp-my-rings">
+                                    <div class="etp-acard-ring is-pass"
+                                         t-attf-style="--etp-ring-pct: #{kpis['avg_score']};"
+                                         role="img" t-attf-aria-label="Average score #{kpis['avg_score']} percent">
+                                        <span class="etp-acard-ring-val"><b t-out="kpis['avg_score']"/><small>%</small></span>
+                                    </div>
+                                    <div class="etp-my-ring-cap">Average score</div>
+                                </div>
+                                <div class="etp-my-kpis">
+                                    <div class="etp-kpi">
+                                        <span class="etp-kpi-num"><t t-out="kpis['best_score']"/>%</span>
+                                        <span class="etp-kpi-label">Best score</span>
+                                    </div>
+                                    <div class="etp-kpi">
+                                        <span class="etp-kpi-num"><t t-out="kpis['passed']"/>/<t t-out="kpis['scored']"/></span>
+                                        <span class="etp-kpi-label">Passed</span>
+                                    </div>
+                                    <div class="etp-kpi">
+                                        <span class="etp-kpi-num"><t t-out="kpis['taken']"/></span>
+                                        <span class="etp-kpi-label">Completed</span>
+                                    </div>
+                                    <div class="etp-kpi" t-if="kpis['awaiting'] &gt; 0">
+                                        <span class="etp-kpi-num"><t t-out="kpis['awaiting']"/></span>
+                                        <span class="etp-kpi-label">Awaiting results</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="etp-my-breakdown" t-if="kpis['breakdown']">
+                                <div class="etp-brk-head">
+                                    <span class="etp-brk-c-name">Assessment</span>
+                                    <span class="etp-brk-c-bar">Your score</span>
+                                    <span class="etp-brk-c-num">Result</span>
+                                </div>
+                                <t t-foreach="kpis['breakdown']" t-as="row">
+                                    <div class="etp-brk-row">
+                                        <span class="etp-brk-name" t-out="row['name']"/>
+                                        <span class="etp-brk-bar">
+                                            <span class="etp-brk-bar-track">
+                                                <span class="etp-brk-bar-fill" t-attf-style="width:#{row['score_pct']}%"/>
+                                            </span>
+                                            <span class="etp-brk-bar-pct"><t t-out="row['score_pct']"/>%</span>
+                                        </span>
+                                        <span t-attf-class="etp-my-verdict is-#{row['result']}"
+                                              t-out="row['result'].capitalize()"/>
+                                    </div>
+                                </t>
+                            </div>
+                        </section>
+                    </t>
                     <t t-if="available">
                         <section class="etp-my-section">
                             <h2 class="etp-section-title">

@@ -164,6 +164,95 @@ def _serialize_project(project, detail=False):
     return data
 
 
+
+def _serialize_project_dashboard(project):
+    """Flat dashboard-shape response matching legacy /taskforge/project/dashboard.
+
+    Used by GET /api/v1/ethara_project/detail. Every value is derived from
+    the ethara.project record + ethara.project.budget lines; no dependency
+    on etp_projects. Fields ethara does not own (task/blocker counts) return
+    safe defaults so Flutter's dashboard DTO parses cleanly.
+    """
+    start_date = safe_get_value(project, 'start_date', 'date')
+    end_date = safe_get_value(project, 'end_date', 'date')
+    tpm_count = len(project.assigned_tpm_ids)
+    pl_ql_count = len(project.assigned_pl_ql_ids)
+    rnd_count = len(project.assigned_rnd_ids)
+    total_team_size = tpm_count + pl_ql_count + rnd_count
+    team_role_message = 'TPM: %s, PL/QL: %s, R&D: %s' % (tpm_count, pl_ql_count, rnd_count)
+    project_budget_list = []
+    Budget = project.env['ethara.project.budget'].sudo()
+    for budget in Budget.search([('ethara_project_id', '=', project.id)]):
+        model_list = []
+        for ln in budget.model_line_ids:
+            model_list.append({
+                'id': ln.id,
+                'model_id': ln.ai_model_id.id if ln.ai_model_id else False,
+                'model_name': (
+                    ln.ai_model_name
+                    or (ln.ai_model_id.name if ln.ai_model_id else '')
+                    or ''
+                ),
+                'per_task_cost': ln.per_task_cost or 0.0,
+            })
+        infra_list = []
+        for ln in budget.infra_line_ids:
+            infra_list.append({
+                'id': ln.id,
+                'infra_type_id': ln.infra_type_id.id if ln.infra_type_id else False,
+                'infra_type': ln.infra_type_id.name if ln.infra_type_id else '',
+                'description': ln.description or (ln.infra_type_id.name if ln.infra_type_id else ''),
+                'budget_amount': ln.budget_amount or 0.0,
+            })
+        project_budget_list.append({
+            'id': budget.id,
+            'name': budget.name or '',
+            'project_type': budget.project_type or '',
+            'budget_amount': budget.budget_amount or 0.0,
+            'model_list': model_list,
+            'infrastructure_list': infra_list,
+        })
+    return {
+        'name': project.name or '',
+        'project_seq': 'PRJ%05d' % project.id,
+        'client_name': project.client_name or '',
+        'status': project.state or '',
+        'category': '',
+        'project_classification': '',
+        'date_start': start_date,
+        'date_end': end_date,
+        'done_task_count': 0,
+        'this_week_new_task_count': 0,
+        'total_task_count': 0,
+        'completion_rate': '0.0%',
+        'open_blocker_count': 0,
+        'blocker_by_state': '',
+        'total_team_size': total_team_size,
+        'team_role_message': team_role_message,
+        'task_progress': [
+            {'state': 'in_progress', 'total_count': 0},
+            {'state': 'completed', 'total_count': 0},
+            {'state': 'blocker', 'total_count': 0},
+            {'state': 'returned', 'total_count': 0},
+            {'state': 'ack', 'total_count': 0},
+            {'state': 'escalated', 'total_count': 0},
+            {'state': 'overdue', 'total_count': 0},
+        ],
+        'daily_throughput': [],
+        'tab_list': [
+            {'tab_name': 'Team', 'api_end_point': '/v2/project_team_member_list?project_id=%s' % project.id},
+            {'tab_name': 'Budget', 'api_end_point': '/v1/ethara_project/budget/list?ethara_project_id=%s' % project.id},
+            {'tab_name': 'Tasks', 'api_end_point': '/v1/ethara_project/budget/list?ethara_project_id=%s' % project.id},
+            {'tab_name': 'Batch', 'api_end_point': '/v1/ethara_project/budget/list?ethara_project_id=%s' % project.id},
+            {'tab_name': 'Logs', 'api_end_point': '/v1/ethara_project/detail?id=%s' % project.id},
+        ],
+        'category_url': '',
+        'budget_refresh_url': '',
+        'tasker_url': '',
+        'project_budget_list': project_budget_list,
+    }
+
+
 def _build_attachment_vals(attachments_raw):
     commands = []
     errors = []
@@ -485,9 +574,9 @@ class EtharaProjectController(http.Controller):
                 return return_Response(message='Ethara project not found.', status=404)
 
             return return_Response(
-                message='OK',
+                message='Project dashboard',
                 status=200,
-                data={'data': _serialize_project(project, detail=True)},
+                data=_serialize_project_dashboard(project),
             )
         except Exception as e:
             _logger.exception('ethara_project detail failed')

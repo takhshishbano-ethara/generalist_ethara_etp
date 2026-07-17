@@ -8,7 +8,7 @@
                 <header>
                     <button name="action_normalize_tags" type="object"
                             string="Normalize Tags"
-                            help="Re-extract SOP tags for the selected generators so drifted tags converge on the shared vocabulary and similarity ranking improves."/>
+                            help="Tidies the shared tag vocabulary (merges duplicate/drifted tags onto one readable name) and re-extracts the selected generators against it. Run it as you add projects: the knowledge base keeps getting cleaner, so tags stay readable, similar projects rank together, and future assessments improve."/>
                 </header>
                 <field name="name"/>
                 <field name="tag_ids" widget="many2many_tags"
@@ -96,6 +96,38 @@
                         </div>
                     </div>
 
+                    <!-- Friendly live-progress banners for the non-technical
+                         operator: shows exactly what the system is doing right
+                         now, so generation never looks "broken". -->
+                    <div class="alert alert-info d-flex align-items-center gap-2"
+                         role="status"
+                         invisible="sop_gen_state not in ('queued','generating')">
+                        <i class="fa fa-spinner fa-spin" title="Working"/>
+                        <span>
+                            <strong>Writing your questions…</strong>
+                            The SOP is being read and questions are being authored.
+                            This takes a minute or two. Reload the page to see them
+                            appear in <strong>Question Drafts</strong> below.
+                        </span>
+                    </div>
+                    <div class="alert alert-info d-flex align-items-center gap-2"
+                         role="status"
+                         invisible="tag_extract_state not in ('queued','generating')">
+                        <i class="fa fa-spinner fa-spin" title="Working"/>
+                        <span><strong>Reading the SOP for tags…</strong>
+                            Plain-English tags appear here in a moment.</span>
+                    </div>
+                    <div class="alert alert-success d-flex align-items-center gap-2"
+                         role="status"
+                         invisible="sop_gen_state != 'done' or question_count == 0">
+                        <i class="fa fa-check-circle" title="Done"/>
+                        <span><strong>Questions ready.</strong>
+                            Review them under <strong>Question Drafts</strong> below —
+                            <strong>Task:</strong> items reproduce the actual task the
+                            candidate performs, the rest probe the SOP's rules. Approve
+                            the ones you want.</span>
+                    </div>
+
                     <!-- Status: what the system reports (dimmed, secondary) -->
                     <group class="o_etp_status">
                         <group>
@@ -140,7 +172,18 @@
                                    invisible="question_count_mode != 'fixed'"
                                    class="o_etp_count_input"/>
                         </div>
-                        <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                        <div class="text-muted small mb-2">
+                            That is all you need. Upload the SOP above and click
+                            <strong>Generate Questions</strong>. Everything below is optional.
+                        </div>
+                        <!-- Advanced options folded away so the default view stays
+                             dead-simple for a non-technical operator. -->
+                        <details class="o_etp_advanced mt-2">
+                            <summary class="fw-semibold" style="cursor:pointer">
+                                Advanced options (optional)
+                            </summary>
+                            <div class="pt-2">
+                            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
                             <label for="upload_sample_file" string="Sample questions (optional)"
                                    class="o_etp_flabel fw-semibold mb-0"/>
                             <field name="upload_sample_file" nolabel="1"
@@ -170,8 +213,8 @@
                                    help="Leave empty to let the model choose the best type per item."/>
                         </div>
                         <div class="text-muted small mb-2">
-                            The generator may author only these types. Leave empty to let it choose freely per the SOP.
-                            <span class="d-block">“Questions to Generate” is kept at least the number of selected types, so each can appear once.</span>
+                            Leave empty (recommended) and the generator picks the type that
+                            reproduces the SOP's real task for each item.
                         </div>
                         <div class="fw-semibold mb-1 mt-3">Extra instructions</div>
                         <div class="o_etp_control">
@@ -194,6 +237,8 @@
                                    widget="etp_file_chips"
                                    options="{'category': 'reference'}"/>
                         </div>
+                            </div>
+                        </details>
                     </div>
 
                     <div class="alert alert-info" role="alert"
@@ -246,14 +291,14 @@
                         </page>
                         <page string="Question Drafts">
                             <field name="question_ids">
-                                <list>
+                                <list default_group_by="gen_batch_label">
                                     <header>
                                         <button name="action_approve" type="object"
                                                 string="Approve Selected" class="btn-primary"/>
                                         <button name="action_deny" type="object"
                                                 string="Deny Selected" class="btn-secondary"/>
                                     </header>
-                                    
+                                    <field name="gen_batch_label" column_invisible="1"/>
                                     <field name="name"/>
                                     <field name="question_type"/>
                                     <field name="difficulty"/>

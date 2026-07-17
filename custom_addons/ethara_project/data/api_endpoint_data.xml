@@ -77,5 +77,206 @@
             <field name="note">POST - Create ethara.project.budget with model/infra/subscription lines. Accepts JSON or multipart with attachments.</field>
         </record>
 
+        <record id="endpoint_api_v1_ethara_project_budget_project_members" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/project_members</field>
+            <field name="note">GET - Users assigned to a specific ethara.project (team M2Ms -> user_id), for the create-budget subscription seat picker. ?project_id=</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_infra_services" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/services</field>
+            <field name="note">GET - AWS-managed infra catalog (ethara.project.infra.type, is_aws_managed) for the AWS service picker. ?search &amp;limit &amp;offset</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_infra_items" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/items</field>
+            <field name="note">GET - Instance/item catalog for one AWS service (ethara.project.aws.pricing.item); auto-fetches from AWS, cached. ?type_id|service &amp;search &amp;force_refresh</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_infra_pricing" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/pricing</field>
+            <field name="note">GET - On-demand pricing for one service+item+region (flat root-level response). ?service &amp;item &amp;region &amp;force_refresh</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_infra_ebs_pricing" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/ebs_pricing</field>
+            <field name="note">GET - EBS/volume list prices for a region. ?region &amp;force_refresh</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_infra_providers" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/providers</field>
+            <field name="note">GET - ethara.project.infra.provider catalog (AWS, Microsoft, ...) for the Provider selector on the Infrastructure step. ?search &amp;include_inactive &amp;limit &amp;offset</field>
+        </record>
+
+        <!-- Group A: budget read/update -->
+        <record id="endpoint_api_v1_ethara_project_budget_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/list</field>
+            <field name="note">GET - list ethara.project.budget rows. ?project_id &amp;budget_type &amp;state &amp;search &amp;limit &amp;offset</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_detail" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/detail</field>
+            <field name="note">GET - full ethara.project.budget detail incl. lines + phases. ?id=</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_update" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/update</field>
+            <field name="note">POST/PATCH - update ethara.project.budget scalars, lines, approvers, attachments.</field>
+        </record>
+
+        <record id="endpoint_api_v1_ethara_project_budget_types" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/types</field>
+            <field name="note">GET - budget field option catalogs (project_type, state, priority).</field>
+        </record>
+
+        <!-- Group C: phases / batches -->
+        <record id="ep_ethara_budget_batches_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/batches/list</field>
+            <field name="note">GET - list ethara.project.phase (batches).</field>
+        </record>
+        <record id="ep_ethara_budget_batches_detail" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/batches/detail</field>
+            <field name="note">GET - phase detail. ?id=</field>
+        </record>
+        <record id="ep_ethara_budget_batches_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/batches/create</field>
+            <field name="note">POST - create a phase budget.</field>
+        </record>
+        <record id="ep_ethara_budget_batches_update" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/batches/update</field>
+            <field name="note">POST - update a phase budget.</field>
+        </record>
+        <record id="ep_ethara_budget_batches_deliver" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/batches/deliver</field>
+            <field name="note">POST - deliver a phase (action_deliver + info link).</field>
+        </record>
+        <record id="ep_ethara_budget_batches_attach_upload" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/batches/attachments/upload</field>
+            <field name="note">POST - upload phase attachments.</field>
+        </record>
+
+        <!-- Group D: estimation / daily tasks -->
+        <record id="ep_ethara_budget_estimation_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/estimation/create</field>
+            <field name="note">POST - log a daily estimation task.</field>
+        </record>
+        <record id="ep_ethara_budget_estimation_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/estimation/list</field>
+            <field name="note">GET - list daily estimation tasks. ?batch_id or ?project_id</field>
+        </record>
+        <record id="ep_ethara_budget_estimation_detail" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/estimation/detail</field>
+            <field name="note">GET - daily task detail. ?id=</field>
+        </record>
+        <record id="ep_ethara_budget_estimation_kpi" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/estimation/kpi</field>
+            <field name="note">GET - phase estimation KPI aggregates. ?batch_id=</field>
+        </record>
+        <record id="ep_ethara_budget_estimation_batch_view" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/estimation/batch_view</field>
+            <field name="note">GET - phases split current/upcoming/previous.</field>
+        </record>
+
+        <!-- Group B: budget requests / approvals -->
+        <record id="ep_ethara_budget_requests_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/list</field>
+            <field name="note">GET - list phase budget requests.</field>
+        </record>
+        <record id="ep_ethara_budget_requests_detail" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/detail</field>
+            <field name="note">GET - full request detail. ?id=</field>
+        </record>
+        <record id="ep_ethara_budget_requests_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/create</field>
+            <field name="note">POST - create/submit a phase budget request.</field>
+        </record>
+        <record id="ep_ethara_budget_requests_update" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/update</field>
+            <field name="note">POST - update/submit a request.</field>
+        </record>
+        <record id="ep_ethara_budget_requests_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/approve</field>
+            <field name="note">POST - CTO/CFO approve (step=cto|cfo).</field>
+        </record>
+        <record id="ep_ethara_budget_requests_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/reject</field>
+            <field name="note">POST - CTO/CFO reject / request changes (step=cto|cfo).</field>
+        </record>
+        <record id="ep_ethara_budget_requests_mark_review" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/mark_review</field>
+            <field name="note">POST - mark request under review (no state change).</field>
+        </record>
+
+        <!-- Group F: top-ups -->
+        <record id="ep_ethara_budget_topup_reasons" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/topup_reasons</field>
+            <field name="note">GET - top-up reason catalog.</field>
+        </record>
+        <record id="ep_ethara_topup_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/topup/create</field>
+            <field name="note">POST - create a budget top-up.</field>
+        </record>
+        <record id="ep_ethara_topup_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/topup/approve</field>
+            <field name="note">POST - approve a top-up.</field>
+        </record>
+        <record id="ep_ethara_topup_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/topup/reject</field>
+            <field name="note">POST - reject a top-up.</field>
+        </record>
+
+        <!-- Group G: infra pricing sync control -->
+        <record id="ep_ethara_budget_infra_sync" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/sync</field>
+            <field name="note">POST - trigger a full AWS pricing sync.</field>
+        </record>
+        <record id="ep_ethara_budget_infra_sync_status" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/sync/status</field>
+            <field name="note">GET - latest AWS pricing sync log.</field>
+        </record>
+
+        <!-- Group E: budget dashboards -->
+        <record id="ep_ethara_dash_kpis" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/kpis</field>
+            <field name="note">POST - dashboard KPIs.</field>
+        </record>
+        <record id="ep_ethara_dash_actual_vs_estimated" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/actual_vs_estimated</field>
+            <field name="note">POST - actual vs estimated chart.</field>
+        </record>
+        <record id="ep_ethara_dash_spend_by_model" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/spend_by_model</field>
+            <field name="note">POST - spend by model chart.</field>
+        </record>
+        <record id="ep_ethara_dash_phase_budget" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/phase_budget</field>
+            <field name="note">POST - phase budget chart.</field>
+        </record>
+        <record id="ep_ethara_dash_burn_rate" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/burn_rate</field>
+            <field name="note">POST - burn rate chart.</field>
+        </record>
+        <record id="ep_ethara_dash_project_table" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/project_table</field>
+            <field name="note">POST - project budget table.</field>
+        </record>
+        <record id="ep_ethara_dash_project_performance_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/project_performance_list</field>
+            <field name="note">POST - project performance list.</field>
+        </record>
+        <record id="ep_ethara_dash_phase_health" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/project_budget_dashboard/phase_health</field>
+            <field name="note">POST - single phase health detail.</field>
+        </record>
+
+        <!-- Group H: consolidation / export -->
+        <record id="ep_ethara_budget_consolidation" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget_consolidation</field>
+            <field name="note">POST - portfolio budget consolidation roll-up.</field>
+        </record>
+        <record id="ep_ethara_aws_budget_export" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/aws_budget/export</field>
+            <field name="note">POST - AWS budget XLSX export (download URL).</field>
+        </record>
+
     </data>
 </odoo>

@@ -23,6 +23,14 @@ class Kensei2PersonaImport(models.TransientModel):
     csv_file = fields.Binary(string='Persona CSV', required=True)
     filename = fields.Char(string='Filename')
 
+    # The project this upload feeds — defaulted from the launching context
+    # (default_pt_project_id). Imported personas are stamped with it, and its
+    # type decides which taxonomy columns the dialog documents.
+    pt_project_id = fields.Many2one(
+        'project.tracker.project', string='Project')
+    project_type = fields.Selection(
+        related='pt_project_id.project_type', string='Type')
+
     state = fields.Selection(
         [('choose', 'Choose'), ('done', 'Done')],
         default='choose', readonly=True,
@@ -43,7 +51,9 @@ class Kensei2PersonaImport(models.TransientModel):
         # in memory is cheap and safe. create_missing=True does exactly the import
         # (parse -> de-dupe -> reuse existing/archived -> batch-create the rest);
         # distributing to taskers is a separate step there, so nothing is assigned.
-        helper = self.env['project.tracker.bulk.allocation'].create({
+        helper = self.env['project.tracker.bulk.allocation'].with_context(
+            default_pt_project_id=self.pt_project_id.id,
+        ).create({
             'source_mode': 'file',
             'csv_file': self.csv_file,
             'filename': self.filename,

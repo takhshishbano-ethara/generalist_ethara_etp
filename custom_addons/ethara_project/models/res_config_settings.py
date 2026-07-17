@@ -1,8 +1,22 @@
 from odoo import api, fields, models
 
+CONFIG_PARAM_DEFAULT_APPROVERS = "ethara_project.default_approver_user_ids"
+
 
 class ResConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
+
+    ethara_default_approver_user_ids = fields.Many2many(
+        "res.users",
+        "ethara_project_default_approver_settings_rel",
+        "config_id",
+        "user_id",
+        string="Default Project Budget Approvers",
+        help="Users automatically added as approvers when a new Project Budget "
+             "is created (both via the Odoo form view and the "
+             "/api/v1/ethara_project/budget/create API). API callers can supply "
+             "additional approver_ids — they are merged with this list.",
+    )
 
     ethara_aws_pricing_region = fields.Char(
         string="AWS Pricing Region",
@@ -59,6 +73,16 @@ class ResConfigSettings(models.TransientModel):
     @api.model
     def get_values(self):
         res = super().get_values()
+        ids = _parse_default_approver_ids(
+            self.env["ir.config_parameter"].sudo().get_param(
+                CONFIG_PARAM_DEFAULT_APPROVERS, "",
+            )
+        )
+        existing = (
+            self.env["res.users"].sudo().browse(ids).exists().ids if ids else []
+        )
+        res["ethara_default_approver_user_ids"] = [(6, 0, existing)]
+
         creds = self.env["ethara.project.aws.credentials"].sudo().get_singleton()
         synced_count = self.env["ethara.project.infra.type"].sudo().search_count([
             ("is_aws_managed", "=", True),
@@ -87,6 +111,11 @@ class ResConfigSettings(models.TransientModel):
 
     def set_values(self):
         super().set_values()
+        self.env["ir.config_parameter"].sudo().set_param(
+            CONFIG_PARAM_DEFAULT_APPROVERS,
+            ",".join(str(i) for i in self.ethara_default_approver_user_ids.ids),
+        )
+
         creds = self.env["ethara.project.aws.credentials"].sudo().get_singleton()
         creds.write({
             "access_key_id": (self.ethara_aws_access_key_id or "").strip(),
@@ -94,7 +123,7 @@ class ResConfigSettings(models.TransientModel):
             "region_name": (self.ethara_aws_region_name or "us-east-1").strip(),
         })
 
-    def action_trigger_aws_sync(self):
+    def action_trigger_ethara_aws_sync(self):
         self.ensure_one()
         creds = self.env["ethara.project.aws.credentials"].sudo().get_singleton()
         if not creds.access_key_id or not creds.secret_key:
@@ -126,3 +155,14 @@ class ResConfigSettings(models.TransientModel):
                 "sticky": False,
             },
         }
+
+
+def _parse_default_approver_ids(raw):
+    if not raw:
+        return []
+    ids = []
+    for token in raw.split(","):
+        token = token.strip()
+        if token.isdigit():
+            ids.append(int(token))
+    return ids

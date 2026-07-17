@@ -16,6 +16,7 @@ from ..constants import (
     AB_VERDICT_WEIGHT,
     AB_JUSTIFICATION_WEIGHT,
     ADVISORY_LOCK_AUTOSCORE,
+    is_integrity_gate,
 )
 
 _logger = logging.getLogger(__name__)
@@ -107,6 +108,15 @@ class EtpAssessment(models.Model):
         "etp.assessment.pro.response", "assessment_id", string="Responses"
     )
     response_count = fields.Integer(compute="_compute_response_count", store=True)
+    submitted_count = fields.Integer(
+        string="Submitted", compute="_compute_release_state",
+        help="Candidates who have submitted their attempt.")
+    awaiting_scoring_count = fields.Integer(
+        string="Awaiting Subjective Scoring", compute="_compute_release_state",
+        help="Submitted candidates with subjective answers not yet graded.")
+    releasable_count = fields.Integer(
+        string="Releasable", compute="_compute_release_state",
+        help="Submitted candidates whose results are not yet released.")
     invite_summary = fields.Char(
         compute="_compute_invite_summary", string="Invitations",
         help="Live status of the background invitation-send job.")
@@ -224,6 +234,23 @@ class EtpAssessment(models.Model):
     def _compute_response_count(self):
         for rec in self:
             rec.response_count = len(rec.response_ids)
+
+    @api.depends(
+        "assessment_evaluator_ids.state",
+        "assessment_evaluator_ids.results_released",
+        "assessment_evaluator_ids.response_ids.needs_llm",
+        "assessment_evaluator_ids.response_ids.llm_state")
+    def _compute_release_state(self):
+        for rec in self:
+            submitted = rec.assessment_evaluator_ids.filtered(
+                lambda e: e.state == "submitted")
+            rec.submitted_count = len(submitted)
+            rec.releasable_count = len(
+                submitted.filtered(lambda e: not e.results_released))
+            rec.awaiting_scoring_count = len(submitted.filtered(
+                lambda e: any(
+                    r.needs_llm and r.llm_state != "scored"
+                    for r in e.response_ids)))
 
     @api.depends("assessment_evaluator_ids.invite_state")
     def _compute_invite_summary(self):
@@ -517,18 +544,30 @@ class EtpAssessment(models.Model):
     def action_release_all_results(self):
         self.ensure_one()
         to_release = self.assessment_evaluator_ids.filtered(
-            lambda r: not r.results_released)
+            lambda r: r.state == "submitted" and not r.results_released)
         if not to_release:
-            raise UserError("All candidates' results are already released.")
+            raise UserError(
+                "No submitted candidates awaiting release. Results are only "
+                "releasable once a candidate has submitted their attempt.")
+        unscored = to_release.filtered(lambda e: any(
+            r.needs_llm and r.llm_state != "scored" for r in e.response_ids))
         to_release.write({"results_released": True})
+        msg = "Released results for %s candidate(s)." % len(to_release)
+        warn = bool(unscored)
+        if unscored:
+            msg += (" NOTE: %s of them still have subjective answers being "
+                    "graded — their scores will fill in automatically as the "
+                    "grader finishes (usually within a minute). Use 'Run "
+                    "Subjective Evaluation' if it stays pending."
+                    % len(unscored))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
                 "title": "Results Released",
-                "message": "Released results for %s candidate(s)." % len(to_release),
-                "type": "success",
-                "sticky": False,
+                "message": msg,
+                "type": "warning" if warn else "success",
+                "sticky": warn,
             },
         }
 
@@ -721,7 +760,26 @@ class EtpAssessmentEvaluator(models.Model):
             for rec in self.filtered(lambda r: not r.submitted_at):
                 super(EtpAssessmentEvaluator, rec).write(
                     {"submitted_at": stamp})
-        return super().write(vals)
+        res = super().write(vals)
+        # Auto-queue subjective grading the moment a candidate submits, so the
+        # every-minute background cron (_cron_llm_auto_score) drains it without
+        # an admin having to click "Run Subjective Evaluation" — and without
+        # lagging the exam, because the actual Vertex call happens in the cron,
+        # never in this request. Respects the per-assessment llm_auto_score
+        # toggle (default OFF while the Vertex testing budget is frozen; flip ON
+        # per-assessment to auto-grade, or OFF to halt all Vertex spend).
+        # Only flags candidates that actually have subjective (needs_llm)
+        # answers still awaiting a score.
+        if vals.get("state") == "submitted":
+            to_queue = self.filtered(
+                lambda r: r.assessment_id.llm_auto_score
+                and not r.scoring_requested and any(
+                    resp.needs_llm and resp.llm_state != "scored"
+                    for resp in r.response_ids))
+            if to_queue:
+                super(EtpAssessmentEvaluator, to_queue).write(
+                    {"scoring_requested": True, "llm_state": "pending"})
+        return res
 
     score_percent = fields.Float(
         string="Score %", compute="_compute_result", store=True)
@@ -1285,10 +1343,9 @@ class EtpAssessmentResponse(models.Model):
 
     @api.depends("llm_gate", "llm_flags_json", "llm_result_json")
     def _compute_integrity_alert(self):
-        gate_alerts = ("empty_answer", "injection_attempt", "key_drift")
         flag_alerts = ("integrity_alert", "key_drift")
         for rec in self:
-            alert = (rec.llm_gate or "").strip() in gate_alerts
+            alert = is_integrity_gate(rec.llm_gate)
             if not alert:
                 flags = rec._audit_json(rec.llm_flags_json)
                 if isinstance(flags, list):

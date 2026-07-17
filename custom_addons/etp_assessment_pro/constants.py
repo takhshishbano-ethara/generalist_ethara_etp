@@ -133,6 +133,80 @@ def text_has_source_reference(*texts):
     return False
 
 
+# ---------------------------------------------------------------------------
+# GATE VOCABULARIES. There are TWO, both landing in response.llm_gate, and they
+# are deliberately kept distinct so the audit trail shows which producer spoke:
+#
+#   1. PLATFORM gates -- services/gates.py evaluate_gates(), raised BEFORE the
+#      grader runs (the LLM is never called for these).
+#   2. JUDGE gates -- prompts/scoring.md ("The gate value is one of five fixed
+#      strings only"), raised by the grader itself.
+#
+# They are listed here, together, because the two sides drifted apart once:
+# services/scoring.py tested for a bare "wrong_item" that the judge has NEVER
+# emitted (it sends "unscorable:wrong_item"), so answering a different question
+# -- the strongest cheating signal available -- raised no integrity alert.
+# A new gate on EITHER side must be added here in the same change.
+
+# 1. Platform (services/gates.py)
+GATE_EMPTY_ANSWER = "empty_answer"
+
+# 2. Judge (prompts/scoring.md). injection_attempt is spelled the same by both.
+GATE_UNSCORABLE_EMPTY = "unscorable:empty"
+GATE_UNSCORABLE_PLACEHOLDER = "unscorable:placeholder"
+GATE_UNSCORABLE_TOO_SHORT = "unscorable:too_short"
+GATE_UNSCORABLE_WRONG_ITEM = "unscorable:wrong_item"
+GATE_INJECTION_ATTEMPT = "injection_attempt"
+
+JUDGE_GATE_CODES = frozenset({
+    GATE_UNSCORABLE_EMPTY,
+    GATE_UNSCORABLE_PLACEHOLDER,
+    GATE_UNSCORABLE_TOO_SHORT,
+    GATE_UNSCORABLE_WRONG_ITEM,
+    GATE_INJECTION_ATTEMPT,
+})
+
+# 3. Platform, raised post-scoring by the key-drift guard.
+GATE_KEY_DRIFT = "key_drift"
+
+# Gates that mean "this answer is not an honest attempt at THIS item, so the
+# grader must stamp integrity_alert on it". Both spellings of wrong_item are
+# accepted on read; only the judge's form is ever emitted.
+GATE_FLAG_INTEGRITY = frozenset({
+    GATE_UNSCORABLE_WRONG_ITEM,
+    "wrong_item",
+    GATE_INJECTION_ATTEMPT,
+})
+
+# Gates that must surface an integrity alert to a reviewer. Superset of the
+# above: it also covers the platform's own blank-answer gate and key drift.
+GATE_INTEGRITY_ALERTS = GATE_FLAG_INTEGRITY | frozenset({
+    GATE_EMPTY_ANSWER,
+    GATE_UNSCORABLE_EMPTY,
+    GATE_KEY_DRIFT,
+})
+
+
+def normalize_gate(value):
+    """Canonical form for COMPARISON ONLY -- never for storage.
+
+    llm_gate keeps whatever its producer emitted: "empty_answer" (platform) and
+    "unscorable:empty" (judge) mean the same thing but come from different
+    places, and collapsing them would erase which one fired.
+    """
+    return str(value or "").strip().lower()
+
+
+def gate_flags_integrity(value):
+    """True when the grader should stamp integrity_alert on this gate."""
+    return normalize_gate(value) in GATE_FLAG_INTEGRITY
+
+
+def is_integrity_gate(value):
+    """True when the gate means 'a human must look at this'."""
+    return normalize_gate(value) in GATE_INTEGRITY_ALERTS
+
+
 # Patterns are compiled with re.IGNORECASE by services/gates.py; a match resolves
 # the answer to raw score 0 locally and the grader is never called.
 # Keep every entry TIGHT: it must match a "coerce the grader" idiom, never ordinary

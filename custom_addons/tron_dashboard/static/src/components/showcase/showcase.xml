@@ -3,10 +3,11 @@
     <t t-name="tron_dashboard.TronShowcase">
         <div class="tr-showcase">
             <header class="tr-showcase-header">
-                <span class="tr-tag">TODO: tagline (category &#xB7; domain)</span>
+                <span class="tr-tag">ENTERPRISE-OPERATIONS AGENTIC CAPABILITIES</span>
                 <h1 class="tr-title">TRON</h1>
                 <p class="tr-subtitle">
-                    TODO: one-line subtitle describing the project focus.
+                    Can AI agents follow enterprise policies to reliably complete
+                    multi-step operations across multi-domain workflows?
                 </p>
                 <p class="tr-byline">
                     by <strong>Ethara AI</strong> &#xB7;
@@ -16,42 +17,60 @@
 
             <section class="tr-section tr-description">
                 <p>
-                    TODO: project description paragraph. Replace with the definitive
-                    overview of Tron once content is finalized.
+                    TRON is a reinforcement-learning environment for training
+                    enterprise-operations agents on stateful, multi-step work across
+                    eight enterprise domains. Each instance embeds a mock enterprise
+                    state &#x2014; HR records, ITSM tickets, calendar entries, drive
+                    contents &#x2014; and a task that can only be solved by choosing
+                    the <strong>right tool, in the right order, under the right
+                    policy</strong>. Reward signals are generated from deterministic
+                    verifiers over the resulting workflow, decomposing performance
+                    into policy adherence, tool-sequence correctness, and end-state
+                    fidelity.
                 </p>
             </section>
 
             <section class="tr-section tr-capabilities">
                 <ul class="tr-capabilities-list">
-                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 1</li>
-                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 2</li>
-                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 3</li>
-                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 4</li>
-                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 5</li>
+                    <li><span class="tr-cap-arrow">&#x2192;</span>
+                        <strong>SQL-based outcome verification:</strong>
+                        hidden expert-authored SQL queries that validate final
+                        database states to ensure exact business outcomes.
+                    </li>
+                    <li><span class="tr-cap-arrow">&#x2192;</span>
+                        <strong>Resettable containerized sandbox:</strong>
+                        Model Context Protocol (MCP)-powered live server environments
+                        running against freshly seeded SQL database snapshots.
+                    </li>
+                    <li><span class="tr-cap-arrow">&#x2192;</span>
+                        <strong>Long-horizon stateful planning:</strong>
+                        multi-step trajectories requiring up to 34 sequential steps
+                        with permanent, stateful database mutations.
+                    </li>
                 </ul>
             </section>
 
             <section class="tr-section tr-metrics">
                 <div class="tr-metric-grid">
                     <div class="tr-metric-card">
-                        <span class="tr-metric-value">TODO</span>
-                        <span class="tr-metric-label">TODO: metric 1 label</span>
-                        <span class="tr-metric-detail">TODO: metric 1 detail</span>
+                        <span class="tr-metric-value">10,000+</span>
+                        <span class="tr-metric-label">Tasks</span>
+                        <span class="tr-metric-detail">enterprise-ops workflows</span>
                     </div>
                     <div class="tr-metric-card">
-                        <span class="tr-metric-value">TODO</span>
-                        <span class="tr-metric-label">TODO: metric 2 label</span>
-                        <span class="tr-metric-detail">TODO: metric 2 detail</span>
+                        <span class="tr-metric-value">8</span>
+                        <span class="tr-metric-label">Domains</span>
+                        <span class="tr-metric-detail">HR &#xB7; ITSM &#xB7; CSM &#xB7; Email &#xB7; Calendar &#xB7; Drive &#xB7; Teams &#xB7; Hybrid</span>
                     </div>
                     <div class="tr-metric-card">
-                        <span class="tr-metric-value">TODO</span>
-                        <span class="tr-metric-label">TODO: metric 3 label</span>
-                        <span class="tr-metric-detail">TODO: metric 3 detail</span>
+                        <span class="tr-metric-value">512</span>
+                        <span class="tr-metric-label">Tools</span>
+                        <span class="tr-metric-detail">available across domains</span>
                     </div>
                     <div class="tr-metric-card">
-                        <span class="tr-metric-value">TODO</span>
-                        <span class="tr-metric-label">TODO: metric 4 label</span>
-                        <span class="tr-metric-detail">TODO: metric 4 detail</span>
+                        <span class="tr-metric-value">Measured</span>
+                        <span class="tr-metric-label">Methodology</span>
+                        <span class="tr-metric-detail">difficulty is measured, not asserted</span>
                     </div>
                 </div>
             </section>
@@ -60,25 +79,31 @@
                 <div class="tr-phases-row">
                     <div class="tr-phase-card">
                         <div class="tr-phase-number">1</div>
-                        <h3>TODO: phase 1 title</h3>
+                        <h3>Author &amp; Seed</h3>
                         <p>
-                            TODO: phase 1 description.
+                            Each instance ships as a JSONL bundle with user prompt,
+                            system prompt, expected tool calls, and verifiers. A seed
+                            DB materializes the mock enterprise state before the run.
                         </p>
                     </div>
                     <div class="tr-phase-arrow">&#x2192;</div>
                     <div class="tr-phase-card">
                         <div class="tr-phase-number">2</div>
-                        <h3>TODO: phase 2 title</h3>
+                        <h3>Act &amp; Comply</h3>
                         <p>
-                            TODO: phase 2 description.
+                            Agent receives the prompt and a scoped tool set; it must
+                            plan the correct tool sequence and obey the enterprise
+                            policy layer (access, approval, PII) while executing.
                         </p>
                     </div>
                     <div class="tr-phase-arrow">&#x2192;</div>
                     <div class="tr-phase-card">
                         <div class="tr-phase-number">3</div>
-                        <h3>TODO: phase 3 title</h3>
+                        <h3>Verify &amp; Score</h3>
                         <p>
-                            TODO: phase 3 description.
+                            Dual-axis process verification (P-axis policy, T-axis
+                            tool sequence) plus end-state diff against the golden
+                            seed DB, and Overstep efficiency vs a human reference.
                         </p>
                     </div>
                 </div>

@@ -517,9 +517,17 @@ class EtpAssessmentPortal(http.Controller):
             domain, limit=1)
 
     def _next_index(self, order, current, nav):
-        """Return 1-based index to navigate to, or None when 'next' runs off the end."""
+        """Return 1-based index to navigate to, or None to go to the review page.
+
+        nav == "review" means "save this answer, THEN review": the Review &
+        Submit control used to be a plain <a href> GET sitting inside the form,
+        so leaving the page silently discarded whatever the candidate had just
+        typed. It posts now, and lands here.
+        """
         n = len(order)
         if not n:
+            return None
+        if nav == "review":
             return None
         try:
             cur_qid = int(current or 0)

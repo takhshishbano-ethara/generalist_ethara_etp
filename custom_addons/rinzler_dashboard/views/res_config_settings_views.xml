@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_rinzler_dashboard" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.rinzler_dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Rinzler Dashboard" string="Rinzler Dashboard" name="rinzler_dashboard">
+                    <block title="Dashboard Link Buttons">
+                        <setting string="yc-bench Harness URL"
+                                 help="Override the first button link. Leave empty to use the placeholder URL.">
+                            <field name="rinzler_harness_url"
+                                   placeholder="https://github.com/Ethara-ai/yc-bench"/>
+                        </setting>
+                        <setting string="Rinzler Dataset URL"
+                                 help="Override the second button link. Leave empty to use the placeholder URL.">
+                            <field name="rinzler_dataset_url"
+                                   placeholder="https://github.com/Ethara-Ai/rinzler-dataset"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

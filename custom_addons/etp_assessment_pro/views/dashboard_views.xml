@@ -68,7 +68,7 @@
                             <button type="object" name="action_open_assessments"
                                     class="etp-stat-card etp-stat-clickable">
                                 <span class="etp-stat-ico etp-ico-score">
-                                    <i class="fa fa-clipboard-list" role="img"
+                                    <i class="fa fa-list-alt" role="img"
                                        aria-label="Assessments"/>
                                 </span>
                                 <div class="etp-stat-body">
@@ -250,11 +250,20 @@
 
                             <div class="etp-chart-card etp-detail-feed">
                                 <div class="etp-chart-title">
-                                    <i class="fa fa-stream"/> Recent Submissions
+                                    <i class="fa fa-list-ul"/> Recent Submissions
                                 </div>
                                 <field name="recent_submissions_html"
                                        widget="html" nolabel="1" readonly="1"/>
                             </div>
+                        </div>
+
+                        <div class="etp-chart-card etp-detail-brk">
+                            <div class="etp-chart-title">
+                                <i class="fa fa-trophy"/> Candidate Leaderboard
+                                <span class="text-muted"> — top performers across all assessments</span>
+                            </div>
+                            <field name="leaderboard_html"
+                                   widget="html" nolabel="1" readonly="1"/>
                         </div>
 
                         <div class="etp-dash-meta">

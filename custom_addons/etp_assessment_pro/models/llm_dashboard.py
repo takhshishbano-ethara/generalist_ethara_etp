@@ -24,6 +24,9 @@ class EtpLlmDashboard(models.TransientModel):
                                         digits=(12, 5), readonly=True)
     tokens_in_total = fields.Integer(string="Tokens In", readonly=True)
     tokens_out_total = fields.Integer(string="Tokens Out", readonly=True)
+    thoughts_total = fields.Integer(string="Thinking Tokens", readonly=True)
+    total_video_seconds = fields.Float(string="Video Seconds", digits=(12, 1),
+                                       readonly=True)
 
     # sanitize=False needed so inline numeric styles (width:NN%,
     # grid-template-columns:repeat(N,1fr)) survive; safe because markup is
@@ -31,6 +34,8 @@ class EtpLlmDashboard(models.TransientModel):
     # escaped via markupsafe below.
     chart_cost_by_operation_html = fields.Html(
         string="Cost by Operation", sanitize=False, readonly=True)
+    chart_tokens_by_operation_html = fields.Html(
+        string="Tokens by Operation", sanitize=False, readonly=True)
     chart_cost_by_project_html = fields.Html(
         string="Cost by Project", sanitize=False, readonly=True)
     chart_tokens_by_model_html = fields.Html(
@@ -53,10 +58,12 @@ class EtpLlmDashboard(models.TransientModel):
         totals = Usage._read_group(
             [], [],
             ["cost_usd:sum", "total_tokens:sum", "image_count:sum",
-             "tokens_in:sum", "tokens_out:sum"],
+             "tokens_in:sum", "tokens_out:sum", "thoughts_tokens:sum",
+             "video_seconds:sum"],
         )
-        cost_sum, tok_sum, img_sum, tin_sum, tout_sum = (
-            totals[0] if totals else (0.0, 0, 0, 0, 0)
+        (cost_sum, tok_sum, img_sum, tin_sum, tout_sum, thoughts_sum,
+         vid_sum) = (
+            totals[0] if totals else (0.0, 0, 0, 0, 0, 0, 0.0)
         )
         cost_sum = cost_sum or 0.0
         avg_cost = (cost_sum / total_requests) if total_requests else 0.0
@@ -73,8 +80,12 @@ class EtpLlmDashboard(models.TransientModel):
                 "avg_cost_per_request": round(avg_cost, 5),
                 "tokens_in_total": tin_sum or 0,
                 "tokens_out_total": tout_sum or 0,
+                "thoughts_total": thoughts_sum or 0,
+                "total_video_seconds": round(vid_sum or 0.0, 1),
                 "chart_cost_by_operation_html":
                     self._build_chart_cost_by_operation(Usage),
+                "chart_tokens_by_operation_html":
+                    self._build_chart_tokens_by_operation(Usage),
                 "chart_cost_by_project_html":
                     self._build_chart_cost_by_project(Usage),
                 "chart_tokens_by_model_html":
@@ -120,6 +131,66 @@ class EtpLlmDashboard(models.TransientModel):
                 val="{:.4f}".format(cost),
             )
         return Markup('<div class="etp-cbar-wrap">{}</div>').format(bars)
+
+    @api.model
+    def _build_chart_tokens_by_operation(self, Usage):
+        """Where the tokens actually go: per operation, split into input /
+        output / thinking. Thinking tokens matter — Gemini-3 reasoning models
+        can burn more hidden 'thoughts' than visible output, and that spend is
+        invisible on a plain total. Grouped read only, no python ledger loop."""
+        labels = self._operation_labels()
+        rows = Usage._read_group(
+            [], ["operation"],
+            ["tokens_in:sum", "tokens_out:sum", "thoughts_tokens:sum"])
+        data = [(op, tin or 0, tout or 0, th or 0)
+                for op, tin, tout, th in rows if op]
+        data.sort(key=lambda r: r[1] + r[2] + r[3], reverse=True)
+
+        peak = max((tin + tout + th for _, tin, tout, th in data), default=0)
+        if not peak:
+            return Markup('<div class="etp-chart-empty">No token usage yet</div>')
+
+        bars = Markup("")
+        for op, tin, tout, th in data:
+            total = tin + tout + th
+            i_pct = round(tin / peak * 100.0, 1)
+            o_pct = round(tout / peak * 100.0, 1)
+            t_pct = round(th / peak * 100.0, 1)
+            seg = Markup("")
+            if i_pct > 0:
+                seg += Markup(
+                    '<span class="etp-proj-seg etp-proj-seg--auth" '
+                    'style="width:{p}%" title="Input {v} tokens"></span>'
+                ).format(p=i_pct, v="{:,}".format(tin))
+            if o_pct > 0:
+                seg += Markup(
+                    '<span class="etp-proj-seg etp-proj-seg--eval" '
+                    'style="width:{p}%" title="Output {v} tokens"></span>'
+                ).format(p=o_pct, v="{:,}".format(tout))
+            if t_pct > 0:
+                seg += Markup(
+                    '<span class="etp-proj-seg etp-proj-seg--un" '
+                    'style="width:{p}%" title="Thinking {v} tokens"></span>'
+                ).format(p=t_pct, v="{:,}".format(th))
+            bars += Markup(
+                '<div class="etp-cbar-row">'
+                '<span class="etp-cbar-name">{name}</span>'
+                '<span class="etp-proj-track">{seg}</span>'
+                '<span class="etp-cbar-val">{val}</span>'
+                "</div>"
+            ).format(
+                name=escape(labels.get(op, op)),
+                seg=seg,
+                val="{:,}".format(total))
+        legend = Markup(
+            '<div class="etp-tok-legend">'
+            '<span class="etp-proj-legend etp-proj-legend--auth">Input</span>'
+            '<span class="etp-proj-legend etp-proj-legend--eval">Output</span>'
+            '<span class="etp-tok-legend--think">Thinking</span>'
+            '</div>')
+        return Markup(
+            '<div class="etp-cbar-wrap">{legend}{bars}</div>').format(
+            legend=legend, bars=bars)
 
     @api.model
     def _project_cost_rows(self, Usage):

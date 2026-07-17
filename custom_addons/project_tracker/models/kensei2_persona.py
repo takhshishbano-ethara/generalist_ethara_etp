@@ -14,6 +14,22 @@ class Kensei2Persona(models.Model):
 
     _inherit = "kensei2.persona"
 
+    # The project this persona belongs to. A persona lives under ONE project
+    # (the Tracker slices personas by project); its allocations must stay within
+    # that project. Backfilled from the current allocation on upgrade.
+    pt_project_id = fields.Many2one(
+        "project.tracker.project", string="Project", index=True,
+        help="Project this persona belongs to. Only this project's allocations "
+             "may use it.")
+    # RLHF projects describe a persona by Domain + Agent Type rather than the
+    # SFT L1/L2 taxonomy. Both sets live on the model; the project's type decides
+    # which the UI surfaces (see project_tracker_project_views).
+    pt_domain = fields.Char(
+        string="Domain", index=True,
+        help="RLHF taxonomy — the persona's domain (e.g. coding, math).")
+    pt_agent_type = fields.Char(
+        string="Agent Type",
+        help="RLHF taxonomy — the persona's agent type.")
     pt_allocation_ids = fields.One2many(
         "project.tracker.allocation", "persona_id", string="Task Allocations")
     pt_allocation_count = fields.Integer(

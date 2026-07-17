@@ -92,6 +92,16 @@ class Kensei2TrackerTeamMember(models.Model):
     assigned_ql_id = fields.Many2one(
         'res.users', string='Assigned QL', index=True, tracking=True,
         help="Quality Lead responsible for reviewing this member's work.")
+    # Projects this member works on. A member can be shared across projects,
+    # so this is a Many2many. Inside a project workspace only members carrying
+    # that project are selectable. Backfilled from allocations on upgrade.
+    project_ids = fields.Many2many(
+        'project.tracker.project',
+        'project_tracker_project_team_member_rel',
+        'member_id', 'project_id',
+        string='Projects',
+        help='Projects this member is part of. They can be allocated work only '
+             'on the projects listed here.')
     status = fields.Selection(
         selection=STATUS_SELECTION, string='Status', default='active',
         required=True, index=True, tracking=True)

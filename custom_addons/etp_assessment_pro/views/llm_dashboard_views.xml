@@ -32,7 +32,7 @@
                         <div class="etp-stat-grid">
                             <div class="etp-stat-card etp-stat-warn">
                                 <span class="etp-stat-ico etp-ico-warn">
-                                    <i class="fa fa-dollar-sign" role="img"
+                                    <i class="fa fa-usd" role="img"
                                        aria-label="Total Cost"/>
                                 </span>
                                 <div class="etp-stat-body">
@@ -46,7 +46,7 @@
 
                             <div class="etp-stat-card">
                                 <span class="etp-stat-ico etp-ico-subj">
-                                    <i class="fa fa-coins" role="img"
+                                    <i class="fa fa-money" role="img"
                                        aria-label="Total Tokens"/>
                                 </span>
                                 <div class="etp-stat-body">
@@ -54,6 +54,19 @@
                                         <field name="total_tokens" nolabel="1"/>
                                     </div>
                                     <div class="etp-stat-cap">Total Tokens</div>
+                                </div>
+                            </div>
+
+                            <div class="etp-stat-card">
+                                <span class="etp-stat-ico etp-ico-answered">
+                                    <i class="fa fa-lightbulb-o" role="img"
+                                       aria-label="Thinking Tokens"/>
+                                </span>
+                                <div class="etp-stat-body">
+                                    <div class="etp-stat-num">
+                                        <field name="thoughts_total" nolabel="1"/>
+                                    </div>
+                                    <div class="etp-stat-cap">Thinking Tokens</div>
                                 </div>
                             </div>
 
@@ -98,7 +111,7 @@
 
                             <div class="etp-stat-card">
                                 <span class="etp-stat-ico etp-ico-warn">
-                                    <i class="fa fa-receipt" role="img"
+                                    <i class="fa fa-calculator" role="img"
                                        aria-label="Avg Cost per Request"/>
                                 </span>
                                 <div class="etp-stat-body">
@@ -123,6 +136,15 @@
                                     <i class="fa fa-bar-chart"/> Cost by Operation
                                 </div>
                                 <field name="chart_cost_by_operation_html"
+                                       widget="html" nolabel="1" readonly="1"/>
+                            </div>
+
+                            <div class="etp-chart-card etp-chart-wide">
+                                <div class="etp-chart-title">
+                                    <i class="fa fa-money"/> Tokens by Operation
+                                    <span class="etp-proj-hint">Input · Output · Thinking per call type</span>
+                                </div>
+                                <field name="chart_tokens_by_operation_html"
                                        widget="html" nolabel="1" readonly="1"/>
                             </div>
 
@@ -164,6 +186,7 @@
                                 <group string="Token Totals">
                                     <field name="tokens_in_total"/>
                                     <field name="tokens_out_total"/>
+                                    <field name="thoughts_total"/>
                                     <field name="total_tokens"/>
                                 </group>
                                 <group string="Spend">
@@ -172,6 +195,7 @@
                                     <field name="avg_cost_per_request"
                                            widget="float" digits="[12,5]"/>
                                     <field name="total_requests"/>
+                                    <field name="total_video_seconds"/>
                                 </group>
                             </group>
                         </div>

@@ -1458,6 +1458,8 @@ class Kensei2TrackerAllocation(models.Model):
         # status is computed; stamp completion based on the (re)computed value.
         self._stamp_completion()
         self._stamp_status_since(old_status)
+        if 'persona_id' in vals or 'project_id' in vals:
+            self._pin_persona_project()
         return res
 
     def _stamp_status_since(self, old_status_by_id):
@@ -1482,4 +1484,17 @@ class Kensei2TrackerAllocation(models.Model):
             self._guard_privileged_fields(vals)
         records = super().create(vals_list)
         records._stamp_completion()
+        records._pin_persona_project()
         return records
+
+    def _pin_persona_project(self):
+        """Claim a project-less persona for this allocation's project.
+
+        Personas are imported globally (no project), so the first allocation
+        that uses one pins it to that project. A persona already owned by a
+        different project is left untouched — the form domain keeps those out
+        of the picker anyway."""
+        for rec in self:
+            persona = rec.persona_id
+            if rec.project_id and persona and not persona.pt_project_id:
+                persona.sudo().pt_project_id = rec.project_id.id

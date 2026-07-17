@@ -131,6 +131,7 @@ class EtpCandidatePortal(http.Controller):
 
         total_count = (len(available) + len(in_progress)
                        + len(upcoming) + len(completed))
+        kpis = self._candidate_kpis(completed)
         return request.render(
             "etp_assessment_pro.portal_my_assessments",
             {
@@ -141,7 +142,43 @@ class EtpCandidatePortal(http.Controller):
                 "upcoming": upcoming,
                 "completed": completed,
                 "total_count": total_count,
+                "kpis": kpis,
             })
+
+    def _candidate_kpis(self, completed):
+        """Aggregate the candidate's own results into headline KPIs + a
+        per-assessment breakdown — the same numbers the admin dashboard shows,
+        but scoped to this one candidate and only over RELEASED results (so
+        nothing leaks before an admin releases). Pure arithmetic over
+        already-loaded card dicts; no extra query, no LLM."""
+        released = [c for c in completed if c.get("results_released")]
+        # score_pct is a real, released number here (gated above); an unscored
+        # released candidate still counts as 0 which is the true shown value.
+        graded = released
+        taken = len(completed)
+        scored = len(graded)
+        passed = sum(1 for c in graded if c.get("result") == "pass")
+        avg = round(sum(c["score_pct"] for c in graded) / scored, 1) if scored else 0
+        best = max((c["score_pct"] for c in graded), default=0)
+        pass_rate = round(passed / scored * 100.0, 0) if scored else 0
+        # Per-assessment breakdown rows (released only), best score first.
+        breakdown = sorted(
+            ({"name": c["name"], "score_pct": c["score_pct"],
+              "result": c.get("result") or "pending",
+              "submitted_on": c.get("submitted_on", "")}
+             for c in graded),
+            key=lambda r: r["score_pct"], reverse=True)
+        return {
+            "taken": taken,
+            "scored": scored,
+            "passed": passed,
+            "avg_score": avg,
+            "best_score": best,
+            "pass_rate": int(pass_rate),
+            "awaiting": taken - scored,
+            "has_any": taken > 0,
+            "breakdown": breakdown,
+        }
 
 
 class EtpPortalHome(CustomerPortal):
