@@ -62,6 +62,14 @@ def _is_retryable(exc):
 def _build_url(env, bucket, region, key):
     cdn = _param(env, "s3_cdn_url")
     if cdn:
+        # Candidate + reviewer pages are always served over HTTPS, so
+        # an http:// cdn value would fire mixed-content blocking in
+        # the browser and leave the clip unplayable without any
+        # console error surfaced to Odoo. Force HTTPS.
+        if cdn.startswith("http://"):
+            cdn = "https://" + cdn[len("http://"):]
+        elif not cdn.startswith("https://"):
+            cdn = "https://" + cdn.lstrip("/")
         return f"{cdn.rstrip('/')}/{key}"
     return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
 

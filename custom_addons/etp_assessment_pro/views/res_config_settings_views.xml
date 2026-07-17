@@ -43,6 +43,18 @@
                             <field name="etp_assessment_pro_detection_model"
                                    placeholder="gemini-3.1-pro-preview"/>
                         </setting>
+                        <setting id="etp_scoring_model"
+                                 string="Subjective Scoring Model"
+                                 help="TEXT model the subjective judge grades with. MUST be a text model, never the image model. Leave empty to use the Question Generation Model.">
+                            <field name="etp_assessment_pro_scoring_model"
+                                   placeholder="gemini-2.5-pro"/>
+                        </setting>
+                        <setting id="etp_image_model"
+                                 string="Image Rendering Model"
+                                 help="Model that RENDERS image_ab / image_prompt / image_label pictures (gemini-3-pro-image = Nano Banana Pro, or cheaper gemini-3.1-flash-image = Nano Banana 2). Leave empty to use the Default Model.">
+                            <field name="etp_assessment_pro_image_model"
+                                   placeholder="gemini-3-pro-image"/>
+                        </setting>
                         <setting id="etp_vertex_api_key"
                                  string="API Key"
                                  help="AIza... (Gemini Developer API) or AQ... (Vertex Express).">

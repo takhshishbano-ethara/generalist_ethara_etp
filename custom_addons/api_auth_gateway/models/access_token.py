@@ -159,7 +159,7 @@ class Users(models.Model):
 
     token_ids = fields.One2many('api.access_token', 'user_id', string="Access Tokens")
     user_role = fields.Many2one('api.role', string='User Role')
-
+    is_organization_account = fields.Boolean(default=False)
     def write(self, vals):
         res = super(Users, self).write(vals)
         if 'password' in vals or "active" in vals:

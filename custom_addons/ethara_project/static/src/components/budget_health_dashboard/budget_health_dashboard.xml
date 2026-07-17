@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ethara_project.BudgetHealthDashboard">
+        <div class="ethara-dashboard o_action_manager">
+            <div class="ethara-dashboard__header">
+                <div class="ethara-dashboard__title">
+                    <div class="ethara-dashboard__eyebrow">Ethara.AI</div>
+                    <h1>Budget Health Dashboard</h1>
+                </div>
+                <div class="ethara-dashboard__actions">
+                    <input type="text"
+                           class="form-control"
+                           placeholder="Search project or budget..."
+                           t-model="state.searchTerm"/>
+                    <button class="btn btn-primary"
+                            t-on-click="() => this.refresh()">
+                        <i class="fa fa-refresh me-1"/> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <t t-if="!state.loaded">
+                <div class="ethara-dashboard__loading">
+                    <i class="fa fa-spinner fa-pulse fa-2x"/>
+                    <div>Loading budgets...</div>
+                </div>
+            </t>
+
+            <t t-else="">
+                <div class="ethara-dashboard__totals">
+                    <div class="ethara-card">
+                        <div class="ethara-card__label">Budgets</div>
+                        <div class="ethara-card__value" t-out="state.totals.budget_count"/>
+                    </div>
+                    <div class="ethara-card">
+                        <div class="ethara-card__label">Total Envelope</div>
+                        <div class="ethara-card__value" t-out="formatUSD(state.totals.budget_amount)"/>
+                    </div>
+                    <div class="ethara-card">
+                        <div class="ethara-card__label">Consumed</div>
+                        <div class="ethara-card__value" t-out="formatUSD(state.totals.consumed_amount)"/>
+                    </div>
+                    <div class="ethara-card">
+                        <div class="ethara-card__label">Remaining</div>
+                        <div class="ethara-card__value" t-out="formatUSD(state.totals.remaining_amount)"/>
+                    </div>
+                    <div class="ethara-card">
+                        <div class="ethara-card__label">Consumed %</div>
+                        <div class="ethara-card__value" t-out="formatPct(state.totals.consumed_pct)"/>
+                    </div>
+                </div>
+
+                <div class="ethara-dashboard__health-strip">
+                    <div class="ethara-pill ethara-pill--healthy">
+                        Healthy: <t t-out="state.health_counts.healthy"/>
+                    </div>
+                    <div class="ethara-pill ethara-pill--warning">
+                        Warning: <t t-out="state.health_counts.warning"/>
+                    </div>
+                    <div class="ethara-pill ethara-pill--at_risk">
+                        At Risk: <t t-out="state.health_counts.at_risk"/>
+                    </div>
+                    <div class="ethara-pill ethara-pill--critical">
+                        Critical: <t t-out="state.health_counts.critical"/>
+                    </div>
+                    <div class="ethara-pill ethara-pill--unknown">
+                        Unknown: <t t-out="state.health_counts.unknown"/>
+                    </div>
+                </div>
+
+                <div class="ethara-dashboard__table-wrap">
+                    <table class="ethara-dashboard__table">
+                        <thead>
+                            <tr>
+                                <th>Project</th>
+                                <th>Budget</th>
+                                <th>Type</th>
+                                <th>State</th>
+                                <th class="text-end">Envelope</th>
+                                <th class="text-end">Consumed</th>
+                                <th class="text-end">Remaining</th>
+                                <th class="text-end">Consumed %</th>
+                                <th>Health</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="filteredBudgets" t-as="b" t-key="b.id">
+                                <tr t-on-click="() => this.openBudget(b.id)">
+                                    <td t-out="b.project_name"/>
+                                    <td t-out="b.name"/>
+                                    <td t-out="b.project_type"/>
+                                    <td t-out="b.state"/>
+                                    <td class="text-end" t-out="formatUSD(b.budget_amount)"/>
+                                    <td class="text-end" t-out="formatUSD(b.consumed_amount)"/>
+                                    <td class="text-end" t-out="formatUSD(b.remaining_amount)"/>
+                                    <td class="text-end" t-out="formatPct(b.consumed_pct)"/>
+                                    <td>
+                                        <span t-att-class="healthClass(b.health_status)"
+                                              t-out="healthLabel(b.health_status)"/>
+                                    </td>
+                                </tr>
+                            </t>
+                            <tr t-if="filteredBudgets.length === 0">
+                                <td colspan="9" class="text-center text-muted p-4">No budgets to show.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </t>
+        </div>
+    </t>
+
+</templates>

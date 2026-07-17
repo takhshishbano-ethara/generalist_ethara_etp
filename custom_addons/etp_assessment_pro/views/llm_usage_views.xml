@@ -93,7 +93,7 @@
     <menuitem id="menu_etp_assessment_pro_llm_usage"
               name="LLM Budget"
               parent="menu_etp_assessment_pro_config_root"
-              action="action_etp_assessment_pro_llm_dashboard"
+              action="action_etp_assessment_pro_llm_usage"
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="90"/>
 </odoo>

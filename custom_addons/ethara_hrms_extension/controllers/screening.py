@@ -8,33 +8,36 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response,
     validate_token,
 )
+from odoo.addons.ethara_hrms_extension.constants import (
+    RESUME_RECOMMENDATION_IN,
+    RESUME_RECOMMENDATION_OUT,
+)
+from odoo.addons.ethara_hrms_extension.controllers.candidates import (
+    _active_application_conflict,
+    _conflict_summary,
+    _current_stage as _canon_current_stage,
+    _current_status as _canon_current_status,
+)
 
 _logger = logging.getLogger(__name__)
 BASE = "/api/v1/screening"
-
-_REC_IN = {
-    "shortlisted": "shortlist",
-    "shortlist": "shortlist",
-    "rejected": "reject",
-    "reject": "reject",
-    "needs_review": "needs_review",
-    "maybe": "maybe",
-}
-_REC_OUT = {
-    "shortlist": "shortlisted",
-    "reject": "rejected",
-    "maybe": "needs_review",
-    "needs_review": "needs_review",
-}
 
 
 def _iso(dt):
     return dt.isoformat() if dt else None
 
 
+def _override_is_fresh(applicant):
+    if not applicant.resume_manual_override_at:
+        return False
+    if not applicant.resume_screened_at:
+        return True
+    return applicant.resume_manual_override_at >= applicant.resume_screened_at
+
+
 def _serialize(applicant):
     override = None
-    if applicant.resume_manual_override_reason:
+    if applicant.resume_manual_override_reason and _override_is_fresh(applicant):
         override = {
             "reason": applicant.resume_manual_override_reason,
             "at": _iso(applicant.resume_manual_override_at),
@@ -51,6 +54,8 @@ def _serialize(applicant):
     except (ValueError, TypeError):
         payload = {}
 
+    screened = bool(applicant.resume_screened_at)
+
     return {
         "candidateId": applicant.id,
         "candidateName": applicant.partner_name
@@ -60,17 +65,19 @@ def _serialize(applicant):
         "personalEmail": applicant.email_from or "",
         "jobId": applicant.job_id.id if applicant.job_id else None,
         "positionTitle": applicant.job_id.name if applicant.job_id else None,
-        "currentStatus": applicant.stage_id.name if applicant.stage_id else None,
+        "stageName": applicant.stage_id.name if applicant.stage_id else None,
+        "currentStage": _canon_current_stage(applicant),
+        "currentStatus": _canon_current_status(applicant),
         "resumeUrl": applicant.resume_url or None,
-        "matchScore": applicant.resume_score or 0,
-        "screeningScore": applicant.resume_score or 0,
-        "screeningSummary": applicant.resume_summary or "",
-        "recommendation": _REC_OUT.get(
+        "matchScore": (applicant.resume_score or 0) if screened else 0,
+        "screeningScore": (applicant.resume_score or 0) if screened else 0,
+        "screeningSummary": (applicant.resume_summary or "") if screened else "",
+        "recommendation": RESUME_RECOMMENDATION_OUT.get(
             applicant.resume_recommendation, "pending",
         ),
         "manualOverride": override,
-        "strengths": payload.get("strengths") or [],
-        "gaps": payload.get("gaps") or [],
+        "strengths": (payload.get("strengths") or []) if screened else [],
+        "gaps": (payload.get("gaps") or []) if screened else [],
         "resumeUploadedAt": None,
         "lastScreenedAt": _iso(applicant.resume_screened_at),
         "createdAt": _iso(applicant.create_date),
@@ -143,7 +150,7 @@ class EtharaScreeningApi(http.Controller):
 
         rec_in = (params.get("recommendation") or "").strip().lower()
         if rec_in:
-            internal = _REC_IN.get(rec_in)
+            internal = RESUME_RECOMMENDATION_IN.get(rec_in)
             if internal:
                 domain.append(("resume_recommendation", "=", internal))
 
@@ -218,7 +225,7 @@ class EtharaScreeningApi(http.Controller):
 
         rec_in = (body.get("recommendation") or "").strip().lower()
         reason = (body.get("reason") or "").strip()
-        internal = _REC_IN.get(rec_in)
+        internal = RESUME_RECOMMENDATION_IN.get(rec_in)
 
         if not internal:
             return return_Response(
@@ -234,12 +241,36 @@ class EtharaScreeningApi(http.Controller):
                 status=400,
             )
 
+        if internal == "shortlist":
+            conflict = _active_application_conflict(
+                rec.candidate_user_id.id if rec.candidate_user_id else None,
+                rec.id,
+            )
+            if conflict:
+                return return_Response(
+                    message=(
+                        "This candidate already has an active Job ID. "
+                        "Please reject the existing active application "
+                        "before shortlisting this candidate."
+                    ),
+                    status=409,
+                    data={"activeApplicationConflict": _conflict_summary(conflict)},
+                )
+
         rec.write({
             "resume_recommendation": internal,
             "resume_manual_override_reason": reason,
             "resume_manual_override_at": fields.Datetime.now(),
             "resume_manual_override_by_id": request.env.user.id,
         })
+        try:
+            rec._advance_stage_after_screening(allow_regress=True)
+        except Exception:
+            _logger.exception(
+                "Post-override stage advance failed for hr.applicant %s",
+                rec.id,
+            )
+        rec.invalidate_recordset()
         return return_Response(
             message="Screening decision updated.",
             status=200, data=_serialize(rec),

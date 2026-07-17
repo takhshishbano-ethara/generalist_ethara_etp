@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+
+    <!-- ===================== Team Member: List ===================== -->
+    <record model="ir.ui.view" id="project_tracker_team_member_list">
+      <field name="name">project.tracker.team.member.list</field>
+      <field name="model">project.tracker.team.member</field>
+      <field name="arch" type="xml">
+        <!-- import="0": hide Odoo's generic "Import records"; bulk-adding goes
+             through the guided Bulk Upload wizard below. Export stays enabled. -->
+        <list string="Team Members" multi_edit="1" import="0" js_class="project_tracker_stats_list">
+          <header>
+            <button name="%(action_project_tracker_team_import)d" type="action"
+                    string="Bulk Upload" class="btn-primary"
+                    icon="fa-upload" display="always"/>
+          </header>
+          <field name="member_name" string="Name"/>
+          <field name="email"/>
+          <field name="role" widget="badge"
+                 decoration-danger="role == 'admin'"
+                 decoration-success="role == 'pl'"
+                 decoration-info="role == 'ql'"
+                 decoration-warning="role == 'tasker'"/>
+          <field name="assigned_pl_id" optional="show"/>
+          <field name="assigned_ql_id" optional="show"/>
+          <field name="status" widget="badge"
+                 decoration-success="status == 'active'"
+                 decoration-warning="status == 'on_hold'"
+                 decoration-danger="status == 'inactive'"/>
+          <field name="date_added"/>
+          <!-- Performance is a per-tasker completions view; only taskers have it -->
+          <button name="action_view_performance" type="object" string="Performance"
+                  icon="fa-line-chart" title="View performance"
+                  invisible="role != 'tasker'"/>
+        </list>
+      </field>
+    </record>
+
+    <!-- ===================== Team Member: Kanban (by role) ===================== -->
+    <record model="ir.ui.view" id="project_tracker_team_member_kanban">
+      <field name="name">project.tracker.team.member.kanban</field>
+      <field name="model">project.tracker.team.member</field>
+      <field name="arch" type="xml">
+        <kanban default_group_by="role" group_create="false" class="o_kanban_small_column">
+          <field name="status"/>
+          <templates>
+            <t t-name="card">
+              <div class="oe_kanban_global_click">
+                <strong><field name="member_name"/></strong>
+                <div class="text-muted"><field name="email"/></div>
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                  <span class="text-muted"><field name="assigned_pl_id"/></span>
+                  <field name="status" widget="badge"
+                         decoration-success="status == 'active'"
+                         decoration-warning="status == 'on_hold'"
+                         decoration-danger="status == 'inactive'"/>
+                </div>
+              </div>
+            </t>
+          </templates>
+        </kanban>
+      </field>
+    </record>
+
+    <!-- ===================== Team Member: Form ===================== -->
+    <record model="ir.ui.view" id="project_tracker_team_member_form">
+      <field name="name">project.tracker.team.member.form</field>
+      <field name="model">project.tracker.team.member</field>
+      <field name="arch" type="xml">
+        <form string="Team Member" class="o_project_tracker_form">
+          <header>
+            <button name="action_view_performance" type="object"
+                    string="Performance" class="btn-primary" icon="fa-line-chart"
+                    invisible="not id or role != 'tasker'"/>
+          </header>
+          <sheet>
+            <div class="alert alert-info" role="alert">
+              Add a member by picking an existing Odoo user — by <b>Name</b> or by
+              <b>Email</b>. Their details are fetched automatically and
+              <b>no new user is created</b>.
+            </div>
+            <group>
+              <group string="Identity">
+                <field name="user_id" options="{'no_create': True, 'no_open': True}"
+                       placeholder="Search by name…"/>
+                <field name="email_user_id" context="{'kensei2_show_email': True}"
+                       options="{'no_create': True, 'no_open': True}"
+                       placeholder="Search by email…"/>
+              </group>
+              <group string="Assignment">
+                <field name="role" widget="badge" readonly="1"/>
+                <field name="assigned_pl_id"
+                       options="{'no_create': True}"/>
+                <field name="assigned_ql_id"
+                       options="{'no_create': True}"/>
+                <field name="status"/>
+                <field name="date_added" readonly="1"/>
+              </group>
+            </group>
+            <group string="Notes">
+              <field name="notes" nolabel="1" placeholder="Context, responsibilities…"/>
+            </group>
+          </sheet>
+          <chatter/>
+        </form>
+      </field>
+    </record>
+
+    <!-- ===================== Team Member: Search ===================== -->
+    <record model="ir.ui.view" id="project_tracker_team_member_search">
+      <field name="name">project.tracker.team.member.search</field>
+      <field name="model">project.tracker.team.member</field>
+      <field name="arch" type="xml">
+        <search string="Team Members">
+          <field name="member_name" string="Name"/>
+          <field name="email"/>
+          <field name="assigned_pl_id"/>
+          <field name="assigned_ql_id"/>
+
+          <filter name="f_active" string="Active" domain="[('status', '=', 'active')]"/>
+          <filter name="f_on_hold" string="On Hold" domain="[('status', '=', 'on_hold')]"/>
+          <filter name="f_inactive" string="Inactive" domain="[('status', '=', 'inactive')]"/>
+          <separator/>
+          <filter name="f_admin" string="Admin" domain="[('role', '=', 'admin')]"/>
+          <filter name="f_pl" string="PL" domain="[('role', '=', 'pl')]"/>
+          <filter name="f_ql" string="QL" domain="[('role', '=', 'ql')]"/>
+          <filter name="f_tasker" string="Tasker" domain="[('role', '=', 'tasker')]"/>
+          <separator/>
+          <filter name="f_archived" string="Archived" domain="[('active', '=', False)]"/>
+
+          <group>
+            <filter name="g_role" string="Role" context="{'group_by': 'role'}"/>
+            <filter name="g_assigned_pl" string="Assigned PL" context="{'group_by': 'assigned_pl_id'}"/>
+            <filter name="g_assigned_ql" string="Assigned QL" context="{'group_by': 'assigned_ql_id'}"/>
+            <filter name="g_status" string="Status" context="{'group_by': 'status'}"/>
+          </group>
+        </search>
+      </field>
+    </record>
+
+    <!-- ===================== Action ===================== -->
+    <record model="ir.actions.act_window" id="project_tracker_team_member_action">
+      <field name="name">Team Management</field>
+      <field name="res_model">project.tracker.team.member</field>
+      <field name="view_mode">list,kanban,form</field>
+      <field name="search_view_id" ref="project_tracker_team_member_search"/>
+      <field name="help" type="html">
+        <p class="o_view_nocontent_smiling_face">No team members yet</p>
+        <p>Add existing Odoo users to the Project Tracker team, or use
+           <b>Bulk Upload</b> to add many at once.</p>
+      </field>
+    </record>
+
+  </data>
+</odoo>

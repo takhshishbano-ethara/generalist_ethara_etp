@@ -10,11 +10,11 @@ _logger = logging.getLogger(__name__)
 # Funnel stages.
 #
 # THE SAME STORED STATUS MEANS DIFFERENT WORK ON DIFFERENT STAGES. `baseline_generated`
-# on stage 1 is a Baseline trajectory; on stage 2 it is a Pass It K trajectory. They
+# on stage 1 is a Baseline trajectory; on stage 2 it is a Pass @ K trajectory. They
 # are separate steps of the pipeline, not one step counted twice — so they get
 # separate buckets, and a bucket is keyed on (stage_no, status), never on status
 # alone. Folding them together is what made a stage-2 task vanish into "In Trajectory"
-# with nothing anywhere showing it was in Pass It K.
+# with nothing anywhere showing it was in Pass @ K.
 #
 # `stage` = None means the bucket counts that status on EITHER stage.
 # css-key matches the .o_ktd_funnel_* pastel classes in tracker_dashboard.scss.
@@ -25,7 +25,7 @@ _FUNNEL = [
     #
     #   Stage 1: Authoring -> Tasker QC -> Ready for Baseline -> Baseline Generated
     #            -> Stage 1 Manual QC -> Ready for Next Stage
-    #   Stage 2: Ready for Pass It K -> Pass It K Generated -> Stage 2 Manual QC
+    #   Stage 2: Ready for Pass @ K -> Pass @ K Generated -> Stage 2 Manual QC
     #            -> Deliverable
     #
     # `stage` = None means the bucket counts that status on EITHER stage.
@@ -45,7 +45,7 @@ _FUNNEL = [
     # task configured with >2 stages still lands somewhere.
     ("ready_next_stage", "Ready for Next Stage", ["ready_next_stage"], None),
     # --- stage 2 ---
-    ("pass_it_k",     "Stage 2 Pass It K",         ["ready_baseline", "baseline_generated"], 2),
+    ("pass_it_k",     "Stage 2 Pass @ K",         ["ready_baseline", "baseline_generated"], 2),
     ("manual_qc_s2",  "Stage 2 Manual QC",         ["manual_qc"], 2),
     # Only the FINAL stage can deliver, so in a two-stage task this is stage 2's
     # terminal step. Un-gated for the same reason as ready_next_stage.
@@ -62,13 +62,13 @@ _ACTIVE_STATUSES = [
 ]
 
 # (stage_no, status) -> progress-table column. Stage-aware for the same reason the
-# funnel is: stage 1's Baseline and stage 2's Pass It K share a stored value but are
+# funnel is: stage 1's Baseline and stage 2's Pass @ K share a stored value but are
 # different work, and a table that merges them cannot show where anything actually is.
 # A `None` stage matches either.
 _PROGRESS_BUCKET = {
     # (stage_no, status) -> progress-table column. Stage-aware because the two
     # ladders share stored values under different names: 'baseline_generated' is
-    # Baseline on stage 1 and Pass It K on stage 2, and 'manual_qc' is each stage's
+    # Baseline on stage 1 and Pass @ K on stage 2, and 'manual_qc' is each stage's
     # OWN QC gate. A table that merges them cannot show where anything actually is.
     # A `None` stage matches either.
     (None, "in_progress"): "in_auth",
@@ -94,7 +94,7 @@ _PROGRESS_COLUMNS = ("in_auth", "ready", "in_traj", "s1_qc", "handed_off",
 
 
 def _pipeline_stage(stage_no):
-    """Which of the two PIPELINES a stage runs — 1 (authoring) or 2 (Pass It K).
+    """Which of the two PIPELINES a stage runs — 1 (authoring) or 2 (Pass @ K).
 
     Mirrors _compute_status, which branches on `stage_no >= 2`: everything past
     stage 2 runs the stage-2 ladder and so produces stage-2 statuses. Matching the
@@ -443,7 +443,7 @@ class Kensei2TrackerController(http.Controller):
             p for p, in Alloc._read_group([("project", "!=", False)], ["project"]) if p)
         # The filter matches the STORED status, which two stages share under
         # different names: picking "Baseline Generated" also returns every stage-2
-        # row, whose real name is "Pass It K Generated". Naming only one of them
+        # row, whose real name is "Pass @ K Generated". Naming only one of them
         # makes the dropdown lie about what it selects, so where the two ladders
         # disagree the option names both.
         s2 = dict(Alloc.STAGE2_STATUS_SELECTION)
@@ -486,7 +486,7 @@ class Kensei2TrackerController(http.Controller):
 
         domain = []
         # Stage scope. A cell counts COMPLETED STAGES, and the two stages are
-        # different work -- a bare "3" merges an authoring pass with a Pass It K run
+        # different work -- a bare "3" merges an authoring pass with a Pass @ K run
         # and cannot say which. Scoping the whole domain (not just the completions)
         # is deliberate: filtering to Stage 2 should drop a tasker who has never
         # worked a Stage 2 out of the roster entirely, rather than leave them as an
@@ -603,7 +603,7 @@ class Kensei2TrackerController(http.Controller):
 
     @http.route("/kensei2/tracker/dashboard", type="json", auth="user")
     def tracker_dashboard(self, date_from=None, date_to=None,
-                          group_by=None, stage=None, **kw):
+                          group_by=None, **kw):
         """Aggregate allocation data for the Tracker Dashboard.
 
         All figures come from grouped SQL (``_read_group``) rather than loading
@@ -660,9 +660,6 @@ class Kensei2TrackerController(http.Controller):
         # the task was handed off, i.e. penalise them for finishing. The Daily
         # Tracker already credits per stage for the same reason.
         people_domain = list(scope) + date_domain
-        stage_no = _to_int(stage)
-        if stage_no in (1, 2):
-            people_domain.append(("stage_no", "=", stage_no))
 
         # ----- counts by status (one grouped query) -----
         sc = _status_counts(Alloc, task_domain)
@@ -702,7 +699,8 @@ class Kensei2TrackerController(http.Controller):
              "value": round(avg_overall, 1) if avg_overall else None},
         ]
 
-        # One progress table, two axes: WHO to group by, and WHICH stage to count.
+        # One progress table, grouped by WHO (PL / QL / Tasker). Every stage record
+        # is counted (people are credited per stage).
         group_key = group_by if group_by in _PROGRESS_GROUPS else "pl"
         group_field = _PROGRESS_GROUPS[group_key]
 
@@ -712,7 +710,6 @@ class Kensei2TrackerController(http.Controller):
             "stats": stats,
             "rows": _progress_rows(Alloc, group_field, people_domain),
             "group_by": group_key,
-            "stage": stage_no if stage_no in (1, 2) else None,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }
@@ -803,16 +800,25 @@ class Kensei2TrackerController(http.Controller):
 
         funnel = _funnel(sc)
 
-        # recent tasks. A tasker's recent list mixes stage-1 and stage-2 rows, so the
+        # The tasker's tasks — ALL of them (this is their own record-rule-scoped set),
+        # not a recent slice. A tasker's list mixes stage-1 and stage-2 rows, so the
         # label MUST come from the record (status_label is stored and stage-aware) and
         # not from the status Selection -- that one table carries stage 1's names, and
         # would print a stage-2 row as "Baseline Generated" / "Stage 1 Manual QC".
-        recent = []
-        for a in Alloc.search(dom, order="assigned_date desc, id desc", limit=10):
-            recent.append({
+        tasks = []
+        for a in Alloc.search(dom, order="assigned_date desc, id desc"):
+            persona = a.persona_id
+            tasks.append({
                 "id": a.id, "task_id": a.task_id,
                 "stage": a.stage_no, "total_stages": a.total_stages,
-                "persona": a.persona_id.name or "",
+                # is_current_stage marks the row a multi-stage task currently sits on;
+                # the client's "Current stage only" filter uses it to collapse the two
+                # stage records of a handed-off task to a single row.
+                "is_current": a.is_current_stage,
+                "persona": persona.name or "",
+                "l1": persona.l1_category or "",
+                "l2": persona.l2_category or "",
+                "pl": a.assigned_pl_id.name or "",
                 "status": a.status, "status_label": a.status_label,
                 "overall": a.overall_score or None,
                 "assigned": a.assigned_date and a.assigned_date.isoformat(),
@@ -830,7 +836,7 @@ class Kensei2TrackerController(http.Controller):
 
         return {
             "subject": subject, "kpis": kpis, "funnel": funnel,
-            "recent": recent,
+            "tasks": tasks,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="etp_assessment_pro.EtpFileChips">
+        <div class="o_etp_chips d-inline-flex flex-wrap align-items-center gap-2">
+            <span t-foreach="chips" t-as="chip" t-key="chip.rec.id" class="o_etp_chip">
+                <span class="o_etp_chip_name text-truncate"
+                      t-att-title="chip.name" t-esc="chip.name"/>
+                <span t-attf-class="o_etp_dot o_etp_dot_{{ chip.status }}"
+                      role="img"
+                      t-att-title="chip.title"
+                      t-att-aria-label="chip.title"/>
+                <button t-if="!props.readonly" type="button"
+                        class="o_etp_chip_del btn btn-link p-0"
+                        t-att-title="'Remove ' + chip.name"
+                        t-att-aria-label="'Remove ' + chip.name"
+                        t-on-click="() => this.onRemove(chip)">
+                    <i class="fa fa-times" aria-hidden="true"/>
+                </button>
+            </span>
+        </div>
+    </t>
+
+</templates>

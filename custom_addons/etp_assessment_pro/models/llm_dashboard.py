@@ -12,7 +12,7 @@ from odoo import api, fields, models
 
 class EtpLlmDashboard(models.TransientModel):
     _name = "etp.assessment.pro.llm.dashboard"
-    _description = "ETP Assessment Pro — LLM Budget Dashboard"
+    _description = "ETP Assessment Pro - LLM Budget Dashboard"
 
     total_cost = fields.Float(string="Total Cost (USD)", digits=(12, 4),
                               readonly=True)

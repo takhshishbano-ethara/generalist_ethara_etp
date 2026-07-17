@@ -18,7 +18,7 @@
         </t>
     </template>
 
-    <template id="portal_image_zoom" name="ETP — Image Zoom Lightbox">
+    <template id="portal_image_zoom" name="ETP - Image Zoom Lightbox">
         <div id="etp-zoom-overlay" class="etp-zoom-overlay" aria-hidden="true"
              role="dialog" aria-modal="true" aria-label="Image viewer">
             <div class="etp-zoom-toolbar">
@@ -226,7 +226,7 @@
         </script>
     </template>
 
-    <template id="portal_invalid_token" name="ETP Assessment — Invalid Token">
+    <template id="portal_invalid_token" name="ETP Assessment - Invalid Token">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-state is-danger">
@@ -244,7 +244,7 @@
         </t>
     </template>
 
-    <template id="portal_assessment_closed" name="ETP Assessment — Closed">
+    <template id="portal_assessment_closed" name="ETP Assessment - Closed">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-state is-warning">
@@ -262,36 +262,105 @@
         </t>
     </template>
 
-    <template id="portal_assessment_complete" name="ETP Assessment — Complete">
+    <template id="portal_assessment_complete" name="ETP Assessment - Complete">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-result-hero etp-result-status">
-                    <span class="etp-result-eyebrow">Assessment complete</span>
-                    <div class="etp-result-icon is-info">
-                        <i class="fa fa-check"/>
-                    </div>
-                    <span class="etp-status-pill is-pending">
-                        <i class="fa fa-paper-plane"/> Submitted
-                    </span>
-                    <h3>Submission received</h3>
-                    <p>
-                        Your assessment <strong t-out="assessment.name"/> has
-                        been submitted. Thank you.
-                    </p>
-                    <p class="etp-result-note">
-                        <i class="fa fa-clock-o"/> Your responses are locked and
-                        awaiting evaluation — you'll be notified once results are
-                        released.
-                    </p>
-                    <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
-                        <i class="fa fa-arrow-left"/> Back to My Assessments
-                    </a>
+                    <t t-if="evaluator.results_released">
+                        <span class="etp-result-eyebrow">Your result</span>
+                        <div t-attf-class="etp-acard-ring is-#{evaluator.result or 'pending'}"
+                             t-attf-style="--etp-ring-pct: #{int(round(evaluator.score_percent or 0))};"
+                             role="img"
+                             t-attf-aria-label="Score #{int(round(evaluator.score_percent or 0))} percent">
+                            <span class="etp-acard-ring-val">
+                                <b t-out="int(round(evaluator.score_percent or 0))"/><small>%</small>
+                            </span>
+                        </div>
+                        <span t-if="evaluator.result in ('pass', 'fail')"
+                              t-attf-class="etp-acard-verdict is-#{evaluator.result}">
+                            <i t-attf-class="fa fa-#{'check-circle' if evaluator.result == 'pass' else 'times-circle'} me-1"/>
+                            <t t-out="evaluator.result.capitalize()"/>
+                        </span>
+                        <h3>Assessment result</h3>
+                        <p>
+                            Your assessment <strong t-out="assessment.name"/> has
+                            been evaluated.
+                        </p>
+                        <div class="etp-result-breakdown" t-out="evaluator.result_summary"/>
+                        <a t-attf-href="/pro_assessment/#{evaluator.access_token}/answers" class="btn btn-outline-secondary etp-result-cta">
+                            <i class="fa fa-list-ul"/> Review answers
+                        </a>
+                        <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
+                            <i class="fa fa-arrow-left"/> Back to My Assessments
+                        </a>
+                    </t>
+                    <t t-else="">
+                        <span class="etp-result-eyebrow">Assessment complete</span>
+                        <div class="etp-result-icon is-info">
+                            <i class="fa fa-check"/>
+                        </div>
+                        <span class="etp-status-pill is-pending">
+                            <i class="fa fa-paper-plane"/> Submitted
+                        </span>
+                        <h3>Submission received</h3>
+                        <p>
+                            Your assessment <strong t-out="assessment.name"/> has
+                            been submitted. Thank you.
+                        </p>
+                        <p class="etp-result-note">
+                            <i class="fa fa-clock-o"/> Your responses are locked and
+                            awaiting evaluation — you'll be notified once results are
+                            released.
+                        </p>
+                        <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
+                            <i class="fa fa-arrow-left"/> Back to My Assessments
+                        </a>
+                    </t>
                 </div>
             </t>
         </t>
     </template>
 
-    <template id="portal_instructions" name="ETP Assessment — Instructions">
+    <template id="portal_assessment_answers" name="ETP Assessment - Answers Review">
+        <t t-call="etp_assessment_pro.portal_exam_layout">
+            <t t-set="exam_body">
+                <div class="etp-exam-card">
+                    <div class="card-body">
+                        <span class="etp-qeyebrow">Review answers</span>
+                        <h5 class="etp-question-title mb-1" t-out="assessment.name"/>
+                        <p class="text-muted mb-4">Your submitted answers, with correct / incorrect marking.</p>
+                        <t t-foreach="review_rows" t-as="row">
+                            <div class="border rounded-3 p-3 p-md-4 mb-3">
+                                <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                    <div class="fw-semibold lh-base"><t t-out="row['index']"/>. <t t-out="row['prompt'] or row['name']"/></div>
+                                    <span t-attf-class="badge rounded-pill #{row['badge']}" style="flex:0 0 auto"><t t-out="row['verdict']"/><t t-if="row['score_pct'] is not None"> · <t t-out="row['score_pct']"/>%</t></span>
+                                </div>
+                                <t t-if="row['chosen']">
+                                    <p class="mb-1"><strong>Your answer: </strong><t t-out="', '.join(row['chosen'])"/></p>
+                                </t>
+                                <t t-if="row['justification']">
+                                    <div class="fw-semibold small text-muted mt-2 mb-1">Your response</div>
+                                    <pre class="mb-2 p-3 bg-light border rounded-3" style="white-space:pre-wrap;font-size:.9rem" t-out="row['justification']"/>
+                                </t>
+                                <t t-if="not row['chosen'] and not row['justification']">
+                                    <p class="mb-1 text-muted fst-italic">No answer submitted.</p>
+                                </t>
+                                <t t-if="row['correct']">
+                                    <p class="mb-0 text-success"><strong>Correct answer: </strong><t t-out="', '.join(row['correct'])"/></p>
+                                </t>
+                            </div>
+                        </t>
+                        <div class="d-flex gap-2 mt-4">
+                            <a t-att-href="back_url" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"/>Back to result</a>
+                            <a href="/my/pro_assessments" class="btn btn-primary">My Assessments</a>
+                        </div>
+                    </div>
+                </div>
+            </t>
+        </t>
+    </template>
+
+    <template id="portal_instructions" name="ETP Assessment - Instructions">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="o_etp_card_narrow etp-instructions">
@@ -365,7 +434,7 @@
                                 <p t-if="preview" class="etp-warn">
                                     <i class="fa fa-eye mt-1"/>
                                     <span>
-                                        Preview mode — you are not the assigned
+                                        Preview mode - you are not the assigned
                                         candidate. The timer will not start and no
                                         answers are saved.
                                     </span>
@@ -378,7 +447,7 @@
         </t>
     </template>
 
-    <template id="portal_question_page" name="ETP Assessment — Question Page">
+    <template id="portal_question_page" name="ETP Assessment - Question Page">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-sticky">
@@ -390,10 +459,13 @@
                             <span class="etp-qcount">
                                 <b t-out="current_index"/> / <span t-out="total_questions"/>
                             </span>
-                            <span t-if="deadline_iso" class="badge bg-warning text-dark etp-timer"
-                                  id="etp-timer" t-att-data-deadline="deadline_iso">
+                            <span t-if="deadline_iso" class="badge bg-light text-dark border etp-timer"
+                                  id="etp-timer" role="timer" aria-label="Time remaining"
+                                  t-att-data-deadline="deadline_iso">
                                 --:--
                             </span>
+                            <span t-if="deadline_iso" id="etp-timer-alert"
+                                  class="visually-hidden" aria-live="assertive"/>
                         </div>
                     </div>
                     <div class="progress etp-progress etp-progress--live"
@@ -490,7 +562,7 @@
                                                  t-out="img.label"/>
                                             <div class="etp-image-zoomable"
                                                  tabindex="0" role="button"
-                                                 aria-label="Open image — click to zoom and inspect">
+                                                 aria-label="Open image - click to zoom and inspect">
                                                 <img class="etp-eval-image img-fluid"
                                                      draggable="false"
                                                      oncontextmenu="return false;"
@@ -545,7 +617,7 @@
                                                  t-out="img.label"/>
                                             <div class="etp-image-zoomable"
                                                  tabindex="0" role="button"
-                                                 aria-label="Open image — click to zoom and inspect">
+                                                 aria-label="Open image - click to zoom and inspect">
                                                 <img class="etp-eval-image img-fluid"
                                                      draggable="false"
                                                      oncontextmenu="return false;"
@@ -651,7 +723,7 @@
                                              t-out="label_image.label"/>
                                         <div class="etp-image-zoomable"
                                              tabindex="0" role="button"
-                                             aria-label="Open image — click to zoom and inspect">
+                                             aria-label="Open image - click to zoom and inspect">
                                             <img class="etp-eval-image img-fluid"
                                                  draggable="false"
                                                  oncontextmenu="return false;"
@@ -687,6 +759,7 @@
                                 <t t-if="label_boxes">
                                     <div class="etp-field">
                                         <label class="form-label">Label each numbered box</label>
+                                        <div class="etp-label-list">
                                         <t t-foreach="label_boxes" t-as="box_num">
                                             <div class="etp-label-row mb-2">
                                                 <label class="form-label"
@@ -699,6 +772,7 @@
                                                        t-att-value="label_answers.get(str(box_num)) or ''"/>
                                             </div>
                                         </t>
+                                        </div>
                                     </div>
                                 </t>
                                 <t t-else="">
@@ -809,20 +883,37 @@
                         }
                         // Countdown timer. data-deadline is UTC ISO 8601.
                         var t = document.getElementById('etp-timer');
+                        var tAlert = document.getElementById('etp-timer-alert');
                         if (t &amp;&amp; t.dataset.deadline) {
                             var deadline = new Date(t.dataset.deadline);
-                            var fired = false;
+                            var fired = false, warned5 = false, warned1 = false;
+                            function announce(msg) {
+                                if (tAlert) { tAlert.textContent = msg; }
+                            }
                             function tick() {
                                 var ms = deadline - new Date();
                                 if (ms &lt;= 0) {
                                     t.textContent = '00:00';
-                                    t.classList.remove('bg-warning');
-                                    t.classList.add('bg-danger', 'text-white');
+                                    t.classList.remove('bg-light', 'bg-warning', 'text-dark', 'border', 'etp-timer-warn');
+                                    t.classList.add('bg-danger', 'text-white', 'etp-timer-critical');
                                     if (!fired) {
                                         fired = true;
+                                        announce('Time is up. Submitting your assessment.');
                                         document.getElementById('etp-response-form').submit();
                                     }
                                     return;
+                                }
+                                // Low-time warnings: amber emphasis at 5 min, red at 1 min.
+                                if (ms &lt;= 60000 &amp;&amp; !warned1) {
+                                    warned1 = true;
+                                    t.classList.remove('bg-light', 'bg-warning', 'border');
+                                    t.classList.add('bg-danger', 'text-white', 'etp-timer-critical');
+                                    announce('One minute remaining.');
+                                } else if (ms &lt;= 300000 &amp;&amp; !warned5) {
+                                    warned5 = true;
+                                    t.classList.remove('bg-light', 'border');
+                                    t.classList.add('bg-warning', 'etp-timer-warn');
+                                    announce('Five minutes remaining.');
                                 }
                                 var mm = Math.floor(ms / 60000);
                                 var ss = Math.floor((ms % 60000) / 1000);
@@ -956,7 +1047,7 @@
         </t>
     </template>
 
-    <template id="portal_review_page" name="ETP Assessment — Review">
+    <template id="portal_review_page" name="ETP Assessment - Review">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <span class="etp-eyebrow">Final step</span>
@@ -968,7 +1059,7 @@
                              class="alert alert-warning etp-review-warn"
                              role="alert">
                             <i class="fa fa-exclamation-triangle me-2"/>
-                            You can't submit yet —
+                            You can't submit yet -
                             <strong><span t-out="len(unanswered)"/></strong>
                             question(s) still need an answer. Please answer
                             every question, then click Submit Assessment.
@@ -1021,7 +1112,7 @@
         </t>
     </template>
 
-    <template id="portal_wrong_candidate" name="ETP Assessment — Wrong Candidate">
+    <template id="portal_wrong_candidate" name="ETP Assessment - Wrong Candidate">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-state is-danger">
@@ -1047,7 +1138,7 @@
     </template>
 
 
-    <template id="portal_my_assessment_card" name="ETP — My Assessment Card">
+    <template id="portal_my_assessment_card" name="ETP - My Assessment Card">
         <div t-attf-class="etp-acard etp-acard--#{item['status_kind']}">
             <div class="etp-acard-main">
                 <div class="etp-acard-top">
@@ -1110,9 +1201,9 @@
                     </span>
                 </t>
                 <t t-elif="bucket == 'completed'">
-                    <div class="etp-acard-await" title="Submitted — awaiting results">
+                    <div class="etp-acard-await" title="Submitted - awaiting results">
                         <span class="etp-acard-await-icon"><i class="fa fa-check"/></span>
-                        <span class="etp-acard-await-label">Submitted — awaiting results</span>
+                        <span class="etp-acard-await-label">Submitted - awaiting results</span>
                     </div>
                 </t>
                 <t t-if="bucket == 'available'">
@@ -1139,7 +1230,7 @@
         </div>
     </template>
 
-    <template id="portal_my_assessments" name="ETP — My Assessments">
+    <template id="portal_my_assessments" name="ETP - My Assessments">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <a href="/web/session/logout?redirect=/web/login"
                class="o_etp_topbar_link">

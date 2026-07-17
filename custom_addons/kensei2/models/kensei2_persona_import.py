@@ -18,7 +18,7 @@ class Kensei2PersonaImport(models.TransientModel):
     sanitisation, same reuse of archived personas).
     """
     _name = 'kensei2.persona.import'
-    _description = 'Kensei2 — Bulk Import Personas (CSV)'
+    _description = 'Kensei — Bulk Import Personas (CSV)'
 
     csv_file = fields.Binary(string='Persona CSV', required=True)
     filename = fields.Char(string='Filename')

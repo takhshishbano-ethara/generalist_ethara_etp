@@ -7,3 +7,4 @@ from . import ethara_candidate
 from . import ethara_lead
 from . import hr_applicant
 from . import hr_applicant_job_history
+from . import res_users

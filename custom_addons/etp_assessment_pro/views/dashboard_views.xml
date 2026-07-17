@@ -101,7 +101,8 @@
                                 </span>
                             </button>
 
-                            <div class="etp-stat-card">
+                            <button type="object" name="action_open_submitted"
+                                    class="etp-stat-card etp-stat-clickable">
                                 <span class="etp-stat-ico etp-ico-answered">
                                     <i class="fa fa-paper-plane" role="img"
                                        aria-label="Submitted"/>
@@ -116,9 +117,13 @@
                                     </div>
                                     <div class="etp-stat-cap">Submitted</div>
                                 </div>
-                            </div>
+                                <span class="etp-stat-go" aria-hidden="true">
+                                    <i class="fa fa-arrow-right"/>
+                                </span>
+                            </button>
 
-                            <div class="etp-stat-card etp-stat-good">
+                            <button type="object" name="action_open_passed"
+                                    class="etp-stat-card etp-stat-clickable etp-stat-good">
                                 <span class="etp-stat-ico etp-ico-answered">
                                     <i class="fa fa-check-circle" role="img"
                                        aria-label="Passed"/>
@@ -129,9 +134,13 @@
                                     </div>
                                     <div class="etp-stat-cap">Passed</div>
                                 </div>
-                            </div>
+                                <span class="etp-stat-go" aria-hidden="true">
+                                    <i class="fa fa-arrow-right"/>
+                                </span>
+                            </button>
 
-                            <div class="etp-stat-card etp-stat-bad">
+                            <button type="object" name="action_open_failed"
+                                    class="etp-stat-card etp-stat-clickable etp-stat-bad">
                                 <span class="etp-stat-ico etp-ico-fail">
                                     <i class="fa fa-times-circle" role="img"
                                        aria-label="Failed"/>
@@ -142,9 +151,13 @@
                                     </div>
                                     <div class="etp-stat-cap">Failed</div>
                                 </div>
-                            </div>
+                                <span class="etp-stat-go" aria-hidden="true">
+                                    <i class="fa fa-arrow-right"/>
+                                </span>
+                            </button>
 
-                            <div class="etp-stat-card etp-stat-warn">
+                            <button type="object" name="action_open_pending"
+                                    class="etp-stat-card etp-stat-clickable etp-stat-warn">
                                 <span class="etp-stat-ico etp-ico-warn">
                                     <i class="fa fa-hourglass-half" role="img"
                                        aria-label="Not started"/>
@@ -155,7 +168,10 @@
                                     </div>
                                     <div class="etp-stat-cap">Not Started</div>
                                 </div>
-                            </div>
+                                <span class="etp-stat-go" aria-hidden="true">
+                                    <i class="fa fa-arrow-right"/>
+                                </span>
+                            </button>
                         </div>
 
                         <div class="etp-sec" aria-hidden="true">

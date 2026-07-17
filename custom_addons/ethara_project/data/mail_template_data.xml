@@ -1,0 +1,721 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!--
+            ETHARA.PROJECT - MAIL TEMPLATES
+
+            Single-thread mail architecture:
+                Every mail related to an ethara.project (welcome, budget approval,
+                phase request, threshold alerts, top-ups) is posted on the SAME
+                ethara.project record via `_ethara_post_thread_message`, so the
+                whole conversation lives in one email thread.
+
+            Visual system: 600px slate-header card with semantic status pills.
+        -->
+
+        <record id="mail_template_ethara_project_welcome" model="mail.template">
+            <field name="name">Ethara Project: Welcome &amp; Budget Coordination</field>
+            <field name="model_id" ref="model_ethara_project"/>
+            <field name="subject">[{{ object.name }}] Project Kickoff &amp; Budget Coordination</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Project Operations</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Project Welcome</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#0EA5E9;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Initiated</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">Hello team,</p>
+          <p style="margin:0 0 16px;">
+            A new Ethara project has been created and you have been added to the working team.
+            This conversation will serve as the <strong>single, authoritative thread</strong>
+            for the project: every budget approval request, phase decision, threshold alert
+            and top-up notification will be delivered into this same email thread so the
+            full history stays in one place.
+          </p>
+          <div style="font-size:11px;color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:24px 0 10px;">Project Summary</div>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr t-if="object.client_name"><td style="padding:8px 0;color:#64748B;">Client</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.client_name or ''"></td></tr>
+            <tr t-if="object.internal_project_name"><td style="padding:8px 0;color:#64748B;">Internal Name</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.internal_project_name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Status</td><td style="padding:8px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['state'].selection).get(object.state, object.state or '-')"></td></tr>
+            <tr t-if="object.start_date"><td style="padding:8px 0;color:#64748B;">Start Date</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.start_date and object.start_date.strftime('%Y-%m-%d') or ''"></td></tr>
+            <tr t-if="object.end_date"><td style="padding:8px 0;color:#64748B;">End Date</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.end_date and object.end_date.strftime('%Y-%m-%d') or ''"></td></tr>
+            <tr t-if="object.project_goal"><td style="padding:8px 0;color:#64748B;vertical-align:top;">Project Goal</td><td style="padding:8px 0;color:#0F172A;line-height:1.6;white-space:pre-wrap;" t-out="object.project_goal or ''"></td></tr>
+          </table>
+
+          <div style="font-size:11px;color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:24px 0 8px;">Team Roster</div>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #E2E8F0;border-radius:6px;overflow:hidden;font-size:13px;">
+            <thead><tr>
+              <th style="padding:10px 14px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-size:11px;font-weight:700;color:#64748B;text-align:left;letter-spacing:0.06em;text-transform:uppercase;width:32%;">Role</th>
+              <th style="padding:10px 14px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-size:11px;font-weight:700;color:#64748B;text-align:left;letter-spacing:0.06em;text-transform:uppercase;">Members</th>
+            </tr></thead>
+            <tbody>
+              <tr t-if="object.assigned_tpm_ids">
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#64748B;">TPM</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#0F172A;" t-out="', '.join(object.assigned_tpm_ids.mapped('name'))"></td>
+              </tr>
+              <tr t-if="object.assigned_pl_ql_ids">
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#64748B;">PL / QL</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#0F172A;" t-out="', '.join(object.assigned_pl_ql_ids.mapped('name'))"></td>
+              </tr>
+              <tr t-if="object.assigned_rnd_ids">
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#64748B;">R&amp;D</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#0F172A;" t-out="', '.join(object.assigned_rnd_ids.mapped('name'))"></td>
+              </tr>
+              <tr t-if="object.cto_user_ids">
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#64748B;">CTO</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#0F172A;" t-out="', '.join(object.cto_user_ids.mapped('name'))"></td>
+              </tr>
+              <tr t-if="object.cfo_user_ids">
+                <td style="padding:10px 14px;color:#64748B;">CFO</td>
+                <td style="padding:10px 14px;color:#0F172A;" t-out="', '.join(object.cfo_user_ids.mapped('name'))"></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <t t-if="object.attachment_ids">
+            <div style="font-size:11px;color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:24px 0 8px;">Documents</div>
+            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #E2E8F0;border-radius:6px;overflow:hidden;font-size:13px;">
+              <tbody>
+                <tr t-foreach="object.attachment_ids" t-as="doc">
+                  <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#0F172A;width:40%;" t-out="doc.name or ''"></td>
+                  <td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#0EA5E9;">
+                    <a t-att-href="doc.attachment_url" style="color:#0EA5E9;text-decoration:none;" t-out="doc.attachment_url or ''"></a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </t>
+
+          <div style="margin:24px 0 0;padding:16px 18px;background:#F0F9FF;border-left:4px solid #0EA5E9;border-radius:4px;">
+            <div style="font-size:11px;color:#075985;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">What to expect next</div>
+            <div style="font-size:13px;color:#0F172A;line-height:1.6;">
+              All <strong>project budget</strong>, <strong>phase budget</strong>,
+              <strong>budget request</strong>, <strong>threshold alert</strong> and
+              <strong>top-up</strong> emails for this project will appear as replies
+              in this conversation. You can also follow the activity from the project's
+              chatter in Odoo.
+            </div>
+          </div>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">
+            This is an automated message from the Ethara.AI Project Operations system.<br/>
+            All replies and follow-ups will be threaded under the project chatter.
+          </div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_request_submitted" model="mail.template">
+            <field name="name">Ethara Phase Request: Submitted for Approval</field>
+            <field name="model_id" ref="model_ethara_project_phase_request"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Phase Budget Request Submitted - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Budget Request</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Request Submitted</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#0EA5E9;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Submitted</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">A new phase budget request has been submitted for approval.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.phase_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Request Type</td><td style="padding:8px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['request_type'].selection).get(object.request_type, object.request_type or '-')"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Priority</td><td style="padding:8px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['priority'].selection).get(object.priority, object.priority or '-')"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Requester</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.requester_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Requested Total</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.requested_total or 0.0)"/></td></tr>
+          </table>
+          <t t-if="object.justification">
+            <div style="font-size:11px;color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:24px 0 8px;">Justification</div>
+            <div style="font-size:13px;color:#0F172A;line-height:1.6;white-space:pre-wrap;" t-out="object.justification or ''"></div>
+          </t>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_request_cto_review" model="mail.template">
+            <field name="name">Ethara Phase Request: CTO Review Required</field>
+            <field name="model_id" ref="model_ethara_project_phase_request"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] CTO Review Required - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Budget Request</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">CTO Review Required</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#6366F1;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">CTO Review</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">This phase budget request awaits CTO review.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.phase_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Requester</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.requester_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Requested Total</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.requested_total or 0.0)"/></td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_request_cfo_review" model="mail.template">
+            <field name="name">Ethara Phase Request: CFO Approval Required</field>
+            <field name="model_id" ref="model_ethara_project_phase_request"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] CFO Approval Required - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Budget Request</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">CFO Approval Required</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#8B5CF6;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">CFO Review</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">CTO has approved. This request awaits CFO decision.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.phase_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">CTO Reviewer</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.cto_reviewer_id.name or '-'"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Requested Total</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.requested_total or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Proposed Approved</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.approved_total or 0.0)"/></td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_request_approved" model="mail.template">
+            <field name="name">Ethara Phase Request: Approved</field>
+            <field name="model_id" ref="model_ethara_project_phase_request"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Phase Budget Request Approved - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Budget Request</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Request Approved</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span t-if="object.state == 'approved'" style="display:inline-block;padding:6px 12px;background:#10B981;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Approved</span>
+              <span t-if="object.state == 'partially_approved'" style="display:inline-block;padding:6px 12px;background:#F59E0B;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Partially Approved</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">CFO has approved this phase budget request. Approved amounts have been folded into the phase.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.phase_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">CTO Reviewer</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.cto_reviewer_id.name or '-'"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">CFO Approver</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.cfo_approver_id.name or '-'"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Requested Total</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.requested_total or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Approved Total</td><td style="padding:8px 0;color:#10B981;font-weight:700;">USD <span t-out="'%.2f' % (object.approved_total or 0.0)"/></td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_request_cto_rejected" model="mail.template">
+            <field name="name">Ethara Phase Request: CTO Sent Back for Changes</field>
+            <field name="model_id" ref="model_ethara_project_phase_request"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Changes Required - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Budget Request</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">CTO - Changes Required</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#F59E0B;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Changes Required</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">The CTO has sent this request back for changes. Please revise and resubmit.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.phase_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">CTO Reviewer</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.cto_reviewer_id.name or '-'"></td></tr>
+          </table>
+          <div style="margin:24px 0 0;padding:16px 18px;background:#FEF3C7;border-left:4px solid #F59E0B;border-radius:4px;">
+            <div style="font-size:11px;color:#78350F;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">CTO Note</div>
+            <div style="font-size:13px;color:#0F172A;line-height:1.6;white-space:pre-wrap;" t-out="object.cto_review_note or ''"></div>
+          </div>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_cost_fetch_summary" model="mail.template">
+            <field name="name">Ethara Project Budget: Cost Fetch Summary</field>
+            <field name="model_id" ref="model_ethara_project_budget"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Cost fetch - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Cost Fetch</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Provider Cost Sync</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span t-if="object.health_status in ('healthy','unknown')" style="display:inline-block;padding:6px 12px;background:#10B981;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Healthy</span>
+              <span t-if="object.health_status == 'warning'" style="display:inline-block;padding:6px 12px;background:#F59E0B;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Warning</span>
+              <span t-if="object.health_status in ('at_risk','critical')" style="display:inline-block;padding:6px 12px;background:#EF4444;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">At Risk</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">A cost sync has completed for this project budget.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Project Budget</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Envelope (USD)</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.budget_amount or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Consumed (USD)</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.consumed_amount or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Remaining (USD)</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.remaining_amount or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Consumed %</td><td style="padding:8px 0;color:#0F172A;font-weight:600;"><span t-out="'%.1f' % (object.consumed_pct or 0.0)"/> %</td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Last Fetch</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.last_fetched_at and object.last_fetched_at.strftime('%Y-%m-%d %H:%M UTC') or '-'"></td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_request_cfo_changes_required" model="mail.template">
+            <field name="name">Ethara Phase Request: CFO Changes Required</field>
+            <field name="model_id" ref="model_ethara_project_phase_request"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Changes Required - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Budget Request</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">CFO - Changes Required</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#F59E0B;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Changes Required</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">The CFO has requested changes. Please revise and resubmit.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.phase_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">CFO Approver</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.cfo_approver_id.name or '-'"></td></tr>
+          </table>
+          <div style="margin:24px 0 0;padding:16px 18px;background:#FEF3C7;border-left:4px solid #F59E0B;border-radius:4px;">
+            <div style="font-size:11px;color:#78350F;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">CFO Note</div>
+            <div style="font-size:13px;color:#0F172A;line-height:1.6;white-space:pre-wrap;" t-out="object.cfo_change_request_note or ''"></div>
+          </div>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_budget_topup_submitted" model="mail.template">
+            <field name="name">Ethara Budget Top-up: Submitted</field>
+            <field name="model_id" ref="model_ethara_project_budget_topup"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Top-up Submitted - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Budget Top-up</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Top-up Submitted</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#0EA5E9;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Pending</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">A new top-up request awaits approval.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Project Budget</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.budget_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Amount</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.amount or 0.0)"/></td></tr>
+            <tr t-if="object.reason_id"><td style="padding:8px 0;color:#64748B;">Reason</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.reason_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Requester</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.requester_id.name or ''"></td></tr>
+          </table>
+          <t t-if="object.justification">
+            <div style="font-size:11px;color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:24px 0 8px;">Justification</div>
+            <div style="font-size:13px;color:#0F172A;line-height:1.6;white-space:pre-wrap;" t-out="object.justification or ''"></div>
+          </t>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_budget_topup_approved" model="mail.template">
+            <field name="name">Ethara Budget Top-up: Approved</field>
+            <field name="model_id" ref="model_ethara_project_budget_topup"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Top-up Approved - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Budget Top-up</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Top-up Approved</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#10B981;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Approved</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">Your top-up has been approved. The project budget envelope has been increased.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Project Budget</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.budget_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Amount Added</td><td style="padding:8px 0;color:#10B981;font-weight:700;">USD <span t-out="'%.2f' % (object.amount or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Approver</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.approver_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Approved On</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.approval_date and object.approval_date.strftime('%Y-%m-%d %H:%M UTC') or ''"></td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_budget_topup_rejected" model="mail.template">
+            <field name="name">Ethara Budget Top-up: Rejected</field>
+            <field name="model_id" ref="model_ethara_project_budget_topup"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Top-up Rejected - {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Budget Top-up</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Top-up Rejected</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#EF4444;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Rejected</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">Your top-up request has been rejected.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Project Budget</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.budget_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Amount</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.amount or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Rejected By</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.approver_id.name or ''"></td></tr>
+          </table>
+          <div style="margin:24px 0 0;padding:16px 18px;background:#FEE2E2;border-left:4px solid #EF4444;border-radius:4px;">
+            <div style="font-size:11px;color:#7F1D1D;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Rejection Reason</div>
+            <div style="font-size:13px;color:#0F172A;line-height:1.6;white-space:pre-wrap;" t-out="object.rejection_reason or ''"></div>
+          </div>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_threshold_80" model="mail.template">
+            <field name="name">Ethara Phase Budget: 80% Threshold Alert</field>
+            <field name="model_id" ref="model_ethara_project_phase"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Phase {{ object.name }} - 80% consumed</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Alert</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Phase Threshold Alert</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#F59E0B;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Warning</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">Phase <strong t-out="object.name or ''"/> has crossed the 80% consumption threshold. Please review before it reaches the approved envelope.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Approved (USD)</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.approved_amount or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Consumed (USD)</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.consumed_cost or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Consumed %</td><td style="padding:8px 0;color:#F59E0B;font-weight:700;"><span t-out="'%.1f' % (object.consumed_pct or 0.0)"/> %</td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Remaining (USD)</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.remaining_cost or 0.0)"/></td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_ethara_phase_threshold_100" model="mail.template">
+            <field name="name">Ethara Phase Budget: 100% Threshold Alert</field>
+            <field name="model_id" ref="model_ethara_project_phase"/>
+            <field name="subject">[{{ object.ethara_project_id.name or '' }}] Phase {{ object.name }} - OVER BUDGET</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#0F172A;padding:20px 28px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
+            <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Phase Over Budget</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:20px 28px;border-bottom:1px solid #E2E8F0;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Phase Threshold Breach</div>
+              <div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.3;" t-out="object.name or ''"></div>
+            </td>
+            <td align="right" valign="top">
+              <span style="display:inline-block;padding:6px 12px;background:#EF4444;color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;border-radius:999px;">Over Budget</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
+          <p style="margin:0 0 16px;">Phase <strong t-out="object.name or ''"/> has consumed 100% or more of the approved budget. Immediate action is required.</p>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
+            <tr><td style="padding:8px 0;color:#64748B;width:40%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Phase</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Approved (USD)</td><td style="padding:8px 0;color:#0F172A;font-weight:600;">USD <span t-out="'%.2f' % (object.approved_amount or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Consumed (USD)</td><td style="padding:8px 0;color:#EF4444;font-weight:700;">USD <span t-out="'%.2f' % (object.consumed_cost or 0.0)"/></td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Consumed %</td><td style="padding:8px 0;color:#EF4444;font-weight:700;"><span t-out="'%.1f' % (object.consumed_pct or 0.0)"/> %</td></tr>
+            <tr><td style="padding:8px 0;color:#64748B;">Overrun (USD)</td><td style="padding:8px 0;color:#EF4444;font-weight:700;">USD <span t-out="'%.2f' % max((object.consumed_cost or 0.0) - (object.approved_amount or 0.0), 0.0)"/></td></tr>
+          </table>
+          <p style="margin:16px 0 0;color:#64748B;font-size:13px;">Please raise a top-up or a new phase budget request to re-baseline this phase.</p>
+        </td></tr>
+        <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">Ethara.AI Project Operations - All replies thread under the project chatter.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+    </data>
+</odoo>

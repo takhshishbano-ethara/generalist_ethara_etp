@@ -94,4 +94,4 @@ COPY . .
 RUN chmod +x odoo-bin
 
 EXPOSE 8071
-CMD ["./odoo-bin", "-c", "odoo.conf", "-u", "non_stem_dashboard"]
+CMD ["./odoo-bin", "-c", "odoo.conf", "-u", "api_auth_gateway"]

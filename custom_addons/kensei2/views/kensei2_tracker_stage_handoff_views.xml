@@ -6,7 +6,7 @@
       <field name="name">kensei2.tracker.stage.handoff.form</field>
       <field name="model">kensei2.tracker.stage.handoff</field>
       <field name="arch" type="xml">
-        <form string="Hand off to Next Stage">
+        <form string="Hand off to Next Stage" class="o_kensei2_tracker_form">
           <field name="allocation_id" invisible="1"/>
           <div class="alert alert-info" role="alert">
             Stage <b><field name="current_stage_no" readonly="1" nolabel="1" class="oe_inline"/></b>
@@ -36,13 +36,6 @@
           </footer>
         </form>
       </field>
-    </record>
-
-    <record model="ir.actions.act_window" id="action_kensei2_tracker_stage_handoff">
-      <field name="name">Hand off to Next Stage</field>
-      <field name="res_model">kensei2.tracker.stage.handoff</field>
-      <field name="view_mode">form</field>
-      <field name="target">new</field>
     </record>
 
   </data>

@@ -45,6 +45,7 @@
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer="defer"/>
       <script src="/kaiju_dashboard/static/src/portal/js/kaiju_portal.js?v=1" defer="defer"/>
     </head>
     <body>
@@ -262,32 +263,20 @@
 
     <div class="charts">
       <figure class="chart chart--hero">
-        <button type="button" class="chart-trigger">
-          <img class="rd-chart-light" style="width:100%;height:auto" src="/kaiju_dashboard/static/src/portal/img/light/kaiju_pass_rate_per_tier.png" alt="Kaiju pass rate per difficulty tier"/>
-          <img class="rd-chart-dark" style="width:100%;height:auto" src="/kaiju_dashboard/static/src/portal/img/dark/kaiju_pass_rate_per_tier.png" alt="Kaiju pass rate per difficulty tier"/>
-          <span class="chart-zoom-hint" aria-hidden="true">Click to enlarge</span>
-        </button>
+        <div class="rd-chart-canvas"><canvas id="kj-chart-tier" aria-label="Mean pass rate by difficulty tier"></canvas></div>
         <figcaption>Fig. 1: Mean stage-3 pass rate by difficulty tier, from 100% on Trivial down to 0.7% on Expert.</figcaption>
       </figure>
     </div>
 
-    <p class="section-desc">Pass rate by difficulty tier, and task distribution across languages.</p>
+    <p class="section-desc">Pass rate by language, and task distribution across languages.</p>
 
     <div class="charts">
       <figure class="chart">
-        <button type="button" class="chart-trigger">
-          <img class="rd-chart-light" style="width:100%;height:auto" src="/kaiju_dashboard/static/src/portal/img/light/kaiju_pass_rate_per_language.png" alt="Kaiju Claude Opus 4.8 pass rate per language"/>
-          <img class="rd-chart-dark" style="width:100%;height:auto" src="/kaiju_dashboard/static/src/portal/img/dark/kaiju_pass_rate_per_language.png" alt="Kaiju Claude Opus 4.8 pass rate per language"/>
-          <span class="chart-zoom-hint" aria-hidden="true">Click to enlarge</span>
-        </button>
-        <figcaption>Fig. 2: Claude Opus 4.8 mean stage-3 pass rate by language. Python leads at 53.9% (n=6), Rust 28.6% (n=10); Go (n=3) and TypeScript (n=1) score 0%.</figcaption>
+        <div class="rd-chart-canvas"><canvas id="kj-chart-language" aria-label="Mean pass rate by language"></canvas></div>
+        <figcaption>Fig. 2: Claude Opus 4.8 mean stage-3 pass rate by language. Python 53.9% (n=6), Rust 28.6% (n=10); Go (n=3) and TypeScript (n=1) at 0%.</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger">
-          <img class="rd-chart-light" style="width:100%;height:auto" src="/kaiju_dashboard/static/src/portal/img/light/kaiju_tasks_by_language.png" alt="Kaiju task distribution by language, stacked by tier"/>
-          <img class="rd-chart-dark" style="width:100%;height:auto" src="/kaiju_dashboard/static/src/portal/img/dark/kaiju_tasks_by_language.png" alt="Kaiju task distribution by language, stacked by tier"/>
-          <span class="chart-zoom-hint" aria-hidden="true">Click to enlarge</span>
-        </button>
+        <div class="rd-chart-canvas"><canvas id="kj-chart-tasks" aria-label="Task distribution by language, stacked by tier"></canvas></div>
         <figcaption>Fig. 3: Task distribution by language, stacked by difficulty tier.</figcaption>
       </figure>
     </div>

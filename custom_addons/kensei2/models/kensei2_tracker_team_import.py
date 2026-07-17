@@ -39,7 +39,7 @@ class Kensei2TrackerTeamImport(models.TransientModel):
     reported back in a summary plus a downloadable error report.
     """
     _name = 'kensei2.tracker.team.import'
-    _description = 'Kensei2 Tracker — Team Bulk Import'
+    _description = 'Kensei Tracker — Team Bulk Import'
 
     upload_file = fields.Binary(string='File (CSV / XLSX)', required=True)
     filename = fields.Char(string='Filename')

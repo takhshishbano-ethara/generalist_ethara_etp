@@ -70,6 +70,24 @@ class HrApplicant(models.Model):
     blacklist_reason = fields.Text(string='Blacklist Reason')
     on_hold = fields.Boolean(string='On Hold')
 
+    pipeline_status = fields.Selection(
+        [
+            ('applied',     'Applied'),
+            ('shortlisted', 'Shortlisted'),
+            ('evaluation',  'Evaluation'),
+            ('submission',  'Submission'),
+            ('contract',    'Contract'),
+            ('compliance',  'Compliance'),
+            ('email_id',    'Email ID'),
+            ('onboarded',   'Onboarded'),
+            ('rejected',    'Rejected'),
+        ],
+        string='Pipeline Status',
+        default='applied',
+        index=True,
+        tracking=True,
+    )
+
     candidate_code = fields.Char(
         string='Candidate Code', index=True, copy=False,
         help='Auto-generated ETH-MMMYY-XXXXXX identifier',
@@ -90,6 +108,54 @@ class HrApplicant(models.Model):
     resume_text = fields.Text(string='Extracted Resume Text')
     is_duplicate = fields.Boolean(string='Is Duplicate')
     duplicate_reason = fields.Text(string='Duplicate Reason')
+
+    marital = fields.Selection(
+        [
+            ('single', 'Single'),
+            ('married', 'Married'),
+            ('divorced', 'Divorced'),
+            ('widowed', 'Widowed'),
+            ('separated', 'Separated'),
+            ('prefer_not_to_say', 'Prefer not to say'),
+        ],
+        string='Marital Status',
+    )
+
+    _PIPELINE_ORDER = (
+        'applied', 'shortlisted', 'evaluation', 'submission',
+        'contract', 'compliance', 'email_id', 'onboarded',
+    )
+
+    _STAGE_NAME_TO_PIPELINE = (
+        (('onboarded', 'onboarding complete'), 'onboarded'),
+        (('welcome mail', 'induction', 'email created', 'it email'), 'email_id'),
+        (('statutory', 'compliance'), 'compliance'),
+        (('contract', 'offer signed', 'hired'), 'contract'),
+        (('selection form', 'form sent', 'form submit', 'form validat'), 'submission'),
+        (('evaluation', 'interview'), 'evaluation'),
+        (('shortlist',), 'shortlisted'),
+        (('reject', 'refuse'), 'rejected'),
+        (('applied', 'application', 'sourc', 'resume upload', 'screening'), 'applied'),
+    )
+
+    @classmethod
+    def _derive_pipeline_status_from_name(cls, stage_name):
+        if not stage_name:
+            return None
+        lower = stage_name.strip().lower()
+        for keywords, pstatus in cls._STAGE_NAME_TO_PIPELINE:
+            if any(k in lower for k in keywords):
+                return pstatus
+        return None
+
+    @classmethod
+    def _pipeline_order_index(cls, status):
+        if not status or status == 'rejected':
+            return -1
+        try:
+            return cls._PIPELINE_ORDER.index(status)
+        except ValueError:
+            return -1
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -115,7 +181,49 @@ class HrApplicant(models.Model):
                         'new_job_id': new_job_id,
                         'changed_by_id': self.env.uid,
                     })
-        return super().write(vals)
+        result = super().write(vals)
+        if vals.get('stage_id') and 'pipeline_status' not in vals:
+            self._sync_pipeline_status_from_stage()
+        if not self.env.context.get('skip_user_sync') and (
+            'partner_name' in vals or 'partner_phone' in vals
+        ):
+            self._sync_user_from_applicant(vals)
+        return result
+
+    def _sync_user_from_applicant(self, vals):
+        for applicant in self:
+            if not applicant.candidate_user_id:
+                continue
+            sync = {}
+            if 'partner_name' in vals:
+                sync['name'] = vals['partner_name']
+            if 'partner_phone' in vals:
+                sync['phone'] = vals['partner_phone']
+            if sync:
+                applicant.candidate_user_id.sudo().with_context(
+                    skip_applicant_sync=True,
+                ).write(sync)
+
+    def _sync_pipeline_status_from_stage(self):
+        for applicant in self:
+            if applicant.pipeline_status == 'rejected':
+                continue
+            derived = self._derive_pipeline_status_from_name(
+                applicant.stage_id.name if applicant.stage_id else '',
+            )
+            if not derived:
+                continue
+            current = applicant.pipeline_status or 'applied'
+            if derived == 'rejected':
+                if current != 'rejected':
+                    super(HrApplicant, applicant).write(
+                        {'pipeline_status': 'rejected'},
+                    )
+                continue
+            if self._pipeline_order_index(derived) > self._pipeline_order_index(current):
+                super(HrApplicant, applicant).write(
+                    {'pipeline_status': derived},
+                )
 
     @api.onchange('candidate_id', 'active', 'stage_id')
     def _onchange_warn_active_application(self):
@@ -532,21 +640,49 @@ class HrApplicant(models.Model):
             return 'needs_review'
         return 'needs_review'
 
-    def _advance_stage_after_screening(self):
+    def _advance_stage_after_screening(self, allow_regress=False):
         self.ensure_one()
         Stage = self.env['hr.recruitment.stage'].sudo()
-        Reason = self.env['hr.applicant.refuse.reason'].sudo()
         rec = self.resume_recommendation
 
         if rec == 'reject':
-            reason = Reason.search(
-                [('name', '=', 'Rejected by AI resume screening')], limit=1,
-            ) or Reason.create({'name': 'Rejected by AI resume screening'})
-            self.sudo().write({'refuse_reason_id': reason.id, 'active': False})
+            if self.pipeline_status != 'rejected':
+                self.sudo().write({'pipeline_status': 'rejected'})
             return
 
         if rec != 'shortlist':
             return
+
+        if not allow_regress and self.candidate_user_id:
+            conflict = self.env['hr.applicant'].sudo().with_context(
+                active_test=False,
+            ).search(
+                [
+                    ('candidate_user_id', '=', self.candidate_user_id.id),
+                    ('id', '!=', self.id),
+                    ('active', '=', True),
+                    ('refuse_reason_id', '=', False),
+                    ('pipeline_status', '!=', 'rejected'),
+                ],
+                limit=1,
+            )
+            if conflict:
+                _logger.info(
+                    'LLM auto-shortlist skipped for applicant %s: '
+                    'conflicting active application %s',
+                    self.id, conflict.id,
+                )
+                return
+
+        current_status = self.pipeline_status or 'applied'
+        if allow_regress:
+            if current_status != 'shortlisted':
+                self.sudo().write({'pipeline_status': 'shortlisted'})
+        else:
+            if current_status == 'rejected':
+                return
+            if self._pipeline_order_index('shortlisted') > self._pipeline_order_index(current_status):
+                self.sudo().write({'pipeline_status': 'shortlisted'})
 
         current_seq = self.stage_id.sequence if self.stage_id else -1
         job_ids = self.job_id.ids or [0]

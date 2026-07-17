@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_project_budget_list" model="ir.ui.view">
+        <field name="name">ethara.project.budget.list</field>
+        <field name="model">ethara.project.budget</field>
+        <field name="arch" type="xml">
+            <list string="Ethara Project Budgets">
+                <field name="name"/>
+                <field name="ethara_project_id"/>
+                <field name="project_type"/>
+                <field name="budget_amount"/>
+                <field name="consumed_amount" optional="show"/>
+                <field name="remaining_amount" optional="show"/>
+                <field name="health_status" widget="badge"
+                       decoration-success="health_status == 'healthy'"
+                       decoration-info="health_status == 'unknown'"
+                       decoration-warning="health_status == 'warning'"
+                       decoration-danger="health_status in ('at_risk','critical')"
+                       optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'draft'"
+                       decoration-success="state in ('approved','in_progress','delivered','closed')"
+                       decoration-danger="state in ('rejected','withdrawn')"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_budget_form" model="ir.ui.view">
+        <field name="name">ethara.project.budget.form</field>
+        <field name="model">ethara.project.budget</field>
+        <field name="arch" type="xml">
+            <form string="Ethara Project Budget">
+                <header>
+                    <button name="action_fetch_cost" type="object"
+                            string="Fetch AWS Costs" class="oe_highlight"/>
+                    <button name="action_fetch_openrouter" type="object"
+                            string="Fetch OpenRouter"
+                            invisible="not openrouter_enabled"/>
+                    <button name="action_fetch_moonshot" type="object"
+                            string="Fetch Moonshot"
+                            invisible="not moonshot_enabled"/>
+                    <button name="action_fetch_openai" type="object"
+                            string="Fetch OpenAI"
+                            invisible="not openai_enabled"/>
+                    <button name="action_fetch_gcp" type="object"
+                            string="Fetch GCP"
+                            invisible="not gcp_enabled"/>
+                    <button name="action_resync_ai_catalogs" type="object"
+                            string="Sync AI / Infra Catalogs"
+                            class="btn-secondary"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,approved,in_progress,delivered,closed"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_cost_lines" type="object"
+                                class="oe_stat_button" icon="fa-line-chart">
+                            <field name="cost_line_count" widget="statinfo"
+                                   string="Cost Lines"/>
+                        </button>
+                        <button name="action_view_fetch_logs" type="object"
+                                class="oe_stat_button" icon="fa-history">
+                            <field name="fetch_log_count" widget="statinfo"
+                                   string="Fetches"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="ethara_project_id"
+                                   options="{'no_create': True}"/>
+                            <field name="project_type"/>
+                            <field name="priority"/>
+                            <field name="is_rnd" readonly="1" invisible="1"/>
+                        </group>
+                        <group>
+                            <field name="budget_amount"/>
+                            <field name="buffer_pct"/>
+                            <field name="total_tasks"/>
+                            <field name="last_fetched_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description"/>
+                    </group>
+                    <group>
+                        <group string="Health">
+                            <field name="consumed_amount" readonly="1"/>
+                            <field name="remaining_amount" readonly="1"/>
+                            <field name="consumed_pct" readonly="1"/>
+                            <field name="health_status" widget="badge" readonly="1"
+                                   decoration-success="health_status == 'healthy'"
+                                   decoration-info="health_status == 'unknown'"
+                                   decoration-warning="health_status == 'warning'"
+                                   decoration-danger="health_status in ('at_risk','critical')"/>
+                            <field name="llm_consumed_amount" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="AWS Credentials">
+                        <group>
+                            <field name="aws_access_key_id" password="True"/>
+                            <field name="aws_secret_access_key" password="True"/>
+                        </group>
+                        <group>
+                            <field name="aws_region"/>
+                            <field name="fetch_months"/>
+                        </group>
+                    </group>
+                    <group string="AWS Tag Filters">
+                        <field name="tag_line_ids" nolabel="1" colspan="2">
+                            <list editable="bottom">
+                                <field name="sequence" widget="handle"/>
+                                <field name="tag_key" placeholder="e.g. Project"/>
+                                <field name="tag_value" placeholder="e.g. etharaA"/>
+                                <field name="active" optional="show"/>
+                            </list>
+                        </field>
+                    </group>
+                    <notebook>
+                        <page string="Approvers" name="approvers">
+                            <field name="approver_user_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True}"/>
+                        </page>
+                        <page string="AI Model Lines" name="model_lines">
+                            <field name="model_line_ids">
+                                <list editable="bottom">
+                                    <field name="ai_model_id"
+                                           options="{'no_create_edit': True}"/>
+                                    <field name="ai_model_name"/>
+                                    <field name="cost_type"/>
+                                    <field name="per_trajectory_cost"/>
+                                    <field name="iterations"/>
+                                    <field name="per_task_cost"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Infrastructure Lines" name="infra_lines">
+                            <field name="infra_line_ids">
+                                <list editable="bottom">
+                                    <field name="infra_type_id"
+                                           options="{'no_create_edit': True}"/>
+                                    <field name="description"/>
+                                    <field name="instance_type" optional="hide"/>
+                                    <field name="budget_amount"/>
+                                    <field name="per_day_cost" readonly="1"/>
+                                    <field name="quantity" optional="hide"/>
+                                    <field name="duration_hours" optional="hide"/>
+                                    <field name="unit_price_usd" optional="hide"/>
+                                    <field name="compute_amount" optional="hide"
+                                           readonly="1"/>
+                                    <field name="storage_amount" optional="hide"
+                                           readonly="1"/>
+                                    <field name="computed_amount" readonly="1"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Subscription Lines" name="sub_lines">
+                            <field name="subscription_line_ids">
+                                <list editable="bottom">
+                                    <field name="subscription_id"
+                                           options="{'no_create_edit': True}"/>
+                                    <field name="cost_per_subscription" readonly="1"/>
+                                    <field name="assigned_user_ids"
+                                           widget="many2many_tags"
+                                           options="{'no_create': True}"/>
+                                    <field name="subscription_count" readonly="1"/>
+                                    <field name="final_amount" readonly="1"/>
+                                    <field name="per_day_cost" readonly="1"/>
+                                    <field name="approved_amount"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Providers" name="providers">
+                            <group>
+                                <group string="OpenRouter">
+                                    <field name="openrouter_enabled"/>
+                                    <field name="openrouter_api_key"
+                                           password="True"
+                                           invisible="not openrouter_enabled"/>
+                                    <field name="openrouter_inference_key_hash"
+                                           invisible="not openrouter_enabled"/>
+                                    <field name="last_openrouter_fetched_at"
+                                           readonly="1"
+                                           invisible="not openrouter_enabled"/>
+                                </group>
+                                <group string="Moonshot">
+                                    <field name="moonshot_enabled"/>
+                                    <field name="moonshot_api_key"
+                                           password="True"
+                                           invisible="not moonshot_enabled"/>
+                                    <field name="moonshot_last_used_usd"
+                                           readonly="1"
+                                           invisible="not moonshot_enabled"/>
+                                    <field name="last_moonshot_fetched_at"
+                                           readonly="1"
+                                           invisible="not moonshot_enabled"/>
+                                </group>
+                                <group string="OpenAI">
+                                    <field name="openai_enabled"/>
+                                    <field name="openai_api_key"
+                                           password="True"
+                                           invisible="not openai_enabled"/>
+                                    <field name="openai_project_id"
+                                           invisible="not openai_enabled"/>
+                                    <field name="last_openai_fetched_at"
+                                           readonly="1"
+                                           invisible="not openai_enabled"/>
+                                </group>
+                                <group string="GCP BigQuery">
+                                    <field name="gcp_enabled"/>
+                                    <field name="gcp_project_id"
+                                           invisible="not gcp_enabled"/>
+                                    <field name="gcp_bq_dataset"
+                                           invisible="not gcp_enabled"/>
+                                    <field name="gcp_bq_table"
+                                           invisible="not gcp_enabled"/>
+                                    <field name="gcp_service_filter"
+                                           invisible="not gcp_enabled"/>
+                                    <field name="gcp_label_key"
+                                           invisible="not gcp_enabled"/>
+                                    <field name="gcp_label_value"
+                                           invisible="not gcp_enabled"/>
+                                    <field name="last_gcp_fetched_at"
+                                           readonly="1"
+                                           invisible="not gcp_enabled"/>
+                                </group>
+                            </group>
+                            <group string="GCP Service Account JSON"
+                                   invisible="not gcp_enabled">
+                                <field name="gcp_service_account_json"
+                                       nolabel="1"/>
+                            </group>
+                        </page>
+                        <page string="Attachments" name="attachments">
+                            <field name="attachment_urls"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_budget_search" model="ir.ui.view">
+        <field name="name">ethara.project.budget.search</field>
+        <field name="model">ethara.project.budget</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="ethara_project_id"/>
+                <filter name="filter_draft" string="Draft"
+                        domain="[('state','=','draft')]"/>
+                <filter name="filter_approved" string="Approved"
+                        domain="[('state','=','approved')]"/>
+                <filter name="filter_at_risk" string="At Risk / Critical"
+                        domain="[('health_status','in',('at_risk','critical'))]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'ethara_project_id'}"/>
+                    <filter name="group_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_type" string="Budget Type"
+                            context="{'group_by': 'project_type'}"/>
+                    <filter name="group_health" string="Health"
+                            context="{'group_by': 'health_status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_budget" model="ir.actions.act_window">
+        <field name="name">Project Budgets</field>
+        <field name="res_model">ethara.project.budget</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_project_budget_search"/>
+    </record>
+
+</odoo>

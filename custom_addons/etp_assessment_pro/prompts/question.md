@@ -361,6 +361,7 @@ the platform stores as historic ground truth and feeds the subjective judge at s
   "questions": [ ... the array defined above ... ],
   "solutions": [
     {
+      "question_ref": "<the exact name of the question this solves>",
       "answers": { ... the most correct answer, shaped by the question's answer fields ... },
       "rationale": "how the answer is known: construction ground truth, the SOP's own rule, or derivation"
     }
@@ -379,6 +380,8 @@ Rules for `metadata`:
 
 Rules for `solutions` (the answer key — CRITICAL, this is what the judge grades against):
 - EXACTLY one entry per question, in the SAME ORDER as `questions[]`.
+- `question_ref` MUST be the exact `name` of the question this entry solves, so the
+  platform pairs the answer key to its question by name (never by position alone).
 - `answers` holds the most correct, optimal answer, written in an ideal worker's own voice —
   what a perfect annotator who saw only the question and its assets would submit. For a
   `subjective_rubric` question this is the full model answer. For `image_ab` it is the

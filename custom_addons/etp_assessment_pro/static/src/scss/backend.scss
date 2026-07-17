@@ -149,6 +149,164 @@
 }
 
 /* =======================================================================
+   GENERATOR FORM — SOP-first flow, boxed config panel, status cluster.
+   The prompt form was task-hostile: the mandatory SOP upload was buried
+   in a tab, and the two config inputs (allowed types chips + extra-notes
+   textarea) rendered as borderless placeholder text. These rules give the
+   config region a real card, draw resting boxes around the two controls,
+   and dim the read-only status cluster. All scoped under .o_etp_backend.
+   ======================================================================= */
+.o_etp_backend {
+    /* the promoted, required SOP uploader — a soft highlighted slab */
+    .o_etp_sop_upload {
+        background: var(--etp-surface-2);
+        border: 1px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+    }
+
+    /* the "Generation controls" card wraps every run knob */
+    .o_etp_panel {
+        background: var(--etp-surface-2);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+        padding: 1.1rem 1.4rem 1.35rem;
+        margin: 0.5rem 0 0.25rem;
+
+        /* first heading sits flush with the card top */
+        > .o_horizontal_separator:first-child { margin-top: 0; }
+    }
+
+    /* resting input box for the chips + textarea (they had none) */
+    .o_etp_control {
+        border: 1px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+        background: var(--etp-surface);
+        padding: 0.4rem 0.65rem;
+        box-shadow: var(--etp-shadow-sm);
+        transition: border-color var(--etp-fast) var(--etp-ease),
+                    box-shadow var(--etp-fast) var(--etp-ease);
+
+        /* Tag sizing. Core's own --Tag-font-size knob is NOT usable here: .o_tag also
+           carries Bootstrap's `badge`, whose `font-size: .75em` ties .o_tag on
+           specificity and wins on source order, so the variable never takes effect.
+           Hence an explicit, more specific font-size. */
+        .o_field_many2many_tags .o_tag {
+            font-size: 0.8125rem;
+            padding: 0.4em 0.75em;
+            line-height: 1.45;
+        }
+        /* Breathing room between pills. The markup uses Bootstrap's .gap-1 utility,
+           which is declared !important, so only !important can retune it. */
+        .o_field_tags { gap: 0.375rem !important; }
+    }
+    .o_etp_control:focus-within {
+        border-color: var(--etp-accent);
+        box-shadow: 0 0 0 0.18rem var(--etp-accent-ring);
+    }
+    /* fields fill the box; their own inner borders are flattened so the
+       wrapper owns the single visible frame */
+    .o_etp_control .o_field_widget { width: 100%; }
+    .o_etp_control .o_field_many2many_tags { min-height: 2rem; }
+    .o_etp_control .o_input,
+    .o_etp_control input.o_input {
+        border: 0 !important;
+        box-shadow: none !important;
+        padding: 0.1rem 0;
+    }
+    .o_etp_control textarea.o_input {
+        min-height: 6.25rem;
+        resize: vertical;
+        border: 0 !important;
+        box-shadow: none !important;
+        padding: 0.1rem 0;
+    }
+
+    /* dimmed status cluster — "things the system reports", not inputs */
+    .o_etp_status .o_form_label {
+        color: var(--etp-faint);
+        font-weight: 500;
+    }
+
+    /* single-line field labels in the SOP + generation-controls flex rows */
+    .o_etp_flabel {
+        min-width: 190px;
+        white-space: nowrap;
+        color: var(--etp-ink);
+    }
+    /* the optional "Set a number" count input stays compact */
+    .o_etp_count_input { max-width: 130px; }
+
+    /* Uploaded files render as inline chips (etp_file_chips / etp_upload_button)
+       rather than a list, so the whole row reads as one line. */
+    .o_etp_chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        max-width: 100%;
+        padding: 0.15rem 0.5rem;
+        border: 1px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius-xs);
+        background: var(--etp-surface);
+        font-size: 0.875rem;
+        color: var(--etp-text);
+    }
+    .o_etp_chip_name,
+    .o_etp_file_name { max-width: 18rem; }
+
+    .o_etp_chip_del {
+        line-height: 1;
+        opacity: 0.5;
+        color: var(--etp-muted);
+        transition: opacity var(--etp-fast) var(--etp-ease),
+                    color var(--etp-fast) var(--etp-ease);
+
+        &:hover { opacity: 1; color: var(--etp-fail); }
+    }
+
+    /* Extraction status. Green means "the generator can read this file", whether it
+       got there by text extraction (ready) or by being handed to the model whole
+       (native: PDF/image). Colour is a secondary cue only - each dot carries the
+       same information as text in its title/aria-label. */
+    .o_etp_dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--etp-faint);
+    }
+    .o_etp_dot_ready   { background: var(--etp-pass); }
+    .o_etp_dot_native  { background: var(--etp-pass); }
+    .o_etp_dot_failed  { background: var(--etp-fail); }
+    .o_etp_dot_pending { background: #d9a406; }  /* amber: stored, not yet extracted */
+
+    /* uploading is a routine secondary action - it must not outweigh the sheet's
+       real primary action (Generate Questions) */
+    .o_etp_upload_btn { font-weight: 600; }
+
+    /* Hide the tags add-input + dropdown once EVERY type is selected — the marker
+       span is present/visible only when types_all_selected is true (works whether
+       Odoo renders `invisible` as .d-none or removes the node). Chips + their
+       remove-× stay fully interactive. */
+    .o_etp_qtypes:has(> .o_etp_qtypes_full:not(.d-none)) .o-autocomplete {
+        display: none;
+    }
+}
+
+/* section separators win the type tier over Odoo's default uppercase, so
+   title (1.65rem) > separator (1.05rem) > label > helper reads as steps.
+   Odoo's own selector is more specific + forces uppercase, so !important is
+   required here (the module's lower-specificity rule above already lost). */
+.o_etp_backend .o_form_sheet .o_horizontal_separator,
+.o_etp_backend .o_etp_panel .o_horizontal_separator {
+    text-transform: none !important;
+    font-size: 1.05rem !important;
+    font-weight: 700;
+    color: var(--etp-ink);
+    letter-spacing: -0.005em;
+}
+
+/* =======================================================================
    FORM HEADER + STATUSBAR — branded ribbon
    ======================================================================= */
 .o_etp_backend {

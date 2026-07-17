@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_ethara_project" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.ethara.project</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Ethara Projects" string="Ethara Projects" name="ethara_project" logo="/base/static/description/settings.png">
+                    <block title="AWS Pricing" name="ethara_aws_pricing">
+                        <setting id="setting_ethara_aws_pricing_region" string="AWS Pricing Region"
+                                 help="AWS region used for the pricing service and Cost Explorer.">
+                            <field name="ethara_aws_pricing_region"/>
+                        </setting>
+                        <setting id="setting_ethara_aws_pricing_cache_ttl" string="Cache TTL (hours)"
+                                 help="How long fetched AWS pricing rows stay valid before re-syncing.">
+                            <field name="ethara_aws_pricing_cache_ttl_hours"/>
+                        </setting>
+                    </block>
+                    <block title="AWS Credentials" name="ethara_aws_credentials" groups="base.group_system"
+                           help="AWS IAM keys used to fetch the service catalog from the AWS Pricing API. Paste and click Sync AWS Pricing Now.">
+                        <setting id="setting_ethara_aws_access_key_id" string="AWS_ACCESS_KEY_ID"
+                                 help="AWS IAM access key ID (starts with AKIA...).">
+                            <field name="ethara_aws_access_key_id" password="True" placeholder="AKIA..."/>
+                        </setting>
+                        <setting id="setting_ethara_aws_secret_access_key" string="AWS_SECRET_ACCESS_KEY"
+                                 help="AWS IAM secret access key.">
+                            <field name="ethara_aws_secret_access_key" password="True" placeholder="Paste secret"/>
+                        </setting>
+                        <setting id="setting_ethara_aws_region_name" string="AWS_REGION"
+                                 help="Default AWS region used when fetching pricing. Example: us-east-1.">
+                            <field name="ethara_aws_region_name" placeholder="us-east-1"/>
+                        </setting>
+                        <setting id="setting_ethara_aws_sync" string="AWS Pricing Sync"
+                                 help="Fetch the AWS service catalog into Odoo. Runs automatically every day.">
+                            <div class="d-flex align-items-center gap-2">
+                                <button name="action_trigger_aws_sync" type="object"
+                                        string="Sync AWS Pricing Now" class="btn btn-primary"/>
+                            </div>
+                            <field name="ethara_aws_synced_service_count" invisible="1"/>
+                            <div class="text-muted mt-2">
+                                <field name="ethara_aws_last_sync_summary" nolabel="1" readonly="1"/>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Cost Fetch" name="ethara_cost_fetch">
+                        <setting id="setting_ethara_cost_fetch_months" string="Fetch Window (months)"
+                                 help="How many months of provider cost history each fetch pulls.">
+                            <field name="ethara_cost_fetch_months"/>
+                        </setting>
+                    </block>
+                    <block title="Provider Toggles" name="ethara_providers">
+                        <setting id="setting_ethara_provider_openrouter" string="OpenRouter">
+                            <field name="ethara_provider_openrouter_enabled"/>
+                        </setting>
+                        <setting id="setting_ethara_provider_moonshot" string="Moonshot">
+                            <field name="ethara_provider_moonshot_enabled"/>
+                        </setting>
+                        <setting id="setting_ethara_provider_openai" string="OpenAI">
+                            <field name="ethara_provider_openai_enabled"/>
+                        </setting>
+                        <setting id="setting_ethara_provider_gcp" string="GCP BigQuery">
+                            <field name="ethara_provider_gcp_enabled"/>
+                        </setting>
+                    </block>
+                    <block title="Threshold Alerts" name="ethara_thresholds">
+                        <setting id="setting_ethara_warning_pct" string="Warning Threshold (%)"
+                                 help="Consumed % that triggers the phase-budget warning email.">
+                            <field name="ethara_alert_warning_pct"/>
+                        </setting>
+                        <setting id="setting_ethara_over_budget_pct" string="Over-Budget Threshold (%)"
+                                 help="Consumed % that triggers the phase-budget over-budget email.">
+                            <field name="ethara_alert_over_budget_pct"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_settings" model="ir.actions.act_window">
+        <field name="name">Ethara Projects Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'ethara_project'}</field>
+    </record>
+
+</odoo>

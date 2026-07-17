@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="hr_department_rnd" model="hr.department">
+            <field name="name">R&amp;D</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="hr_department_operations_technical" model="hr.department">
+            <field name="name">Operations Technical</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="hr_department_operations_generalist" model="hr.department">
+            <field name="name">Operations Generalist</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="hr_department_finance" model="hr.department">
+            <field name="name">Finance</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="hr_department_it" model="hr.department">
+            <field name="name">IT</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="hr_department_hr" model="hr.department">
+            <field name="name">Human Resources</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="hr_department_engineering" model="hr.department">
+            <field name="name">Engineering</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="hr_department_growth" model="hr.department">
+            <field name="name">Growth</field>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

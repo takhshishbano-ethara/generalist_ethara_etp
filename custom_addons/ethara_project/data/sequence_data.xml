@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="seq_ethara_project_budget" model="ir.sequence">
+            <field name="name">Ethara Project Budget</field>
+            <field name="code">ethara.project.budget</field>
+            <field name="prefix">EBGT/</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+        <record id="seq_ethara_project_phase" model="ir.sequence">
+            <field name="name">Ethara Project Phase</field>
+            <field name="code">ethara.project.phase</field>
+            <field name="prefix">EPHS/</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+        <record id="seq_ethara_project_phase_request" model="ir.sequence">
+            <field name="name">Ethara Project Phase Request</field>
+            <field name="code">ethara.project.phase.request</field>
+            <field name="prefix">EPHR/</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+        <record id="seq_ethara_project_budget_topup" model="ir.sequence">
+            <field name="name">Ethara Project Budget Top-up</field>
+            <field name="code">ethara.project.budget.topup</field>
+            <field name="prefix">ETUP/</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+    </data>
+</odoo>

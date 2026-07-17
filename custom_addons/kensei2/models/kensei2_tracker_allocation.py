@@ -13,7 +13,10 @@ _TASK_ID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
     re.IGNORECASE,
 )
-_URL_RE = re.compile(r'^https?://\S+$', re.IGNORECASE)
+# A link must have a real dotted host (something.tld), not just a scheme — so
+# "https://g" is rejected while "https://drive.google.com/…" is accepted.
+_URL_RE = re.compile(
+    r'^https?://[^\s/?#]+\.[^\s/?#]{2,}([/?#]\S*)?$', re.IGNORECASE)
 
 # Each stage of a task lives in its OWN record, so a single form can only reach the
 # other stage's data through the mirror fields (s1_* / s2_*). These tuples are the
@@ -62,7 +65,7 @@ class Kensei2TrackerAllocation(models.Model):
     form. Inherits mail.thread so every tracked change is logged with who + when.
     """
     _name = 'kensei2.tracker.allocation'
-    _description = 'Kensei2 Tracker Task Allocation'
+    _description = 'Kensei Tracker Task Allocation'
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'assigned_date desc, id desc'
     _rec_name = 'task_id'
@@ -124,14 +127,14 @@ class Kensei2TrackerAllocation(models.Model):
     # ------------------------------------------------------------------ #
     # Both stages run the same pipeline over the same fields and the same STORED
     # values — but they name the trajectory step differently: stage 1 calls it
-    # Baseline, stage 2 calls it Pass It K. A Selection carries exactly ONE set of
+    # Baseline, stage 2 calls it Pass @ K. A Selection carries exactly ONE set of
     # labels, so `status` holds stage 1's and this holds stage 2's. Same values,
     # different words. Nothing extra is stored; there is no second source of truth.
     STAGE2_STATUS_SELECTION = [
         ('in_progress', 'Authoring'),
         ('tasker_qc_completed', 'Tasker QC'),
-        ('ready_baseline', 'Ready for Pass It K'),
-        ('baseline_generated', 'Pass It K Generated'),
+        ('ready_baseline', 'Ready for Pass @ K'),
+        ('baseline_generated', 'Pass @ K Generated'),
         ('manual_qc', 'Stage 2 Manual QC'),
         ('ready_next_stage', 'Ready for Next Stage'),
         ('deliverable', 'Deliverable'),
@@ -140,7 +143,7 @@ class Kensei2TrackerAllocation(models.Model):
     stage2_status = fields.Selection(
         selection=STAGE2_STATUS_SELECTION, string='Current Status',
         compute='_compute_stage2_status',
-        help="The same Current Status, in stage 2's words (Pass It K, not Baseline).",
+        help="The same Current Status, in stage 2's words (Pass @ K, not Baseline).",
     )
 
     @api.depends('status')
@@ -280,14 +283,43 @@ class Kensei2TrackerAllocation(models.Model):
         help='Finished (Deliverable/Failed) or already handed off to a next '
              'stage, so its inputs can no longer be edited in place.',
     )
+    # A SECOND, softer lock for the failure-documentation fields (the reason/notes at
+    # each gate). Marking a gate Failed drives the whole record to status 'failed',
+    # which sets is_locked — and that froze the very reason field the user must fill
+    # to explain the failure (it is `required` and only visible WHEN failed, so the
+    # form demanded a reason it would not let you type, and the tab looked frozen).
+    # These fields therefore lock one step later than the rest: only on Deliverable
+    # (a success terminal) or hand-off, never merely on Failed.
+    is_doc_locked = fields.Boolean(
+        string='Documentation Locked', compute='_compute_is_locked',
+        help='Failure reason/notes are frozen (delivered, or handed off). The '
+             'Failed state alone does NOT freeze them, so a failure can be '
+             'documented after it happens.',
+    )
+
+    # When the CURRENT status was entered. Stamped whenever `status` changes (see
+    # write/create), so the form can answer "how long has this been stuck here?" —
+    # the question a lead actually opens the record to ask.
+    status_since = fields.Datetime(
+        string='In Status Since', readonly=True, copy=False)
+    days_in_status = fields.Integer(
+        string='Days in Status', compute='_compute_days_in_status',
+        help='Whole days the task has sat in its current step.')
+
+    @api.depends('status_since')
+    def _compute_days_in_status(self):
+        # Not stored: it grows with wall-clock time, so it is derived on read.
+        now = fields.Datetime.now()
+        for rec in self:
+            rec.days_in_status = (
+                (now - rec.status_since).days if rec.status_since else 0)
 
     # A record only ever holds its OWN tasker, so these are what let any one stage
     # show who works the others: the whole chain (every record sharing the Task ID,
     # oldest first) plus stage 1's and stage 2's tasker surfaced directly. Not
     # stored — a sibling stage can be created or reassigned at any time.
     stage_ids = fields.Many2many(
-        'kensei2.tracker.allocation', 'kensei2_alloc_stage_chain_rel',
-        'alloc_id', 'stage_id', string='All Stages',
+        'kensei2.tracker.allocation', string='All Stages',
         compute='_compute_stage_chain',
     )
     stage1_tasker_id = fields.Many2one(
@@ -300,17 +332,9 @@ class Kensei2TrackerAllocation(models.Model):
     )
 
     # ---------------- Cross-stage mirrors ------------------------------ #
-    # Which record holds each stage of this task. Resolved from the chain relations
+    # Whether this task has a Stage 2, resolved from the chain relations
     # (parent_id / child_ids) rather than a search on task_id, so Odoo can track the
-    # dependency and refresh the mirrors when the sibling stage changes.
-    stage1_alloc_id = fields.Many2one(
-        'kensei2.tracker.allocation', string='Stage 1 Record',
-        compute='_compute_stage_targets',
-    )
-    stage2_alloc_id = fields.Many2one(
-        'kensei2.tracker.allocation', string='Stage 2 Record',
-        compute='_compute_stage_targets',
-    )
+    # dependency and refresh the flag when the sibling stage changes.
     has_stage_2 = fields.Boolean(
         string='Stage 2 Assigned', compute='_compute_stage_targets',
     )
@@ -408,7 +432,7 @@ class Kensei2TrackerAllocation(models.Model):
     tasker_member_id = fields.Many2one(
         'kensei2.tracker.team.member', string='Tasker', required=True,
         index=True, ondelete='restrict', tracking=True,
-        help='Pick the tasker from the Kensei2 team roster (search by name or '
+        help='Pick the tasker from the Kensei team roster (search by name or '
              'email). Their email and Assigned PL / QL are synced automatically.',
     )
     tasker_name = fields.Char(string='Tasker Name', tracking=True)
@@ -452,6 +476,11 @@ class Kensei2TrackerAllocation(models.Model):
     )
     persona_id = fields.Many2one(
         'kensei2.persona', string='Persona', required=True, index=True, tracking=True)
+    # Surfaced from the chosen persona so the form shows its taxonomy next to it.
+    persona_l1_category = fields.Char(
+        related='persona_id.l1_category', string='L1 Category', readonly=True)
+    persona_l2_category = fields.Char(
+        related='persona_id.l2_category', string='L2 Category', readonly=True)
     # Derived from the current Status (the pipeline phase) rather than set by
     # hand, so it can never drift from where the task actually is. Terminal
     # statuses (Deliverable/Failed) map to Manual QC — the last phase reached.
@@ -479,6 +508,33 @@ class Kensei2TrackerAllocation(models.Model):
     pytest_score = fields.Float(string='Pytest Score (%)', tracking=True)
     overall_score = fields.Float(string='Overall Score (%)', tracking=True)
     qced_by = fields.Many2one('res.users', string='QCed By', tracking=True)
+
+    # Picker restrictions: qced_by and the PL override are res.users, which would
+    # otherwise list EVERY Odoo user. Scope them to the Tracker roster so only
+    # relevant people appear. Non-stored (the roster changes), computed once and
+    # broadcast to the recordset since the eligible set is the same for every task.
+    # Existing values that fall outside the set still display — a domain only filters
+    # what the dropdown OFFERS, it never invalidates a stored value.
+    qc_candidate_ids = fields.Many2many(
+        'res.users', compute='_compute_pick_candidates',
+        string='QC Candidates',
+        help='Active team members — the only users selectable as QCed By.')
+    pl_candidate_ids = fields.Many2many(
+        'res.users', compute='_compute_pick_candidates',
+        string='PL Candidates',
+        help='Active team members who are leads (PL / QL / Admin).')
+
+    @api.depends_context('uid')
+    def _compute_pick_candidates(self):
+        Member = self.env['kensei2.tracker.team.member'].sudo()
+        active = Member.search([('status', '=', 'active'),
+                                ('user_id', '!=', False)])
+        qc_users = active.user_id
+        pl_users = active.filtered(
+            lambda m: m.role in ('pl', 'ql', 'admin')).user_id
+        for rec in self:
+            rec.qc_candidate_ids = qc_users
+            rec.pl_candidate_ids = pl_users
 
     # ------------------------------------------------------------------ #
     #  Stage-specific inputs (shown dynamically on the form by status)
@@ -648,8 +704,8 @@ class Kensei2TrackerAllocation(models.Model):
                 val = (rec[fname] or '').strip()
                 if val and not _URL_RE.match(val):
                     raise ValidationError(_(
-                        "%s must be a valid URL starting with http:// or "
-                        "https:// — got “%s”.", label, val))
+                        "%s must be a full URL with a domain, e.g. "
+                        "https://drive.google.com/… — got “%s”.", label, val))
 
     @api.depends('pl_verified_reason', 'baseline_ready_reason',
                  'baseline_gen_reason', 'manual_qc_reason')
@@ -682,6 +738,7 @@ class Kensei2TrackerAllocation(models.Model):
     @api.depends('stage_no', 'drive_link', 'pl_verified_status',
                  'baseline_ready_status', 'baseline_drive_link',
                  'baseline_gen_status', 'qced_by', 'manual_qc_status',
+                 'rubric_score', 'pytest_score', 'overall_score',
                  'is_final_stage')
     def _compute_status(self):
         """Derive the current stage (and mirrored final status) from the fields
@@ -699,7 +756,7 @@ class Kensei2TrackerAllocation(models.Model):
         source of truth without a second (chained) recompute.
 
         The two stages run DIFFERENT pipelines. Stage 1 authors the task and gets it
-        verified (Tasker QC -> PL Verification -> Ready for Pass It K). Stage 2 picks
+        verified (Tasker QC -> PL Verification -> Ready for Pass @ K). Stage 2 picks
         that finished task up, so those three steps are already behind it: it starts
         at 'ready_baseline' and only generates the trajectory and manual-QCs it.
         """
@@ -708,7 +765,10 @@ class Kensei2TrackerAllocation(models.Model):
                 s = 'ready_baseline'
                 if rec.baseline_drive_link:
                     s = 'baseline_generated'
-                    if rec.baseline_gen_status == 'done' and rec.qced_by:
+                    if (rec.baseline_gen_status == 'done' and rec.qced_by
+                            and 0 < rec.rubric_score <= 100
+                            and 0 < rec.pytest_score <= 100
+                            and 0 < rec.overall_score <= 100):
                         s = 'manual_qc'
                         if rec.manual_qc_status == 'done':
                             s = ('deliverable' if rec.is_final_stage
@@ -734,7 +794,10 @@ class Kensei2TrackerAllocation(models.Model):
                     # which only unlocks once that sign-off is in.
                     if rec.baseline_drive_link:
                         s = 'baseline_generated'
-                        if rec.baseline_gen_status == 'done' and rec.qced_by:
+                        if (rec.baseline_gen_status == 'done' and rec.qced_by
+                                and 0 < rec.rubric_score <= 100
+                                and 0 < rec.pytest_score <= 100
+                                and 0 < rec.overall_score <= 100):
                             s = 'manual_qc'
                             if rec.manual_qc_status == 'done':
                                 # Completing the pipeline only DELIVERS the task
@@ -755,31 +818,63 @@ class Kensei2TrackerAllocation(models.Model):
     # ------------------------------------------------------------------ #
     #  Stage-gate validation (must complete a stage before progressing)
     # ------------------------------------------------------------------ #
-    @api.constrains('baseline_gen_status', 'qced_by')
+    # The three evaluation scores, with their labels, in display order.
+    _SCORE_FIELDS = (
+        ('rubric_score', 'Rubric Score'),
+        ('pytest_score', 'Pytest Score'),
+        ('overall_score', 'Overall Score'),
+    )
+
+    @api.constrains('baseline_gen_status', 'qced_by',
+                    'rubric_score', 'pytest_score', 'overall_score')
     def _check_baseline_metrics(self):
         for rec in self:
-            if rec.baseline_gen_status == 'done' and not rec.qced_by:
-                raise ValidationError(_(
-                    "Enter the evaluation metrics (including QCed By) before "
-                    "marking Baseline Generation as Done."))
-
-    @api.constrains('pl_verified_status', 'pl_verified_reason',
-                    'baseline_ready_status', 'baseline_ready_reason',
-                    'baseline_gen_status', 'baseline_gen_reason',
-                    'manual_qc_status', 'manual_qc_reason')
-    def _check_failure_reasons(self):
-        checks = [
-            ('pl_verified_status', 'pl_verified_reason', 'PL Verification'),
-            ('baseline_ready_status', 'baseline_ready_reason',
-             'Ready for Baseline Trajectory'),
-            ('baseline_gen_status', 'baseline_gen_reason', 'Baseline Generation'),
-            ('manual_qc_status', 'manual_qc_reason', 'Manual QC'),
-        ]
-        for rec in self:
-            for status_f, reason_f, label in checks:
-                if rec[status_f] == 'failed' and not (rec[reason_f] or '').strip():
+            # Range check runs ALWAYS, so a fat-fingered 950 or a negative is caught
+            # the moment it is entered, not only at the Done gate.
+            for fname, label in self._SCORE_FIELDS:
+                v = rec[fname]
+                if not (0.0 <= v <= 100.0):
                     raise ValidationError(_(
-                        "A reason is required when %s is marked Failed.", label))
+                        "%s must be between 0 and 100 — got %s.", label, v))
+            if rec.baseline_gen_status != 'done':
+                continue
+            # Done means the trajectory has been evaluated, so QCed By and all three
+            # scores are required. A score left at 0 is treated as NOT YET ENTERED:
+            # the fields default to 0.0 and there is no way to tell a real 0 from an
+            # empty one, and a trajectory scored 0 across the board would not be
+            # marked Done in the first place.
+            if not rec.qced_by:
+                raise ValidationError(_(
+                    "Enter QCed By before marking Generation as Done."))
+            missing = [label for fname, label in self._SCORE_FIELDS if not rec[fname]]
+            if missing:
+                raise ValidationError(_(
+                    "Enter the evaluation metrics (%s) before marking Generation "
+                    "as Done.", ', '.join(missing)))
+
+    @api.constrains('manual_qc_status', 'baseline_gen_status', 'qced_by',
+                    'rubric_score', 'pytest_score', 'overall_score')
+    def _check_manual_qc_prerequisites(self):
+        """Manual QC can only be signed off (Done/Failed) once its trajectory is
+        fully generated, scored and QCed — the same bar the status ladder uses to
+        REACH Manual QC. Now that the tab is editable out of order (validate on
+        save), this is what makes a premature Manual QC fail with a message naming
+        exactly what is missing, instead of silently doing nothing."""
+        for rec in self:
+            if rec.manual_qc_status == 'in_progress':
+                continue
+            missing = []
+            if rec.baseline_gen_status != 'done':
+                missing.append('Generation = Done')
+            if not rec.qced_by:
+                missing.append('QCed By')
+            missing += [label for fname, label in self._SCORE_FIELDS
+                        if not (0 < rec[fname] <= 100)]
+            if missing:
+                raise ValidationError(_(
+                    "Complete the trajectory step before Manual QC — still needed: "
+                    "%s.", ', '.join(missing)))
+
 
     # ------------------------------------------------------------------ #
     #  Constraints — one task can be allocated only once.
@@ -892,8 +987,12 @@ class Kensei2TrackerAllocation(models.Model):
         out of this compute on its own.
         """
         for rec in self:
+            handed_off_or_done = bool(rec.child_ids)
             rec.is_locked = bool(
-                rec.status in ('deliverable', 'failed') or rec.child_ids)
+                rec.status in ('deliverable', 'failed') or handed_off_or_done)
+            # Same, minus the Failed state: reason/notes stay writable while failed.
+            rec.is_doc_locked = bool(
+                rec.status == 'deliverable' or handed_off_or_done)
 
     def _stage_map(self):
         """``{task_id: {stage_no: record}}`` for every task in ``self``, AS VISIBLE TO
@@ -967,11 +1066,10 @@ class Kensei2TrackerAllocation(models.Model):
     def _compute_stage_targets(self):
         by_task = self._stage_map()
         for rec in self:
-            stage1, stage2 = self._siblings_from(by_task.get(rec.task_id) or {}, rec)
-            rec.stage1_alloc_id = stage1
-            rec.stage2_alloc_id = stage2
-            # The form gates the Stage 2 tab on this rather than on stage2_alloc_id: a
-            # bare boolean cannot blow up on a display_name fetch.
+            _stage1, stage2 = self._siblings_from(by_task.get(rec.task_id) or {}, rec)
+            # The form gates the Stage 2 tab on this bare boolean rather than on a
+            # Many2one to the stage-2 record: a boolean cannot blow up on a
+            # display_name fetch.
             rec.has_stage_2 = bool(stage2)
 
     @api.depends(
@@ -1025,6 +1123,26 @@ class Kensei2TrackerAllocation(models.Model):
             'context': {'default_task_id': self.task_id},
         }
 
+    def action_manual_save(self):
+        """Explicit Save button at the bottom of the form.
+
+        Clicking an object button on a dirty record makes Odoo SAVE it first (and run
+        the same validity checks as auto-save — missing required fields block the save
+        and are highlighted), so this only needs to confirm the save happened. It is a
+        thin convenience next to auto-save, not a different save path.
+        """
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _("Saved"),
+                'message': _("Your changes have been saved."),
+                'type': 'success',
+                'sticky': False,
+            },
+        }
+
     # Every field a stage's own worker fills in. A locked record accepts writes to
     # none of them. Deliberately does NOT include the computed status fields or
     # date_final: _stamp_completion writes date_final on every save, and status /
@@ -1039,6 +1157,22 @@ class Kensei2TrackerAllocation(models.Model):
         'rubric_score', 'pytest_score', 'overall_score', 'qced_by',
         'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes',
     )
+
+    # The subset of the above that stays editable WHILE FAILED (softer is_doc_locked
+    # rule: frozen only on Deliverable or hand-off). Two kinds:
+    #   * the reason/notes, so a failure can be documented after it happens;
+    #   * the gate STATUS fields, so whoever marked a gate Failed can flip it back —
+    #     un-failing is self-service, no privileged Reopen needed. Marking a gate
+    #     Failed used to be a one-way door because the field that failed the task was
+    #     itself frozen the instant it changed.
+    # Must stay a subset of _LOCKED_INPUT_FIELDS, or the force-save guarantee (tested)
+    # would miss them.
+    _FAILED_EDITABLE_FIELDS = frozenset((
+        'pl_verified_status', 'pl_verified_reason', 'pl_verified_notes',
+        'baseline_ready_status', 'baseline_ready_reason', 'baseline_ready_notes',
+        'baseline_gen_status', 'baseline_gen_reason', 'baseline_gen_notes',
+        'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes',
+    ))
 
     def _check_locked(self, vals):
         """Refuse stage-input edits on a finished or handed-off record.
@@ -1063,18 +1197,24 @@ class Kensei2TrackerAllocation(models.Model):
         if not touched:
             return
         for rec in self:
-            if not rec.is_locked:
-                continue
-            if rec.child_ids:
+            for f in touched:
+                # Fields that stay live while Failed (reason/notes to document it, and
+                # the gate status to un-fail it) obey the softer lock. Every other
+                # input obeys the full lock.
+                locked = (rec.is_doc_locked if f in self._FAILED_EDITABLE_FIELDS
+                          else rec.is_locked)
+                if not locked:
+                    continue
+                if rec.child_ids:
+                    raise UserError(_(
+                        "Task %s stage %s has already been handed off to the next "
+                        "stage, which was built on this data. Delete the next stage "
+                        "before changing it.", rec.task_id, rec.stage_no))
                 raise UserError(_(
-                    "Task %s stage %s has already been handed off to the next "
-                    "stage, which was built on this data. Delete the next stage "
-                    "before changing it.", rec.task_id, rec.stage_no))
-            raise UserError(_(
-                "Task %s stage %s is %s and its results are frozen. Use Reopen "
-                "to make changes.",
-                rec.task_id, rec.stage_no,
-                dict(self.STATUS_SELECTION).get(rec.status, rec.status)))
+                    "Task %s stage %s is %s and its results are frozen. Use Reopen "
+                    "to make changes.",
+                    rec.task_id, rec.stage_no,
+                    dict(self.STATUS_SELECTION).get(rec.status, rec.status)))
 
     def action_reopen(self):
         """Take a finished stage back out of its terminal status so it can be
@@ -1117,6 +1257,39 @@ class Kensei2TrackerAllocation(models.Model):
             rec.message_post(body=_(
                 "Reopened from %(was)s by %(user)s.",
                 was=was, user=self.env.user.name))
+        return True
+
+    def action_reset_stage(self):
+        """Reset THIS stage only — clear its inputs back to its own starting point,
+        leaving every other stage of the task untouched.
+
+        The per-stage counterpart to action_reset_task (which resets the whole
+        task). A stage that a LATER stage was built on cannot be reset in place —
+        the later stage's work depends on this one's hand-off — so it is blocked
+        with the same rule action_reopen uses: remove the later stage first.
+
+        Unlike Reset Task, the record is NOT deleted, so the form stays on it.
+        QL/PL-gated, confirmed in the UI, logged to the chatter.
+        """
+        self.ensure_one()
+        if not self._is_tracker_manager():
+            raise AccessError(_("Only a Project Lead / QL can reset a stage."))
+        if self.child_ids:
+            raise UserError(_(
+                "Task %(task)s stage %(n)s was handed off to stage %(next)s, which "
+                "was built on it. Reset or delete stage %(next)s first.",
+                task=self.task_id, n=self.stage_no, next=self.stage_no + 1))
+
+        was = dict(self.STATUS_SELECTION).get(self.status, self.status)
+        # kensei2_reopen: this stage may be locked (Deliverable/Failed). The guard
+        # honours the flag only for a manager, which we checked above. Clearing the
+        # inputs drops the status back down; _stamp_completion then withdraws any
+        # delivery credit, exactly as reopen/reset_task do.
+        self.with_context(kensei2_reopen=True).write(dict(self._RESET_VALUES))
+        self.message_post(body=_(
+            "Stage %(n)s reset by %(user)s (was %(was)s). Its inputs were cleared; "
+            "the rest of the task is unchanged.",
+            n=self.stage_no, user=self.env.user.name, was=was))
         return True
 
     # Every stage input restored to its as-created value by action_reset_task.
@@ -1270,15 +1443,32 @@ class Kensei2TrackerAllocation(models.Model):
         self._sync_tasker([vals])
         self._guard_privileged_fields(vals)
         self._check_locked(vals)
+        # `status` is computed from the fields in `vals`, so capture the OLD value
+        # before the write to detect a transition afterwards.
+        old_status = {rec.id: rec.status for rec in self}
         res = super().write(vals)
         # status is computed; stamp completion based on the (re)computed value.
         self._stamp_completion()
+        self._stamp_status_since(old_status)
         return res
+
+    def _stamp_status_since(self, old_status_by_id):
+        """Reset the in-status clock whenever the step changed. sudo + super so it
+        lands as bookkeeping even on a record that just became locked, and never
+        re-enters this override."""
+        changed = self.filtered(
+            lambda r: r.status != old_status_by_id.get(r.id))
+        if changed:
+            super(Kensei2TrackerAllocation, changed.sudo()).write(
+                {'status_since': fields.Datetime.now()})
 
     @api.model_create_multi
     def create(self, vals_list):
+        now = fields.Datetime.now()
         for vals in vals_list:
             self._normalise_task_id(vals)
+            # A new record's status is computed on create; start its clock now.
+            vals.setdefault('status_since', now)
         self._sync_tasker(vals_list)
         for vals in vals_list:
             self._guard_privileged_fields(vals)

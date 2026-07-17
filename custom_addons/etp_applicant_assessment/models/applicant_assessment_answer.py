@@ -55,6 +55,24 @@ class EtpApplicantAssessmentAnswer(models.Model):
     manual_score = fields.Integer(default=0)
     manual_score_set = fields.Boolean(default=False)
 
+    llm_qc_percent = fields.Float(
+        string="LLM QC Score (%)",
+        help="Score returned by the LLM QC evaluator, 0-100.",
+        default=0.0, copy=False,
+    )
+    llm_qc_reasoning = fields.Text(
+        string="LLM QC Reasoning", copy=False, readonly=True,
+    )
+    llm_qc_set = fields.Boolean(
+        string="LLM QC Scored", default=False, copy=False, readonly=True,
+    )
+    llm_qc_at = fields.Datetime(
+        string="LLM QC At", readonly=True, copy=False,
+    )
+    llm_qc_error = fields.Char(
+        string="LLM QC Error", readonly=True, copy=False,
+    )
+
     score = fields.Integer(
         compute="_compute_score", store=True, string="Awarded Marks",
     )
@@ -94,22 +112,26 @@ class EtpApplicantAssessmentAnswer(models.Model):
             selected = set(rec.selected_option_ids.ids)
             rec.is_correct = bool(correct) and correct == selected
 
-    @api.depends("question_type", "text_answer", "manual_score_set")
+    @api.depends(
+        "question_type", "text_answer",
+        "manual_score_set", "llm_qc_set",
+    )
     def _compute_needs_review(self):
         for rec in self:
-            if rec.question_type in MANUAL_REVIEW_TYPES:
-                rec.needs_review = (
-                    bool(rec.text_answer and rec.text_answer.strip())
-                    and not rec.manual_score_set
-                )
-            else:
+            if rec.question_type not in MANUAL_REVIEW_TYPES:
                 rec.needs_review = False
+                continue
+            if rec.manual_score_set or rec.llm_qc_set:
+                rec.needs_review = False
+                continue
+            rec.needs_review = bool(rec.text_answer and rec.text_answer.strip())
 
     @api.depends(
         "is_correct", "is_answered",
         "question_id.marks", "question_id.negative_marks",
         "question_type",
         "manual_score", "manual_score_set",
+        "llm_qc_percent", "llm_qc_set",
     )
     def _compute_score(self):
         for rec in self:
@@ -120,10 +142,15 @@ class EtpApplicantAssessmentAnswer(models.Model):
                     rec.score = -rec.question_id.negative_marks
                 else:
                     rec.score = 0
-            elif rec.question_type in MANUAL_REVIEW_TYPES:
-                rec.score = rec.manual_score if rec.manual_score_set else 0
-            else:
-                rec.score = 0
+                continue
+            if rec.manual_score_set:
+                rec.score = rec.manual_score
+                continue
+            if rec.llm_qc_set:
+                pct = max(0.0, min(100.0, rec.llm_qc_percent or 0.0))
+                rec.score = int(round((pct / 100.0) * (rec.question_id.marks or 0)))
+                continue
+            rec.score = 0
 
     @api.constrains("manual_score", "manual_score_set", "question_id")
     def _check_manual_score(self):

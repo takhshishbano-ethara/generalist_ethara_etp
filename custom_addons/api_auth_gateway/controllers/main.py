@@ -57,6 +57,13 @@ class ApiAuthController(http.Controller):
         role_data = finalize_tree(roots)
         return role_data
 
+    @http.route('/api/v1/job/apply', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({'job_id': {'type': 'int', 'required': True}})
+    def api_apply_job(self, **kwargs):
+        jdata = kwargs.get('jdata') or {}
+        return self.apply_job_position(job_id=jdata.get('job_id'))
+
     def apply_job_position(self, job_id=None):
         Applicant = request.env['hr.applicant'].sudo()
         Job = request.env['hr.job'].sudo()
@@ -81,6 +88,7 @@ class ApiAuthController(http.Controller):
                 ('candidate_user_id', '=', user.id),
                 ('active', '=', True),
                 ('refuse_reason_id', '=', False),
+                ('pipeline_status', '!=', 'rejected'),
             ],
             limit=1, order='id desc',
         )

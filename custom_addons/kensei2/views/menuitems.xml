@@ -32,7 +32,7 @@
     <menuitem name="Test Results" id="kensei2.menu_kensei2_test_results" parent="kensei2.menu_kensei2_root"
               action="action_kensei2_test_results" sequence="45"
               groups="kensei2.group_kensei2_tasker"/>
-<menuitem name="Kensei2 Tracker" id="kensei2.menu_kensei2_tracker_root"
+<menuitem name="Kensei Tracker" id="kensei2.menu_kensei2_tracker_root"
               parent="kensei2.menu_kensei2_root" sequence="50"
               groups="kensei2.group_kensei2_tasker,base.group_system"/>
 

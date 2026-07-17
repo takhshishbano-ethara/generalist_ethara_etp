@@ -49,7 +49,7 @@ class LoggedUserDetailsOnboardingExtension(ApiAuthController):
             if user and user.exists() and user.employee_id:
                 completed = bool(user.employee_id.sudo().onboarding_completed)
 
-            record["onboarding_completed"] = completed
+            record["onboarding_completed"] = True if user.is_organization_account else completed
             response.set_data(json.dumps(body))
         except Exception:
             _logger.exception(

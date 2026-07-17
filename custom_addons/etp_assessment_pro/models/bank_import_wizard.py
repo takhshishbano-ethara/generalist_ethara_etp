@@ -63,7 +63,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
     data_filename = fields.Char(string="Filename")
     question_count = fields.Integer(
         string="Questions in File", readonly=True,
-        help="Parsed row / item count — refreshes when you attach a file.")
+        help="Parsed row / item count - refreshes when you attach a file.")
     generator_name = fields.Char(
         string="Batch Name",
         help="Name for the import batch (a generator record). Defaults to the "
@@ -404,7 +404,7 @@ def _template_rows():
             "correct_answer": "2|3",
         },
         {
-            "title": "Screenshot QA — Spotify",
+            "title": "Screenshot QA - Spotify",
             "question_type": "mcq",
             "prompt": "Review the screenshot and answer each check.",
             "description": "Several objective dimensions on one question.",

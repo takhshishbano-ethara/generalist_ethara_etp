@@ -1,8 +1,4 @@
 # -*- coding: utf-8 -*-
-"""Image attachments for image-evaluation questions; ``slot`` identifies each picture.
-
-Storage: Odoo Binary, optionally offloaded to S3 (``image_url``, preferred when set).
-"""
 import base64
 import datetime
 import json
@@ -96,7 +92,7 @@ class EtpAssessmentQuestionImage(models.Model):
     dom_manifest_json = fields.Text(
         string="DOM Manifest (JSON)", copy=False,
         help="Per-box construction facts captured from the live DOM (tag, role, "
-             "name, text, href, box_css, in_shadow, boxed_via_label) — the "
+             "name, text, href, box_css, in_shadow, boxed_via_label) - the "
              "ground truth the behavioural key was drafted from.")
     behavioural_key_json = fields.Text(
         string="Behavioural Key (JSON)", copy=False,
@@ -170,7 +166,6 @@ class EtpAssessmentQuestionImage(models.Model):
 
     @api.depends("slot")
     def _compute_slot_helpers(self):
-        """Project the canonical slot onto the per-type helper selectors."""
         for rec in self:
             rec.slot_ab = rec.slot if rec.slot in ("a", "b") else False
             rec.slot_text = (
@@ -189,7 +184,6 @@ class EtpAssessmentQuestionImage(models.Model):
 
     @api.onchange("question_type")
     def _onchange_question_type_slot_default(self):
-        """Default a new row's slot to one valid for its parent question type."""
         for rec in self:
             if rec.question_type == "image_ab" and rec.slot not in ("a", "b"):
                 rec.slot = "a"
@@ -201,8 +195,6 @@ class EtpAssessmentQuestionImage(models.Model):
                 rec.slot = "single"
 
     def _source_image_bytes(self):
-        """Raw bytes of the source picture: the external image_url when set,
-        else the stored binary. Returns b"" when neither is available."""
         self.ensure_one()
         if self.image_url:
             from ..services import image_ingest
@@ -220,10 +212,8 @@ class EtpAssessmentQuestionImage(models.Model):
         return b""
 
     def _store_capture(self, result, viewport=(1600, 1000), dsf=2):
-        """Persist a DOM capture: the screenshot becomes the source image, the
-        numbered overlay the candidate-facing annotated image, plus the manifest,
-        the behavioural key, the geometry ``detections_json`` (so the portal
-        renders the boxes and the cron skips this image), and a viewport stamp."""
+        # detections_json must be written here: a non-empty value is the cron's
+        # skip guard for this image.
         self.ensure_one()
         from ..services import image_ingest, dom_capture
         screenshot_b64 = base64.b64encode(result["screenshot_png"]).decode()
@@ -251,8 +241,6 @@ class EtpAssessmentQuestionImage(models.Model):
         self.write(vals)
 
     def _omit_spec(self):
-        """Parse omit_spec_json to a directive dict for capture_and_annotate, or
-        None when unset/blank/unparseable (so a bad spec never blocks capture)."""
         self.ensure_one()
         raw = (self.omit_spec_json or "").strip()
         if not raw:
@@ -264,9 +252,6 @@ class EtpAssessmentQuestionImage(models.Model):
         return spec if isinstance(spec, dict) and spec else None
 
     def _capture_config(self):
-        """Parse capture_config_json to a dict of DOM-capture directives (viewport
-        / wait_ms / dismiss), or {} when unset/blank/unparseable so a bad config
-        never blocks capture."""
         self.ensure_one()
         raw = (self.capture_config_json or "").strip()
         if not raw:
@@ -278,8 +263,6 @@ class EtpAssessmentQuestionImage(models.Model):
         return cfg if isinstance(cfg, dict) else {}
 
     def _capture_kwargs(self):
-        """Thread the persisted omit + capture_config (viewport / wait_ms /
-        dismiss) into capture_and_annotate keyword arguments."""
         self.ensure_one()
         kwargs: dict = {"omit": self._omit_spec()}
         cfg = self._capture_config()
@@ -303,19 +286,6 @@ class EtpAssessmentQuestionImage(models.Model):
         return kwargs
 
     def _detect_and_annotate(self, ui=False):
-        """Detect the elements in this image's source picture, draw the numbered
-        overlay, and store ``annotated_image`` (+url) and the ``detections_json``
-        answer key. Returns True on success, False when there is no source image.
-
-        PRIMARY (real page): when a ``source_url`` is set AND Playwright/Chromium
-        are available, drive a live DOM capture (deterministic boxes + behavioural
-        key) threading the persisted capture_config (viewport / wait_ms / dismiss).
-
-        HYBRID FALLBACK: when capture is UNAVAILABLE (no Playwright), FAILS
-        (unreachable / timeout / any error), or yields ZERO boxes, fall through to
-        the synthetic path — detect on the source bytes (the rendered synthetic
-        screenshot for a source_url question, or an uploaded picture) — so the
-        result is always SOME annotated image + key."""
         self.ensure_one()
         from ..services import dom_capture
         if self.source_url and dom_capture.PLAYWRIGHT_AVAILABLE:
@@ -323,7 +293,7 @@ class EtpAssessmentQuestionImage(models.Model):
             try:
                 result = dom_capture.capture_and_annotate(
                     self.source_url, **kwargs)
-            except Exception:  # noqa: BLE001 - degrade to synthetic, never crash
+            except Exception:  # noqa: BLE001
                 _logger.exception(
                     "DOM capture failed for image %s; falling back to the "
                     "synthetic render+detect path", self.id)
@@ -340,9 +310,6 @@ class EtpAssessmentQuestionImage(models.Model):
         return self._annotate_from_bytes(self._source_image_bytes(), ui=ui)
 
     def _dense_detections(self):
-        """Parse the model-authored per-box map (``label_boxes_json``) into the
-        imaging.annotate_image detections shape ``[{box_2d,label,description}]``,
-        or ``[]`` when this image carries no usable dense per-box map."""
         self.ensure_one()
         raw = (self.label_boxes_json or "").strip()
         if not raw:
@@ -364,13 +331,8 @@ class EtpAssessmentQuestionImage(models.Model):
         return dets
 
     def _annotate_from_dense_map(self):
-        """SELF-CONTAINED synthetic fallback: draw the numbered boxes on the source
-        (synthetic) screenshot from the model-authored per-box map deterministically
-        via imaging.annotate_image — with ZERO Vertex detection calls — and store
-        the SAME shapes the DOM-capture / Gemini-detect paths produce
-        (``detections_json`` + annotated overlay). Returns True when a dense map
-        produced an overlay, False when there is no usable per-box map or no source
-        bytes (the caller then falls back to a single Gemini detect)."""
+        """Must stay Vertex-free: this fallback draws boxes from the stored map
+        only, and runs ahead of detect to avoid burning image quota."""
         self.ensure_one()
         dets = self._dense_detections()
         if not dets:
@@ -396,17 +358,8 @@ class EtpAssessmentQuestionImage(models.Model):
     @api.model
     def _annotate_bytes_core(self, raw, ui=False, usage_ctx=None,
                              key_hint="annot"):
-        """Pure detection + numbered-box annotation on in-memory BYTES, with NO
-        record write: detect the elements, draw the numbered overlay, offload it
-        to S3 when configured, and RETURN the pieces
-        ``{detections_json, annotated_b64, stored_b64, annotated_url}`` (or None
-        when ``raw`` is empty).
-
-        Shared by ``_annotate_from_bytes`` (which writes the result onto a
-        question.image for the cron / Detect Now / approve fallback) and the
-        DRAFT render-time detection (``prompt._detect_label_on_render``, which
-        stashes it into images_json so the numbered boxes show on the draft
-        BEFORE approval, then carries it to the bank image on approve)."""
+        """Writes no record; return shape must stay in sync with the other
+        caller, prompt._detect_label_on_render."""
         if not raw:
             return None
         from ..services import vertex, imaging, image_ingest
@@ -426,16 +379,6 @@ class EtpAssessmentQuestionImage(models.Model):
         }
 
     def _annotate_from_bytes(self, raw, ui=False):
-        """Detection + numbered-box annotation for a question.image record,
-        driven by source image BYTES already in memory; stores
-        ``detections_json`` + ``annotated_image`` (+url). Returns False when
-        ``raw`` is empty.
-
-        BOTH record paths funnel through here: ``_detect_and_annotate`` reads
-        the bytes back from storage for cron/button RETRIES, ``_detect_inline``
-        passes the JUST-supplied bytes so a fresh image is labelled without a
-        re-read. The shared, record-free detection core is ``_annotate_bytes_core``
-        (also used by the DRAFT render-time path)."""
         self.ensure_one()
         core = self._annotate_bytes_core(
             raw, ui=ui,
@@ -453,26 +396,17 @@ class EtpAssessmentQuestionImage(models.Model):
         return True
 
     def _detect_inline(self, raw, ui=False):
-        """INLINE detection for a just-rendered image_label 'single' picture: run
-        the shared ``_annotate_from_bytes`` core on the in-memory BYTES the render
-        produced, so labelling completes in the SAME pass and the detect cron
-        never has to re-read the picture from the attachment/filestore/S3 (the
-        re-read that fails in prod when a DB is copied without its filestore).
-
-        FAILURE ISOLATED: wrapped in a savepoint + broad except so a Vertex error
-        (429/etc.) rolls back only the detection write — never the render or the
-        surrounding approve — and is swallowed, not raised. It also does NOT touch
-        ``detection_attempts``, so an inline failure spends ZERO of the cron /
-        button retry budget: the image (empty detections_json, attempts 0) is
-        simply retried later by ``_cron_detect_image_labels`` from storage.
-        Returns True when the answer key was populated, else False."""
+        """Takes bytes because a storage re-read fails on a DB copied without its
+        filestore. Must swallow errors inside a savepoint (never fail the render)
+        and must not touch detection_attempts: the cron retry budget stays intact.
+        """
         self.ensure_one()
         if not raw:
             return False
         try:
             with self.env.cr.savepoint():
                 return self._annotate_from_bytes(raw, ui=ui)
-        except Exception:  # noqa: BLE001 - detection must never fail the render
+        except Exception:  # noqa: BLE001
             _logger.exception(
                 "Inline detect failed for question image %s; leaving it for the "
                 "detect cron to retry from storage", self.id)
@@ -483,10 +417,6 @@ class EtpAssessmentQuestionImage(models.Model):
         return self.question_id.detection_mode == "ui"
 
     def action_detect_now(self):
-        """Detect + annotate this source image on demand (respecting the
-        question's detection_mode), so an admin need not wait for the cron.
-        Reuses the cron's per-image attempt cap and turns a Vertex failure into
-        a friendly UserError instead of a traceback."""
         self.ensure_one()
         if self.question_type != "image_label" or self.slot != "single":
             raise UserError(
@@ -500,7 +430,7 @@ class EtpAssessmentQuestionImage(models.Model):
                 % _DETECT_MAX_ATTEMPTS)
         try:
             ok = self._detect_and_annotate(ui=self._detection_ui())
-        except Exception as exc:  # noqa: BLE001 - surface to the admin, cap tries
+        except Exception as exc:  # noqa: BLE001
             _logger.exception("On-demand detect failed for image %s", self.id)
             self.detection_attempts += 1
             raise UserError("Detection failed: %s" % exc) from exc
@@ -510,11 +440,6 @@ class EtpAssessmentQuestionImage(models.Model):
         return True
 
     def action_capture_url(self):
-        """Capture the live ``source_url`` DOM synchronously: numbered boxes at
-        real element geometry + a deterministic behavioural key, with ZERO model
-        inference. Raises a friendly UserError when no URL is set or when
-        Playwright/Chromium are not installed (so the admin knows to fall back to
-        Gemini detection or install the browser)."""
         self.ensure_one()
         from ..services import dom_capture
         if not self.source_url:
@@ -527,7 +452,7 @@ class EtpAssessmentQuestionImage(models.Model):
         kwargs = self._capture_kwargs()
         try:
             result = dom_capture.capture_and_annotate(self.source_url, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - surface to the admin
+        except Exception as exc:  # noqa: BLE001
             _logger.exception("URL capture failed for image %s", self.id)
             raise UserError("URL capture failed: %s" % exc) from exc
         self._store_capture(
@@ -536,14 +461,9 @@ class EtpAssessmentQuestionImage(models.Model):
 
     @api.model
     def _cron_detect_image_labels(self):
-        """Background drainer for image_label source images awaiting detection.
-        Extends the image-processing cron path: once an image_label question's
-        'single' image exists, run detection + numbered-box annotation ONCE per
-        image (guard: detections_json still empty, a source image present). A
-        SESSION-level advisory lock (survives the per-row commits) serializes
-        drains so two workers never double-detect; per-row failures are isolated
-        and logged like the render cron, and a per-image attempt counter flips a
-        repeatedly-failing image out of the queue instead of retrying forever."""
+        # The lock must stay SESSION-level (pg_try_advisory_lock): a txn-level
+        # lock would be released by the per-row commits below and let a second
+        # worker double-detect.
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_IMAGE_DETECT,))
         if not self.env.cr.fetchone()[0]:
@@ -571,7 +491,7 @@ class EtpAssessmentQuestionImage(models.Model):
                         else:
                             image.detection_attempts += 1
                     self.env.cr.commit()
-                except Exception:  # noqa: BLE001 - isolate per image
+                except Exception:  # noqa: BLE001
                     self.env.cr.rollback()
                     _logger.exception(
                         "Auto-detect failed for question image %s", image.id)

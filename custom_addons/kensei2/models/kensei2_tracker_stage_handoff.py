@@ -14,7 +14,7 @@ class Kensei2TrackerStageHandoff(models.TransientModel):
     from the empty stage fields on its own).
     """
     _name = 'kensei2.tracker.stage.handoff'
-    _description = 'Kensei2 Tracker — Hand off to Next Stage'
+    _description = 'Kensei Tracker — Hand off to Next Stage'
 
     allocation_id = fields.Many2one(
         'kensei2.tracker.allocation', string='Completed Stage',

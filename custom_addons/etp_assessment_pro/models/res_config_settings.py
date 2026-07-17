@@ -35,7 +35,7 @@ class ResConfigSettings(models.TransientModel):
         string="Question Generation Model",
         config_parameter="etp_assessment_pro.generation_model",
         help="Strong multimodal model used to read the SOP document (with its "
-             "images) and author questions directly — e.g. gemini-3-pro or "
+             "images) and author questions directly - e.g. gemini-3-pro or "
              "gemini-2.5-pro. Leave empty to fall back to the Vertex Model.",
     )
     etp_assessment_pro_detection_model = fields.Char(
@@ -44,6 +44,24 @@ class ResConfigSettings(models.TransientModel):
         help="Multimodal model used to detect elements in an image_label "
              "stimulus for the numbered-box overlay. Leave empty to fall back "
              "to the Question Generation Model.",
+    )
+    etp_assessment_pro_scoring_model = fields.Char(
+        string="Subjective Scoring Model",
+        config_parameter="etp_assessment_pro.scoring_model",
+        help="TEXT reasoning model the subjective judge uses to grade answers "
+             "against the golden key (e.g. gemini-2.5-pro). MUST be a text model, "
+             "never the image model. Leave empty to fall back to the Question "
+             "Generation Model.",
+    )
+    etp_assessment_pro_image_model = fields.Char(
+        string="Image Rendering Model",
+        config_parameter="etp_assessment_pro.image_model",
+        help="Model used to RENDER image_ab / image_prompt / image_label "
+             "pictures (e.g. gemini-3-pro-image = Nano Banana Pro, or the "
+             "cheaper gemini-3.1-flash-image = Nano Banana 2). Leave empty to "
+             "fall back to the Default Model. Keeping this separate means the "
+             "Default Model can be a cheap text model without misrouting image "
+             "rendering.",
     )
     etp_assessment_pro_video_model = fields.Char(
         string="Video Generation Model (Veo)",
@@ -60,7 +78,7 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="etp_assessment_pro.video_location",
         default=VIDEO_DEFAULT_LOCATION,
         help="Vertex region for Veo. Veo is served on a regional endpoint "
-             "(us-central1), NOT 'global' — the gemini default 404s for Veo.",
+             "(us-central1), NOT 'global' - the gemini default 404s for Veo.",
     )
     etp_assessment_pro_video_default_duration_s = fields.Integer(
         string="Video Clip Duration (s)",

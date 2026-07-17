@@ -6,7 +6,7 @@
       <field name="name">kensei2.tracker.team.import.form</field>
       <field name="model">kensei2.tracker.team.import</field>
       <field name="arch" type="xml">
-        <form string="Bulk Upload Team">
+        <form string="Bulk Upload Team" class="o_kensei2_tracker_form">
           <field name="state" invisible="1"/>
 
           <!-- ===== Step 1 — Upload (draft) ===== -->

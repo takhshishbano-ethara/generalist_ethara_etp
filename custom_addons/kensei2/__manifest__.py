@@ -100,6 +100,12 @@
             "kensei2/static/src/tracker_daily/tracker_daily.xml",
             "kensei2/static/src/tracker_daily/tracker_daily.scss",
             "kensei2/static/src/tracker_allocation.scss",
+            "kensei2/static/src/tracker_autosave/tracker_autosave.js",
+            "kensei2/static/src/tracker_stepper/tracker_stepper.js",
+            "kensei2/static/src/tracker_stepper/tracker_stepper.xml",
+            "kensei2/static/src/tracker_stepper/tracker_stepper.scss",
+            "kensei2/static/src/tracker_score_field/tracker_score_field.js",
+            "kensei2/static/src/tracker_drive_field/tracker_drive_field.js",
         ],
     },
 }

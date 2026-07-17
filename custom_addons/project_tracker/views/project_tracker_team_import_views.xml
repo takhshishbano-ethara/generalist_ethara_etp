@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+
+    <record id="project_tracker_team_import_form" model="ir.ui.view">
+      <field name="name">project.tracker.team.import.form</field>
+      <field name="model">project.tracker.team.import</field>
+      <field name="arch" type="xml">
+        <form string="Bulk Upload Team" class="o_project_tracker_form">
+          <field name="state" invisible="1"/>
+
+          <!-- ===== Step 1 — Upload (draft) ===== -->
+          <div invisible="state != 'draft'">
+            <div class="alert alert-info" role="alert">
+              Upload a <b>CSV</b> or <b>XLSX</b> file with an <b>Email</b> column
+              (the only required one). You may also add optional
+              <b>Assigned PL</b>, <b>Assigned QL</b> and <b>Status</b> columns —
+              PL/QL accept an email <i>or</i> a full name. You'll get a
+              <b>preview</b> before anything is saved. Each email is matched to an
+              existing Odoo user — matches are added, everything else is reported
+              back. <b>No new users are created.</b>
+              <div class="mt-2">
+                <a href="/project_tracker/team/sample_csv">
+                  <i class="fa fa-download me-1"/>Download sample file
+                </a>
+              </div>
+            </div>
+            <group>
+              <field name="upload_file" filename="filename" widget="binary"/>
+              <field name="filename" invisible="1"/>
+            </group>
+          </div>
+
+          <!-- ===== Step 2 — Preview ===== -->
+          <div invisible="state != 'preview'">
+            <div class="alert alert-secondary" role="alert">
+              Review the parsed rows below. Nothing has been saved yet — click
+              <b>Upload</b> to add the <b>To Import</b> rows.
+            </div>
+            <div class="row mb-2">
+              <div class="col-3 text-center">
+                <h4 class="text-success mb-0"><field name="imported_count"/></h4>
+                <small>To Import</small>
+              </div>
+              <div class="col-3 text-center">
+                <h4 class="text-muted mb-0"><field name="already_count"/></h4>
+                <small>Already Added</small>
+              </div>
+              <div class="col-3 text-center">
+                <h4 class="text-warning mb-0"><field name="notfound_count"/></h4>
+                <small>User Not Found</small>
+              </div>
+              <div class="col-3 text-center">
+                <h4 class="text-danger mb-0"><field name="invalid_count"/></h4>
+                <small>Invalid Email</small>
+              </div>
+            </div>
+            <div class="alert alert-warning py-1 px-2" role="alert"
+                 invisible="warning_count == 0">
+              <field name="warning_count" class="fw-bold"/> row(s) will import but
+              have an unresolved <b>PL/QL</b> or <b>Status</b> — see the highlighted
+              notes below (they'll also be in the error report).
+            </div>
+            <div style="max-height:45vh;overflow:auto;">
+              <field name="preview_html"/>
+            </div>
+          </div>
+
+          <!-- ===== Step 3 — Result (done) ===== -->
+          <div invisible="state != 'done'">
+            <div class="row">
+              <div class="col-3 text-center">
+                <h3 class="text-success mb-0"><field name="imported_count"/></h3>
+                <small>Imported</small>
+              </div>
+              <div class="col-3 text-center">
+                <h3 class="text-muted mb-0"><field name="already_count"/></h3>
+                <small>Already Added</small>
+              </div>
+              <div class="col-3 text-center">
+                <h3 class="text-warning mb-0"><field name="notfound_count"/></h3>
+                <small>User Not Found</small>
+              </div>
+              <div class="col-3 text-center">
+                <h3 class="text-danger mb-0"><field name="invalid_count"/></h3>
+                <small>Invalid Email</small>
+              </div>
+            </div>
+            <div class="row mt-2" invisible="failed_count == 0">
+              <div class="col-12 text-center">
+                <h3 class="text-danger mb-0"><field name="failed_count"/></h3>
+                <small>Import Failed — see the error report below</small>
+              </div>
+            </div>
+            <div class="mt-3" invisible="not error_report">
+              <field name="error_filename" invisible="1"/>
+              <label for="error_report" string="Error Report"/>
+              <field name="error_report" filename="error_filename" widget="binary"/>
+            </div>
+          </div>
+
+          <footer>
+            <button string="Preview" name="action_preview" type="object"
+                    class="btn-primary" invisible="state != 'draft'"/>
+            <button string="Upload" name="action_import" type="object"
+                    class="btn-primary" invisible="state != 'preview'"/>
+            <button string="Back" name="action_back" type="object"
+                    class="btn-secondary" invisible="state != 'preview'"/>
+            <button string="Close" special="cancel" class="btn-primary"
+                    invisible="state != 'done'"/>
+            <button string="Cancel" special="cancel" class="btn-secondary"
+                    invisible="state == 'done'"/>
+          </footer>
+        </form>
+      </field>
+    </record>
+
+    <record id="action_project_tracker_team_import" model="ir.actions.act_window">
+      <field name="name">Bulk Upload Team</field>
+      <field name="res_model">project.tracker.team.import</field>
+      <field name="view_mode">form</field>
+      <field name="target">new</field>
+    </record>
+
+  </data>
+</odoo>

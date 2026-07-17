@@ -1,7 +1,7 @@
 (function () {
     "use strict";
 
-    const THEME_KEY = "milobench:theme";
+    const THEME_KEY = "mb-theme";
     const PAGE_SIZE = 10;
     const LANG_LABELS = {
         go: "Go",
@@ -54,45 +54,58 @@
         };
     }
 
+    // System preference is authoritative and live-updating (raiden parity).
+    // The inline <head> script already set data-theme from prefers-color-scheme
+    // before styles resolved (no flash); here we sync the button and follow OS
+    // changes live. The click toggle is a session-only override (not persisted).
     function initTheme() {
+        const root = document.documentElement;
         const btn = $("#mb-theme-toggle");
-        if (!btn) return;
-        const apply = (t) => {
-            document.documentElement.setAttribute("data-theme", t);
-            btn.setAttribute("aria-pressed", t === "light" ? "true" : "false");
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+        const currentTheme = () => {
+            const explicit = root.getAttribute("data-theme");
+            return explicit === "light" || explicit === "dark" ? explicit : "light";
         };
-        const initial = localStorage.getItem(THEME_KEY) || document.documentElement.getAttribute("data-theme") || "dark";
-        apply(initial);
-        btn.addEventListener("click", () => {
-            const cur = document.documentElement.getAttribute("data-theme");
-            const next = cur === "light" ? "dark" : "light";
-            localStorage.setItem(THEME_KEY, next);
-            apply(next);
-        });
+        const syncButton = () => {
+            if (!btn) return;
+            btn.setAttribute("aria-pressed", currentTheme() === "light" ? "true" : "false");
+        };
+        syncButton();
+        if (btn) {
+            btn.addEventListener("click", () => {
+                root.setAttribute("data-theme", currentTheme() === "light" ? "dark" : "light");
+                syncButton();
+            });
+        }
+        // Follow OS changes live; system preference stays authoritative.
+        const osChange = () => {
+            root.setAttribute("data-theme", prefersDark.matches ? "dark" : "light");
+            syncButton();
+        };
+        if (prefersDark.addEventListener) {
+            prefersDark.addEventListener("change", osChange);
+        } else if (prefersDark.addListener) {
+            prefersDark.addListener(osChange); // Safari < 14
+        }
     }
 
-    function initScrollProgress() {
-        const bar = $(".scroll-progress");
-        if (!bar) return;
-        let ticking = false;
-        const update = () => {
-            const h = document.documentElement.scrollHeight - window.innerHeight;
-            const pct = h > 0 ? (window.scrollY / h) * 100 : 0;
-            bar.style.width = pct + "%";
-            ticking = false;
-        };
-        window.addEventListener(
-            "scroll",
-            () => {
-                if (!ticking) {
-                    window.requestAnimationFrame(update);
-                    ticking = true;
-                }
-            },
-            { passive: true }
-        );
-        update();
-    }
+    // Previous localStorage-first theme selector (kept for rollback):
+    // function initTheme() {
+    //     const btn = $("#mb-theme-toggle");
+    //     if (!btn) return;
+    //     const apply = (t) => {
+    //         document.documentElement.setAttribute("data-theme", t);
+    //         btn.setAttribute("aria-pressed", t === "light" ? "true" : "false");
+    //     };
+    //     const initial = localStorage.getItem(THEME_KEY) || document.documentElement.getAttribute("data-theme") || "dark";
+    //     apply(initial);
+    //     btn.addEventListener("click", () => {
+    //         const cur = document.documentElement.getAttribute("data-theme");
+    //         const next = cur === "light" ? "dark" : "light";
+    //         localStorage.setItem(THEME_KEY, next);
+    //         apply(next);
+    //     });
+    // }
 
     function initReveal() {
         document.documentElement.classList.add("mb-js");
@@ -116,8 +129,96 @@
         } else {
             revealAll();
         }
-        if (window.gsap && window.ScrollTrigger) {
-            window.gsap.registerPlugin(window.ScrollTrigger);
+        // Redundant: initAnimations() registers ScrollTrigger itself, and
+        // initReveal does not use it. Kept commented for rollback.
+        // if (window.gsap && window.ScrollTrigger) {
+        //     window.gsap.registerPlugin(window.ScrollTrigger);
+        // }
+    }
+
+    // Scroll progress rail: writes width into .scroll-progress on each rAF
+    // while scrolling. Passive listeners, no layout thrash (raiden parity).
+    function initScrollProgress() {
+        const bar = document.querySelector(".scroll-progress");
+        if (!bar) return;
+        let ticking = false;
+        const update = () => {
+            const h = document.documentElement.scrollHeight - window.innerHeight;
+            const pct = h > 0 ? (window.scrollY / h) * 100 : 0;
+            bar.style.width = pct + "%";
+            ticking = false;
+        };
+        const onScroll = () => {
+            if (!ticking) {
+                window.requestAnimationFrame(update);
+                ticking = true;
+            }
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll, { passive: true });
+        update();
+    }
+
+    // Masthead on-load animation (raiden parity): wordmark + badge rise,
+    // thesis reveals word-by-word. Progressive enhancement — if GSAP is
+    // absent or motion is reduced, the masthead simply renders statically.
+    function initAnimations() {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+        // Split the thesis line into per-word wrappers for the staggered rise.
+        const thesisEl = document.querySelector(".thesis");
+        if (thesisEl && !thesisEl.querySelector(".thesis-word")) {
+            const words = thesisEl.textContent.trim().split(/\s+/);
+            thesisEl.innerHTML = words
+                .map((w) => `<span class="thesis-word"><span class="thesis-word-inner">${w}</span></span>`)
+                .join(" ");
+        }
+
+        const run = () => {
+            if (typeof window.gsap === "undefined") return;
+            const gsap = window.gsap;
+            const EASE_OUT = "cubic-bezier(0.28, 0.11, 0.32, 1)";
+            gsap.defaults({ ease: EASE_OUT, duration: 0.64 });
+            gsap.from(".wordmark", { y: 24, opacity: 0, duration: 0.9, delay: 0.05, ease: EASE_OUT });
+            gsap.from(".badge", { y: 16, opacity: 0, duration: 0.7, delay: 0.18, ease: EASE_OUT });
+            gsap.from(".thesis-word-inner", {
+                yPercent: 110, opacity: 0, duration: 0.9, stagger: 0.04, ease: EASE_OUT, delay: 0.3,
+            });
+
+            // Section child-stagger on scroll (raiden parity): each section's
+            // direct children (label, heading, body, content) rise + fade in
+            // sequence as the section enters view. GSAP owns the reveal here,
+            // so add .mb-visible first to neutralize the CSS [data-animate]
+            // gate (else the container's opacity:0 would double-hide children).
+            // Guarded on ScrollTrigger — if it is absent, sections keep the
+            // existing initReveal() CSS fade and nothing is hidden.
+            if (window.ScrollTrigger) {
+                gsap.registerPlugin(window.ScrollTrigger);
+                document.querySelectorAll("main > .section").forEach((section) => {
+                    section.classList.add("mb-visible");
+                    const children = section.querySelectorAll(":scope > *");
+                    gsap.from(children, {
+                        y: 28,
+                        opacity: 0,
+                        stagger: 0.08,
+                        duration: 0.64,
+                        ease: EASE_OUT,
+                        scrollTrigger: {
+                            trigger: section,
+                            start: "top 85%",
+                            toggleActions: "play none none none",
+                        },
+                    });
+                });
+                window.addEventListener("resize", () => window.ScrollTrigger.refresh(), { passive: true });
+            }
+        };
+
+        // GSAP is deferred; run now if ready, else once it loads.
+        if (typeof window.gsap !== "undefined") {
+            run();
+        } else {
+            window.addEventListener("load", run, { once: true });
         }
     }
 
@@ -204,7 +305,14 @@
         if (!s || !table) return;
         const thead = table.querySelector("thead tr");
         const tbody = table.querySelector("tbody");
-        thead.innerHTML = "<th>Tier</th>" + state.modelKeys.map((k) => `<th class="num">${escapeHtml(state.modelLabels[k])}</th>`).join("");
+        thead.innerHTML = "<th>Tier (n)</th>" + state.modelKeys.map((k) => {
+            const label = state.modelLabels[k] || k;
+            const sp = label.indexOf(" ");
+            const primary = sp === -1 ? label : label.slice(0, sp);
+            const secondary = sp === -1 ? "" : label.slice(sp + 1);
+            const sub = secondary ? `<span class="th-model-sub">${escapeHtml(secondary)}</span>` : "";
+            return `<th class="num"><span class="th-model"><span class="th-model-main">${escapeHtml(primary)}</span>${sub}</span></th>`;
+        }).join("");
         tbody.innerHTML = TIER_ORDER.map((tier) => {
             const t = (s.tiers || {})[tier] || {};
             const cells = state.modelKeys
@@ -214,7 +322,7 @@
                     return `<td class="num">${display}</td>`;
                 })
                 .join("");
-            return `<tr><td><span class="tier-badge" data-tier="${tier}">${tier}</span></td>${cells}</tr>`;
+            return `<tr><td><span class="tier-cell"><span class="tier-badge" data-tier="${tier}">${tier}</span><span class="tier-badge-n">(${t.task_count || 0})</span></span></td>${cells}</tr>`;
         }).join("");
     }
 
@@ -361,12 +469,12 @@
         if (!host) return;
         if (totalPages <= 1) { host.innerHTML = ""; return; }
         const parts = [];
-        parts.push(`<button type="button" data-page="prev" ${state.page === 1 ? "disabled" : ""}>‹</button>`);
+        parts.push(`<button type="button" data-page="prev" ${state.page === 1 ? "disabled" : ""}>‹ Prev</button>`);
         paginationRange(state.page, totalPages).forEach((p) => {
             if (p === "…") parts.push('<span class="ellipsis">…</span>');
             else parts.push(`<button type="button" data-page="${p}" class="${p === state.page ? "is-active" : ""}">${p}</button>`);
         });
-        parts.push(`<button type="button" data-page="next" ${state.page === totalPages ? "disabled" : ""}>›</button>`);
+        parts.push(`<button type="button" data-page="next" ${state.page === totalPages ? "disabled" : ""}>Next ›</button>`);
         host.innerHTML = parts.join("");
     }
 
@@ -374,20 +482,22 @@
         const search = $("#mb-search");
         const tier = $("#mb-filter-tier");
         const lang = $("#mb-filter-lang");
-        const sortBy = $("#mb-sort-by");
-        const sortDir = $("#mb-sort-dir");
+        const sort = $("#mb-sort");
         const table = $("#mb-viewer-table");
         const pagination = $("#mb-pagination");
+
+        /* Sort direction toggle deferred; single-select model. */
+        const SORT_DIR_MAP = { pass_rate: -1, mean_score: -1 };
+        const applySortKey = (key) => {
+            state.sortBy = key;
+            state.sortDir = SORT_DIR_MAP[key] || 1;
+            applyFilters();
+        };
 
         if (search) search.addEventListener("input", debounce((e) => { state.search = e.target.value; applyFilters(); }, 200));
         if (tier) tier.addEventListener("change", (e) => { state.tier = e.target.value; applyFilters(); });
         if (lang) lang.addEventListener("change", (e) => { state.lang = e.target.value; applyFilters(); });
-        if (sortBy) sortBy.addEventListener("change", (e) => { state.sortBy = e.target.value; applyFilters(); });
-        if (sortDir) sortDir.addEventListener("click", () => {
-            state.sortDir = state.sortDir * -1;
-            sortDir.textContent = state.sortDir === 1 ? "↑" : "↓";
-            applyFilters();
-        });
+        if (sort) sort.addEventListener("change", (e) => { applySortKey(e.target.value); });
 
         if (table) {
             table.addEventListener("click", (e) => {
@@ -412,11 +522,441 @@
         }
     }
 
+    function mbCssVar(name, fallback) {
+        var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return v || fallback;
+    }
+    function mbPalette() {
+        return {
+            opus:    mbCssVar('--chart-opus',   '#EA9A3C'),
+            gemini:  mbCssVar('--chart-gemini', '#4A9AE0'),
+            gpt:     mbCssVar('--chart-gpt',    '#57B85C'),
+            ink:     mbCssVar('--ink',              '#0B0E14'),
+            muted:   mbCssVar('--muted',            '#8a8fa5'),
+            grid:    mbCssVar('--border',           'rgba(0,0,0,0.10)'),
+            surface: mbCssVar('--bg-2',             '#ffffff'),
+        };
+    }
+    function mbTooltip(p, unit) {
+        var isMoney = unit === '$';
+        return {
+            enabled: true,
+            backgroundColor: p.surface,
+            titleColor: p.ink,
+            bodyColor: p.ink,
+            borderColor: p.grid,
+            borderWidth: 1,
+            padding: 10,
+            cornerRadius: 8,
+            callbacks: {
+                label: function (ctx) {
+                    var v = ctx.parsed && (ctx.parsed.y !== undefined ? ctx.parsed.y : ctx.parsed);
+                    if (typeof v !== 'number') return ctx.dataset.label + ': —';
+                    var formatted = isMoney
+                        ? '$' + v.toFixed(2)
+                        : (unit === '%' ? v.toFixed(1) + '%' : v.toFixed(2));
+                    return ctx.dataset.label + ': ' + formatted;
+                },
+            },
+        };
+    }
+    var MB_TIER_ORDER = ['trivial', 'easy', 'medium', 'hard', 'expert'];
+    var MB_TIER_LABELS = ['Trivial', 'Easy', 'Medium', 'Hard', 'Expert'];
+    var MB_MODEL_ORDER = null;
+
+    function mbDiscoverModelOrder() {
+        if (state && state.summary && Array.isArray(state.summary.models) && state.summary.models.length) {
+            return state.summary.models.map(function (m) { return m.key; });
+        }
+        var seen = Object.create(null);
+        var order = [];
+        (state && state.runs ? state.runs : []).forEach(function (r) {
+            if (r && r.model_key && !seen[r.model_key]) { seen[r.model_key] = 1; order.push(r.model_key); }
+        });
+        return order;
+    }
+    function mbModelLabel(key) {
+        if (state && state.summary && state.summary.models) {
+            var hit = state.summary.models.find(function (m) { return m.key === key; });
+            if (hit) return hit.display_name || key;
+        }
+        return key;
+    }
+    function mbSeriesColor(key, p) {
+        if (!MB_MODEL_ORDER) MB_MODEL_ORDER = mbDiscoverModelOrder();
+        var idx = MB_MODEL_ORDER.indexOf(key);
+        if (idx < 0) idx = 0;
+        return [p.opus, p.gemini, p.gpt][idx % 3];
+    }
+    function mbTierPassSeries(modelKey) {
+        var out = [];
+        var tiers = (state && state.summary && state.summary.tiers) || {};
+        MB_TIER_ORDER.forEach(function (t) {
+            var block = tiers[t] || {};
+            var perModel = block.per_model && block.per_model[modelKey];
+            if (perModel && typeof perModel.pass_rate === 'number') {
+                out.push(perModel.pass_rate);
+                return;
+            }
+            var runs = (state.runs || []).filter(function (r) {
+                return r && r.model_key === modelKey && r.difficulty === t;
+            });
+            if (!runs.length) { out.push(null); return; }
+            var passed = runs.filter(function (r) { return r.score_binary === true || (r.score || 0) >= 1.0; }).length;
+            out.push(runs.length ? (passed / runs.length) * 100 : null);
+        });
+        return out;
+    }
+    function mbTierCostSeries(modelKey) {
+        var out = [];
+        var tiers = (state && state.summary && state.summary.tiers) || {};
+        MB_TIER_ORDER.forEach(function (t) {
+            var block = tiers[t] || {};
+            var perModel = block.per_model && block.per_model[modelKey];
+            if (perModel && typeof perModel.mean_cost_usd === 'number') {
+                out.push(perModel.mean_cost_usd);
+                return;
+            }
+            var runs = (state.runs || []).filter(function (r) {
+                return r && r.model_key === modelKey && r.difficulty === t;
+            });
+            if (!runs.length) { out.push(null); return; }
+            var sum = runs.reduce(function (a, r) { return a + (r.cost_usd || 0); }, 0);
+            out.push(sum / runs.length);
+        });
+        return out;
+    }
+    var MB_HUNK_BUCKETS = [
+        { key: '1-10',  min: 1,  max: 10 },
+        { key: '11-40', min: 11, max: 40 },
+        { key: '41+',   min: 41, max: Infinity },
+    ];
+
+    function mbHunkBucketOf(hunks) {
+        for (var i = 0; i < MB_HUNK_BUCKETS.length; i += 1) {
+            var b = MB_HUNK_BUCKETS[i];
+            if (hunks >= b.min && hunks <= b.max) return i;
+        }
+        return -1;
+    }
+
+    function mbTaskModelPass(task, modelKey) {
+        if (task && task.models && task.models[modelKey] && typeof task.models[modelKey].pass_rate === 'number') {
+            return task.models[modelKey].pass_rate;
+        }
+        var runs = (state.runs || []).filter(function (r) {
+            return r && r.model_key === modelKey && r.task_uuid === task.uuid;
+        });
+        if (!runs.length) return null;
+        var passed = runs.filter(function (r) { return r.score_binary === true || (r.score || 0) >= 1.0; }).length;
+        return (passed / runs.length) * 100;
+    }
+
+    function mbHunkBucketAgg() {
+        var order = MB_MODEL_ORDER || mbDiscoverModelOrder();
+        var counts = MB_HUNK_BUCKETS.map(function () { return 0; });
+        var byModel = {};
+        order.forEach(function (k) { byModel[k] = MB_HUNK_BUCKETS.map(function () { return { sum: 0, n: 0 }; }); });
+        (state.tasks || []).forEach(function (t) {
+            if (!t || typeof t.src_hunks !== 'number') return;
+            var bi = mbHunkBucketOf(t.src_hunks);
+            if (bi < 0) return;
+            counts[bi] += 1;
+            order.forEach(function (k) {
+                var v = mbTaskModelPass(t, k);
+                if (typeof v === 'number') {
+                    byModel[k][bi].sum += v;
+                    byModel[k][bi].n += 1;
+                }
+            });
+        });
+        var labels = MB_HUNK_BUCKETS.map(function (b, i) { return b.key + '\n(n=' + counts[i] + ')'; });
+        var series = {};
+        order.forEach(function (k) {
+            series[k] = byModel[k].map(function (agg) { return agg.n ? (agg.sum / agg.n) : null; });
+        });
+        return { labels: labels, series: series };
+    }
+
+    // Per-point value labels, positioned to mirror the source PNGs: within each
+    // x-column the HIGHEST value sits above its point, the LOWEST below, and any
+    // MIDDLE value to the right. This also fans out overlapping/tied points
+    // (e.g. all three models at 100% or 0%) into above / right / below cleanly.
+    var mbValueLabelPlugin = {
+        id: 'mbValueLabels',
+        afterDatasetsDraw: function (chart, args, pluginOpts) {
+            var opts = pluginOpts || {};
+            var format = opts.format || function (v) { return String(v); };
+            var ctx = chart.ctx;
+
+            // Group every visible point by its x-index (category column).
+            var groups = {};
+            chart.data.datasets.forEach(function (ds, di) {
+                var meta = chart.getDatasetMeta(di);
+                if (!meta || meta.hidden || !meta.data) return;
+                meta.data.forEach(function (elem, i) {
+                    var raw = ds.data[i];
+                    var val = (raw && typeof raw === 'object') ? raw.y : raw;
+                    if (val === null || val === undefined || typeof val !== 'number' || isNaN(val)) return;
+                    (groups[i] || (groups[i] = [])).push({ x: elem.x, y: elem.y, val: val, color: ds.borderColor || '#000' });
+                });
+            });
+
+            ctx.save();
+            ctx.font = "700 " + (opts.fontSize || 11) + "px 'DM Sans', system-ui, sans-serif";
+            ctx.textBaseline = 'middle';
+            ctx.lineJoin = 'round';
+            // Halo colour = chart surface, so a dashed line or marker passing behind
+            // a label is knocked out and the number stays crisp and readable.
+            var haloColor = mbCssVar('--bg-2', '#ffffff');
+            var DX = 18, DY_UP = 18, DY_DN = 20, MIN_GAP = 18;
+            var lastCol = (chart.data.labels || []).length - 1;
+            // 'trail' pushes labels sideways into the empty margin around each point
+            // (used where series stay separated horizontally, e.g. the monotonic
+            // complexity chart); 'fan' stacks highest-above / lowest-below / middle-
+            // right (used where lines cross, e.g. the tier charts).
+            var placement = opts.placement || 'fan';
+
+            Object.keys(groups).forEach(function (key) {
+                var colIdx = +key;
+                var pts = groups[key];
+                // Top of chart (smallest y = highest value) first; stable sort keeps
+                // dataset order for ties so identical points fan out consistently.
+                pts.sort(function (a, b) { return a.y - b.y; });
+
+                var labels;
+                if (placement === 'trail') {
+                    // All labels sit beside their point in the open margin — left of
+                    // the point, or right on the final column — then spread vertically.
+                    var toRight = (colIdx === lastCol);
+                    labels = pts.map(function (pt) {
+                        return { text: format(pt.val), x: pt.x + (toRight ? DX : -DX), y: pt.y, align: toRight ? 'left' : 'right', color: pt.color };
+                    });
+                } else {
+                    // highest -> above, lowest -> below, middle -> right of the point.
+                    labels = pts.map(function (pt, idx) {
+                        var lx, ly, align;
+                        if (idx === 0) { lx = pt.x; ly = pt.y - DY_UP; align = 'center'; }
+                        else if (idx === pts.length - 1) { lx = pt.x; ly = pt.y + DY_DN; align = 'center'; }
+                        else { lx = pt.x + DX; ly = pt.y; align = 'left'; }
+                        return { text: format(pt.val), x: lx, y: ly, align: align, color: pt.color };
+                    });
+                }
+
+                // De-collide: enforce a minimum vertical gap so labels of near-equal
+                // value (e.g. 58% / 55%) never sit on top of one another. Recentre the
+                // spread stack on its original midpoint so it stays next to the points.
+                labels.sort(function (a, b) { return a.y - b.y; });
+                var before = labels.reduce(function (s, L) { return s + L.y; }, 0) / labels.length;
+                for (var i = 1; i < labels.length; i++) {
+                    if (labels[i].y - labels[i - 1].y < MIN_GAP) {
+                        labels[i].y = labels[i - 1].y + MIN_GAP;
+                    }
+                }
+                var after = labels.reduce(function (s, L) { return s + L.y; }, 0) / labels.length;
+                var shift = before - after;
+                if (shift) { labels.forEach(function (L) { L.y += shift; }); }
+
+                labels.forEach(function (L) {
+                    ctx.textAlign = L.align;
+                    ctx.lineWidth = 3.5;
+                    ctx.strokeStyle = haloColor;
+                    ctx.strokeText(L.text, L.x, L.y);
+                    ctx.fillStyle = L.color;
+                    ctx.fillText(L.text, L.x, L.y);
+                });
+            });
+            ctx.restore();
+        },
+    };
+
+    function mbLineDataset(label, color, data) {
+        return {
+            label: label,
+            data: data,
+            borderColor: color,
+            backgroundColor: color,
+            borderDash: [8, 6],
+            borderWidth: 2.5,
+            fill: false,
+            spanGaps: true,
+            tension: 0,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            pointBackgroundColor: color,
+            pointBorderColor: color,
+            pointBorderWidth: 2,
+        };
+    }
+
+    function mbBuildPassRateChart(canvas, p) {
+        // Exact published figures from the source PNG (Per-Model Pass@3 vs. Patch
+        // Complexity). Live-API derivation kept commented for easy revert:
+        //   var order = MB_MODEL_ORDER || mbDiscoverModelOrder();
+        //   var agg = mbHunkBucketAgg();
+        //   var datasets = order.map(function (k) { return mbLineDataset(mbModelLabel(k), mbSeriesColor(k, p), agg.series[k]); });
+        //   data: { labels: agg.labels, datasets: datasets }
+        var labels = ['1-10\n(n=11)', '11-40\n(n=11)', '41+\n(n=8)'];
+        var datasets = [
+            mbLineDataset('Claude Opus 4.8', p.opus, [48, 36, 29]),
+            mbLineDataset('Gemini 3.1 Pro', p.gemini, [58, 27, 21]),
+            mbLineDataset('GPT-5.5', p.gpt, [55, 45, 21]),
+        ];
+        return new Chart(canvas, {
+            type: 'line',
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { top: 30, right: 52, left: 10, bottom: 6 } },
+                plugins: {
+                    legend: { display: true, position: 'top', align: 'end', labels: { color: p.ink, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle', font: { family: "'DM Sans', sans-serif", size: 12 }, padding: 14 } },
+                    tooltip: mbTooltip(p, '%'),
+                    title: { display: true, text: 'Per-Model Pass@3 vs. Patch Complexity', color: p.ink, font: { family: "'DM Sans', sans-serif", size: 15, weight: '600' }, padding: { bottom: 12 } },
+                    mbValueLabels: { placement: 'trail', format: function (v) { return Math.round(v) + '%'; } },
+                },
+                scales: {
+                    x: { offset: true, grid: { display: false, drawBorder: false }, ticks: { color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 }, callback: function (val) { var l = this.getLabelForValue(val); return String(l).split('\n'); } }, title: { display: true, text: 'Reference Patch Complexity (source hunks)', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+                    y: { min: 0, max: 100, grid: { color: p.grid, drawBorder: false }, ticks: { stepSize: 20, color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 } }, title: { display: true, text: 'Pass@3 (%)', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+                },
+            },
+            plugins: [mbValueLabelPlugin],
+        });
+    }
+
+    function mbBuildPassTierChart(canvas, p) {
+        // Exact published figures from the source PNG (Pass@3 by Difficulty Tier).
+        // Live-API derivation kept commented for easy revert:
+        //   var order = MB_MODEL_ORDER || mbDiscoverModelOrder();
+        //   var datasets = order.map(function (k) { return mbLineDataset(mbModelLabel(k), mbSeriesColor(k, p), mbTierPassSeries(k)); });
+        //   data: { labels: MB_TIER_LABELS, datasets: datasets }
+        var labels = ['Trivial', 'Easy', 'Medium', 'Hard', 'Expert'];
+        var datasets = [
+            mbLineDataset('Claude Opus 4.8', p.opus, [100, 50, 42, 22, 0]),
+            mbLineDataset('Gemini 3.1 Pro', p.gemini, [100, 72, 33, 4, 0]),
+            mbLineDataset('GPT-5.5', p.gpt, [100, 89, 25, 15, 0]),
+        ];
+        return new Chart(canvas, {
+            type: 'line',
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { top: 30, right: 52, left: 10, bottom: 6 } },
+                plugins: {
+                    legend: { display: true, position: 'top', align: 'end', labels: { color: p.ink, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle', font: { family: "'DM Sans', sans-serif", size: 12 }, padding: 14 } },
+                    tooltip: mbTooltip(p, '%'),
+                    title: { display: true, text: 'Pass@3 by Difficulty Tier', color: p.ink, font: { family: "'DM Sans', sans-serif", size: 15, weight: '600' }, padding: { bottom: 12 } },
+                    mbValueLabels: { format: function (v) { return Math.round(v) + '%'; } },
+                },
+                scales: {
+                    x: { offset: true, grid: { display: false, drawBorder: false }, ticks: { color: p.ink, font: { family: "'DM Sans', sans-serif", size: 12 } }, title: { display: true, text: 'Difficulty tier', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+                    // min < 0 leaves room for the below-point 4% / 0% labels, as in the PNG.
+                    y: { min: -12, max: 120, grid: { color: p.grid, drawBorder: false }, ticks: { stepSize: 20, color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 } }, title: { display: true, text: 'Pass@3 (%)', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+                },
+            },
+            plugins: [mbValueLabelPlugin],
+        });
+    }
+
+    function mbBuildCostTierChart(canvas, p) {
+        // Exact published figures from the source PNG (Mean Agent Cost per Run by
+        // Difficulty Tier). Live-API derivation kept commented for easy revert:
+        //   var order = MB_MODEL_ORDER || mbDiscoverModelOrder();
+        //   var datasets = order.map(function (k) { return mbLineDataset(mbModelLabel(k), mbSeriesColor(k, p), mbTierCostSeries(k)); });
+        //   data: { labels: MB_TIER_LABELS, datasets: datasets }
+        var labels = ['Trivial', 'Easy', 'Medium', 'Hard', 'Expert'];
+        var datasets = [
+            mbLineDataset('Claude Opus 4.8', p.opus, [1.74, 3.20, 4.99, 3.87, 6.74]),
+            mbLineDataset('Gemini 3.1 Pro', p.gemini, [3.73, 6.57, 2.46, 3.87, 5.16]),
+            mbLineDataset('GPT-5.5', p.gpt, [4.13, 6.48, 6.07, 7.98, 8.44]),
+        ];
+        return new Chart(canvas, {
+            type: 'line',
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { top: 30, right: 52, left: 10, bottom: 6 } },
+                plugins: {
+                    legend: { display: true, position: 'top', align: 'start', labels: { color: p.ink, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle', font: { family: "'DM Sans', sans-serif", size: 12 }, padding: 14 } },
+                    tooltip: mbTooltip(p, '$'),
+                    title: { display: true, text: 'Mean Agent Cost per Run by Difficulty Tier', color: p.ink, font: { family: "'DM Sans', sans-serif", size: 15, weight: '600' }, padding: { bottom: 12 } },
+                    mbValueLabels: { format: function (v) { return '$' + v.toFixed(2); } },
+                },
+                scales: {
+                    x: { offset: true, grid: { display: false, drawBorder: false }, ticks: { color: p.ink, font: { family: "'DM Sans', sans-serif", size: 12 } }, title: { display: true, text: 'Difficulty tier', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+                    // Ticks land at 0/2/4/6/8/10 with headroom above (max 11), as in the PNG.
+                    y: { min: 0, max: 11, grid: { color: p.grid, drawBorder: false }, ticks: { stepSize: 2, color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 } }, title: { display: true, text: 'Mean agent cost per run (USD)', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+                },
+            },
+            plugins: [mbValueLabelPlugin],
+        });
+    }
+
+    var mbCharts = {};
+
+    function mbRenderCharts() {
+        if (typeof Chart === 'undefined') return false;
+        // Charts plot fixed published figures (see builders), so they no longer
+        // depend on the live API payload — render as soon as Chart.js is ready.
+        var p = mbPalette();
+        var elPass = document.getElementById('mb-chart-pass-rate');
+        var elTier = document.getElementById('mb-chart-pass-tier');
+        var elCost = document.getElementById('mb-chart-cost-tier');
+        try { if (elPass) mbCharts.pass_rate = mbBuildPassRateChart(elPass, p); }
+        catch (e) { console.error('milobench: pass-rate chart failed', e); }
+        try { if (elTier) mbCharts.pass_tier = mbBuildPassTierChart(elTier, p); }
+        catch (e) { console.error('milobench: pass-tier chart failed', e); }
+        try { if (elCost) mbCharts.cost_tier = mbBuildCostTierChart(elCost, p); }
+        catch (e) { console.error('milobench: cost-tier chart failed', e); }
+        return true;
+    }
+    function mbDestroyCharts() {
+        Object.keys(mbCharts).forEach(function (k) {
+            try { if (mbCharts[k]) mbCharts[k].destroy(); } catch (e) {}
+            delete mbCharts[k];
+        });
+    }
+    function mbReRenderCharts() {
+        mbDestroyCharts();
+        mbRenderCharts();
+    }
+    function mbInitCharts() {
+        var tries = 0;
+        var poll = setInterval(function () {
+            tries += 1;
+            if (typeof Chart !== 'undefined') {
+                clearInterval(poll);
+                try { mbRenderCharts(); }
+                catch (e) { console.error('milobench: chart render failed', e); }
+                // Charts render async (after initAnimations built the triggers)
+                // and grow the page. Recompute ScrollTrigger start positions so
+                // section reveals fire at correct offsets instead of stale ones
+                // (a stale start past max-scroll can leave children opacity:0).
+                if (window.ScrollTrigger) { window.ScrollTrigger.refresh(); }
+                var mo = new MutationObserver(function (muts) {
+                    for (var i = 0; i < muts.length; i += 1) {
+                        if (muts[i].attributeName === 'data-theme') { mbReRenderCharts(); break; }
+                    }
+                });
+                mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+            } else if (tries > 60) {
+                clearInterval(poll);
+                if (window && window.console && console.warn) {
+                    console.warn('milobench: Chart.js did not load within 3s; charts skipped.');
+                }
+            }
+        }, 50);
+    }
+
     async function init() {
         initTheme();
-        initScrollProgress();
         initReveal();
+        initScrollProgress();
+        initAnimations();
         await loadData();
+        mbInitCharts();
         renderKpi();
         renderTiers();
         renderModelTable();
@@ -426,6 +966,11 @@
         populateLangFilter();
         attachViewerHandlers();
         applyFilters();
+        // The synchronous renders above (KPIs, matrix tables, lang grid) changed
+        // page height after initAnimations() created the ScrollTriggers. Refresh
+        // once so GSAP's from() section reveals use correct scroll positions.
+        // (mbInitCharts refreshes again when the async chart render lands.)
+        if (window.ScrollTrigger) { window.ScrollTrigger.refresh(); }
     }
 
     if (document.readyState === "loading") {

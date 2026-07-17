@@ -68,7 +68,7 @@
       <field name="name">kensei2.tracker.team.member.form</field>
       <field name="model">kensei2.tracker.team.member</field>
       <field name="arch" type="xml">
-        <form string="Team Member">
+        <form string="Team Member" class="o_kensei2_tracker_form">
           <header>
             <button name="action_view_performance" type="object"
                     string="Performance" class="btn-primary" icon="fa-line-chart"
@@ -147,7 +147,7 @@
       <field name="search_view_id" ref="kensei2_tracker_team_member_search"/>
       <field name="help" type="html">
         <p class="o_view_nocontent_smiling_face">No team members yet</p>
-        <p>Add existing Odoo users to the Kensei2 Tracker team, or use
+        <p>Add existing Odoo users to the Kensei Tracker team, or use
            <b>Bulk Upload</b> to add many at once.</p>
       </field>
     </record>

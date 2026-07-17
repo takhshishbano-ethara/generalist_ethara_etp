@@ -13,7 +13,7 @@
                         <th class="o_ktd_col_pl" rowspan="2"><t t-out="props.head"/></th>
                         <th rowspan="2">Total</th>
                         <th colspan="5" class="o_ktd_group_s1">STAGE 1 — Baseline</th>
-                        <th colspan="4" class="o_ktd_group_s2">STAGE 2 — Pass It K</th>
+                        <th colspan="4" class="o_ktd_group_s2">STAGE 2 — Pass @ K</th>
                         <th rowspan="2">Blocked</th>
                         <th rowspan="2">Avg Score</th>
                     </tr>
@@ -23,8 +23,8 @@
                         <th class="o_ktd_s1" title="Stage 1 — Baseline trajectory generated">Baseline</th>
                         <th class="o_ktd_s1" title="Stage 1 Manual QC">Manual QC</th>
                         <th class="o_ktd_s1" title="Stage 1 finished — waiting to hand off to Stage 2">Next Stage</th>
-                        <th class="o_ktd_s2" title="Stage 2 — ready for its Pass It K trajectory">PIK Ready</th>
-                        <th class="o_ktd_s2" title="Stage 2 — Pass It K trajectory generated">Pass It K</th>
+                        <th class="o_ktd_s2" title="Stage 2 — ready for its Pass @ K trajectory">P@K Ready</th>
+                        <th class="o_ktd_s2" title="Stage 2 — Pass @ K trajectory generated">Pass @ K</th>
                         <th class="o_ktd_s2" title="Stage 2 Manual QC">Manual QC</th>
                         <th class="o_ktd_s2" title="Stage 2 complete — delivered">Deliverable</th>
                     </tr>

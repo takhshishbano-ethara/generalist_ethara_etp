@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <!-- Module Category -->
+        <record id="module_category_project_tracker" model="ir.module.category">
+            <field name="name">Project Tracker</field>
+            <field name="description">Project Tracker — task allocation pipeline, team management and dashboards</field>
+            <field name="sequence">33</field>
+        </record>
+
+        <!-- Privilege (Odoo 19 pattern) — gives the Tracker its own radio-button
+             row in Settings / Users, independent of the Kensei2 app's roles. -->
+        <record id="res_groups_privilege_project_tracker" model="res.groups.privilege">
+            <field name="name">Project Tracker</field>
+            <field name="sequence">33</field>
+            <field name="category_id" ref="module_category_project_tracker"/>
+        </record>
+
+        <!-- ===== Groups (Three-Tier Independent Hierarchy) ===== -->
+        <!-- Same ladder shape as Kensei2's, but a SEPARATE ladder: Tracker access
+             is granted on its own and does not follow from any Kensei2 role. -->
+
+        <!-- Tasker: sees only own allocations, works the Dashboard + Task Allocation. -->
+        <record id="group_project_tracker_tasker" model="res.groups">
+            <field name="name">Tasker</field>
+            <field name="privilege_id" ref="res_groups_privilege_project_tracker"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Sees only the allocations assigned to them. Can update their own task's stage work.</field>
+        </record>
+
+        <!-- Quality Lead: own team's allocations, plus Daily Tracker, Personas,
+             Team Management, bulk uploads and stage hand-offs. -->
+        <record id="group_project_tracker_ql" model="res.groups">
+            <field name="name">Quality Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_project_tracker"/>
+            <field name="implied_ids" eval="[(4, ref('group_project_tracker_tasker'))]"/>
+            <field name="comment">Sees their own team's allocations. Manages personas, team members, bulk uploads and stage hand-offs.</field>
+        </record>
+
+        <!-- Project Lead: same team scope as QL, full management rights. -->
+        <record id="group_project_tracker_pl" model="res.groups">
+            <field name="name">Project Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_project_tracker"/>
+            <field name="implied_ids" eval="[(4, ref('group_project_tracker_ql'))]"/>
+            <field name="comment">Everything a Quality Lead can do, for the teams they lead.</field>
+        </record>
+
+        <!-- Admin: org-wide, including allocations with no PL/QL assigned. -->
+        <record id="group_project_tracker_admin" model="res.groups">
+            <field name="name">Admin</field>
+            <field name="privilege_id" ref="res_groups_privilege_project_tracker"/>
+            <field name="implied_ids" eval="[(4, ref('group_project_tracker_pl'))]"/>
+            <field name="comment">Organisation-wide Tracker access covering every PL, QL and Tasker, including unassigned allocations.</field>
+        </record>
+
+    </data>
+</odoo>

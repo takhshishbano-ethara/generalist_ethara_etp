@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_project_phase_request_wizard_form" model="ir.ui.view">
+        <field name="name">ethara.project.phase.request.wizard.form</field>
+        <field name="model">ethara.project.phase.request.wizard</field>
+        <field name="arch" type="xml">
+            <form string="New Phase Budget Request">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="phase_id" readonly="1"/>
+                            <field name="budget_id" readonly="1"/>
+                            <field name="ethara_project_id" readonly="1"/>
+                            <field name="request_type"/>
+                            <field name="priority"/>
+                            <field name="topup_reason_id"
+                                   invisible="request_type != 'topup'"
+                                   required="request_type == 'topup'"/>
+                        </group>
+                        <group>
+                            <field name="total_tasks"/>
+                            <field name="buffer_pct"/>
+                            <field name="requested_total"/>
+                            <field name="subject"/>
+                        </group>
+                    </group>
+                    <group string="Justification">
+                        <field name="justification" nolabel="1"
+                               placeholder="Explain why this budget is needed"/>
+                    </group>
+                    <group string="Optional Message">
+                        <field name="message" nolabel="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Model Lines" name="model_lines"
+                              invisible="request_type == 'topup'">
+                            <field name="model_line_ids">
+                                <list editable="bottom">
+                                    <field name="ai_model_id"/>
+                                    <field name="ai_model_name"/>
+                                    <field name="cost_type"/>
+                                    <field name="per_trajectory_cost"
+                                           column_invisible="parent.request_type == 'device'"/>
+                                    <field name="iterations"
+                                           column_invisible="parent.request_type == 'device'"/>
+                                    <field name="per_task_cost"/>
+                                    <field name="requested_amount" sum="Total"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Infrastructure Lines" name="infra_lines"
+                              invisible="request_type == 'topup'">
+                            <field name="infra_line_ids">
+                                <list editable="bottom">
+                                    <field name="infra_type_id"/>
+                                    <field name="description"/>
+                                    <field name="instance_type"/>
+                                    <field name="unit_price_usd"/>
+                                    <field name="quantity"/>
+                                    <field name="duration_hours"/>
+                                    <field name="ebs_storage_gb"/>
+                                    <field name="volume_type"/>
+                                    <field name="volume_rate_usd_per_gb_mo"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                    <field name="requested_amount" sum="Total"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Subscription Lines" name="sub_lines"
+                              invisible="request_type == 'topup'">
+                            <field name="subscription_line_ids">
+                                <list editable="bottom">
+                                    <field name="subscription_id"/>
+                                    <field name="cost_per_subscription"/>
+                                    <field name="assigned_user_ids"
+                                           widget="many2many_tags"/>
+                                    <field name="subscription_count"/>
+                                    <field name="requested_amount" sum="Total"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Attachments" name="attachments">
+                            <field name="attachment_ids" widget="many2many_binary"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button name="action_submit" string="Submit for Approval"
+                            type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

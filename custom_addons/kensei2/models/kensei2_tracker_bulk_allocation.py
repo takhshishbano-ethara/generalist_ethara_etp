@@ -20,7 +20,7 @@ from odoo.exceptions import UserError
 
 class Kensei2TrackerBulkAllocation(models.TransientModel):
     _name = 'kensei2.tracker.bulk.allocation'
-    _description = 'Kensei2 Tracker — Bulk Persona Allocation'
+    _description = 'Kensei Tracker — Bulk Persona Allocation'
 
     # ------------------------------------------------------------------ #
     #  Inputs

@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- AWS Pricing Item                                              -->
+    <!-- ============================================================ -->
+
+    <record id="view_ethara_project_aws_pricing_item_list" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.item.list</field>
+        <field name="model">ethara.project.aws.pricing.item</field>
+        <field name="arch" type="xml">
+            <list string="AWS Pricing Items">
+                <field name="service_code"/>
+                <field name="name"/>
+                <field name="sku_count"/>
+                <field name="last_synced_at"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_pricing_item_form" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.item.form</field>
+        <field name="model">ethara.project.aws.pricing.item</field>
+        <field name="arch" type="xml">
+            <form string="AWS Pricing Item">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="e.g. t3.large"/></h1>
+                        <div>Service: <field name="service_code" readonly="1"/></div>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="infra_type_id" options="{'no_create': True}"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="sku_count"/>
+                            <field name="last_synced_at"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_pricing_item_search" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.item.search</field>
+        <field name="model">ethara.project.aws.pricing.item</field>
+        <field name="arch" type="xml">
+            <search string="AWS Pricing Items">
+                <field name="name"/>
+                <field name="service_code"/>
+                <field name="infra_type_id"/>
+                <filter name="filter_active" string="Active" domain="[('active', '=', True)]"/>
+                <filter name="filter_inactive" string="Inactive" domain="[('active', '=', False)]"/>
+                
+                    <filter name="group_service" string="Service" context="{'group_by': 'service_code'}"/>
+                    <filter name="group_infra" string="Infra Type" context="{'group_by': 'infra_type_id'}"/>
+                
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_aws_pricing_item" model="ir.actions.act_window">
+        <field name="name">AWS Pricing Items</field>
+        <field name="res_model">ethara.project.aws.pricing.item</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_project_aws_pricing_item_search"/>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- AWS Pricing SKU                                               -->
+    <!-- ============================================================ -->
+
+    <record id="view_ethara_project_aws_pricing_sku_list" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.sku.list</field>
+        <field name="model">ethara.project.aws.pricing.sku</field>
+        <field name="arch" type="xml">
+            <list string="AWS Pricing SKUs">
+                <field name="service_code"/>
+                <field name="item_name"/>
+                <field name="region_label"/>
+                <field name="aws_sku"/>
+                <field name="on_demand_usd"/>
+                <field name="unit"/>
+                <field name="vcpu" optional="hide"/>
+                <field name="memory" optional="hide"/>
+                <field name="instance_family" optional="hide"/>
+                <field name="last_synced_at" optional="show"/>
+                <field name="cache_expiry_at" optional="hide"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_pricing_sku_form" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.sku.form</field>
+        <field name="model">ethara.project.aws.pricing.sku</field>
+        <field name="arch" type="xml">
+            <form string="AWS Pricing SKU">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="aws_sku" readonly="1"/></h1>
+                        <div><field name="item_name" readonly="1"/> @ <field name="region_label" readonly="1"/></div>
+                    </div>
+                    <group>
+                        <group string="Pricing">
+                            <field name="on_demand_usd"/>
+                            <field name="unit"/>
+                            <field name="price_description"/>
+                            <field name="has_reserved"/>
+                        </group>
+                        <group string="Cache">
+                            <field name="last_synced_at"/>
+                            <field name="cache_expiry_at"/>
+                            <field name="sync_batch_id"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <group string="Attributes">
+                        <group>
+                            <field name="vcpu"/>
+                            <field name="memory"/>
+                            <field name="storage"/>
+                            <field name="network_performance"/>
+                        </group>
+                        <group>
+                            <field name="operating_system"/>
+                            <field name="tenancy"/>
+                            <field name="instance_family"/>
+                        </group>
+                    </group>
+                    <group string="Raw Attributes">
+                        <field name="attributes_json" nolabel="1" widget="text"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_pricing_sku_search" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.sku.search</field>
+        <field name="model">ethara.project.aws.pricing.sku</field>
+        <field name="arch" type="xml">
+            <search string="AWS Pricing SKUs">
+                <field name="aws_sku"/>
+                <field name="item_name"/>
+                <field name="service_code"/>
+                <field name="region_label"/>
+                <filter name="filter_active" string="Active" domain="[('active', '=', True)]"/>
+                <filter name="filter_has_reserved" string="Has Reserved" domain="[('has_reserved', '=', True)]"/>
+                
+                    <filter name="group_service" string="Service" context="{'group_by': 'service_code'}"/>
+                    <filter name="group_region" string="Region" context="{'group_by': 'region_label'}"/>
+                    <filter name="group_item" string="Item" context="{'group_by': 'item_name'}"/>
+                
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_aws_pricing_sku" model="ir.actions.act_window">
+        <field name="name">AWS Pricing SKUs</field>
+        <field name="res_model">ethara.project.aws.pricing.sku</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_project_aws_pricing_sku_search"/>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- AWS Pricing Sync Log                                          -->
+    <!-- ============================================================ -->
+
+    <record id="view_ethara_project_aws_pricing_sync_log_list" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.sync.log.list</field>
+        <field name="model">ethara.project.aws.pricing.sync.log</field>
+        <field name="arch" type="xml">
+            <list string="AWS Pricing Sync Log" decoration-danger="status == 'failed'" decoration-warning="status == 'partial'" decoration-success="status == 'success'">
+                <field name="batch_id"/>
+                <field name="started_at"/>
+                <field name="ended_at"/>
+                <field name="duration_seconds"/>
+                <field name="triggered_by"/>
+                <field name="user_id" optional="hide"/>
+                <field name="services_fetched"/>
+                <field name="services_upserted"/>
+                <field name="items_upserted" optional="hide"/>
+                <field name="skus_upserted" optional="hide"/>
+                <field name="api_call_count"/>
+                <field name="status" widget="badge"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_pricing_sync_log_form" model="ir.ui.view">
+        <field name="name">ethara.project.aws.pricing.sync.log.form</field>
+        <field name="model">ethara.project.aws.pricing.sync.log</field>
+        <field name="arch" type="xml">
+            <form string="AWS Pricing Sync Log" create="false" edit="false" delete="false">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="batch_id" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="started_at"/>
+                            <field name="ended_at"/>
+                            <field name="duration_seconds"/>
+                            <field name="triggered_by"/>
+                            <field name="user_id"/>
+                        </group>
+                        <group>
+                            <field name="status" widget="badge"/>
+                            <field name="services_fetched"/>
+                            <field name="services_upserted"/>
+                            <field name="items_fetched"/>
+                            <field name="items_upserted"/>
+                            <field name="skus_fetched"/>
+                            <field name="skus_upserted"/>
+                            <field name="skus_deprecated"/>
+                            <field name="api_call_count"/>
+                        </group>
+                    </group>
+                    <group string="Error" invisible="not error_message">
+                        <field name="error_message" nolabel="1" widget="text"/>
+                    </group>
+                    <group string="Detail Log">
+                        <field name="detail_log" nolabel="1" widget="text"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_aws_pricing_sync_log" model="ir.actions.act_window">
+        <field name="name">AWS Pricing Sync Log</field>
+        <field name="res_model">ethara.project.aws.pricing.sync.log</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- AWS EBS Pricing                                               -->
+    <!-- ============================================================ -->
+
+    <record id="view_ethara_project_aws_ebs_pricing_list" model="ir.ui.view">
+        <field name="name">ethara.project.aws.ebs.pricing.list</field>
+        <field name="model">ethara.project.aws.ebs.pricing</field>
+        <field name="arch" type="xml">
+            <list string="AWS EBS Pricing">
+                <field name="region_label"/>
+                <field name="volume_code"/>
+                <field name="volume_label"/>
+                <field name="rate_usd_per_gb_mo"/>
+                <field name="unit"/>
+                <field name="source" widget="badge"/>
+                <field name="last_synced_at"/>
+                <field name="cache_expiry_at" optional="hide"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_ebs_pricing_form" model="ir.ui.view">
+        <field name="name">ethara.project.aws.ebs.pricing.form</field>
+        <field name="model">ethara.project.aws.ebs.pricing</field>
+        <field name="arch" type="xml">
+            <form string="AWS EBS Pricing">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="volume_label" readonly="1"/></h1>
+                        <div><field name="volume_code" readonly="1"/> @ <field name="region_label" readonly="1"/></div>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="region_label"/>
+                            <field name="volume_code"/>
+                            <field name="volume_label"/>
+                            <field name="rate_usd_per_gb_mo"/>
+                            <field name="unit"/>
+                        </group>
+                        <group>
+                            <field name="source" widget="badge"/>
+                            <field name="last_synced_at"/>
+                            <field name="cache_expiry_at"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_ebs_pricing_search" model="ir.ui.view">
+        <field name="name">ethara.project.aws.ebs.pricing.search</field>
+        <field name="model">ethara.project.aws.ebs.pricing</field>
+        <field name="arch" type="xml">
+            <search string="AWS EBS Pricing">
+                <field name="region_label"/>
+                <field name="volume_code"/>
+                <filter name="filter_active" string="Active" domain="[('active', '=', True)]"/>
+                <filter name="filter_live" string="Live" domain="[('source', '=', 'live')]"/>
+                <filter name="filter_fallback" string="Fallback" domain="[('source', '=', 'fallback')]"/>
+                
+                    <filter name="group_region" string="Region" context="{'group_by': 'region_label'}"/>
+                    <filter name="group_source" string="Source" context="{'group_by': 'source'}"/>
+                
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_aws_ebs_pricing" model="ir.actions.act_window">
+        <field name="name">AWS EBS Pricing</field>
+        <field name="res_model">ethara.project.aws.ebs.pricing</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_project_aws_ebs_pricing_search"/>
+    </record>
+
+</odoo>

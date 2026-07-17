@@ -47,8 +47,10 @@
                             type="object" icon="fa-unlock"
                             invisible="state == 'draft' or results_release != 'manual'"/>
                     <button name="action_cancel" string="Cancel" type="object"
+                            confirm="Cancel this assessment? Invited candidates will no longer be able to take it."
                             invisible="state in ('done', 'cancelled')"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object"
+                            confirm="Reset to Draft permanently deletes every invited candidate and all their responses for this assessment. This cannot be undone. Continue?"
                             invisible="state not in ('cancelled',)"/>
                     <field name="invite_summary" class="oe_inline text-muted"
                            invisible="not invite_summary"/>
@@ -417,7 +419,7 @@
                 </header>
                 <div class="alert alert-danger" invisible="not is_violated" role="alert">
                     <strong>Violation:</strong>
-                    <field name="violation_reason" readonly="1"/> —
+                    <field name="violation_reason" readonly="1"/> -
                     <field name="violation_datetime" readonly="1"/>
                     (count: <field name="violation_count" readonly="1"/>)
                 </div>

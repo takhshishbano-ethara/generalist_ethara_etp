@@ -119,7 +119,7 @@ class EtpAssessmentPortal(http.Controller):
         if block:
             return block
         assessment = evaluator.assessment_id
-        if evaluator.is_locked:
+        if evaluator.is_locked or evaluator.state == "submitted":
             return request.render(
                 "etp_assessment_pro.portal_assessment_complete",
                 {"assessment": assessment, "evaluator": evaluator})
@@ -214,6 +214,77 @@ class EtpAssessmentPortal(http.Controller):
             base="/pro_assessment/%s" % token,
             finish_url=f"/pro_assessment/{token}/finish",
             blocked=bool(kw.get("incomplete")))
+
+    @http.route("/pro_assessment/<string:token>/answers", type="http",
+                auth="public", website=True)
+    def assessment_answers_single(self, token, **kw):
+        evaluator = self._get_evaluator_from_token(token)
+        if not evaluator:
+            return request.render("etp_assessment_pro.portal_invalid_token")
+        if request.env.user._is_public():
+            return request.redirect(
+                "/web/login?redirect=/pro_assessment/%s/answers" % token)
+        block = self._candidate_guard(evaluator, evaluator.assessment_id)
+        if block:
+            return block
+        if not ((evaluator.is_locked or evaluator.state == "submitted")
+                and evaluator.results_released):
+            return request.redirect("/pro_assessment/%s" % token)
+        return request.render(
+            "etp_assessment_pro.portal_assessment_answers",
+            {"assessment": evaluator.assessment_id, "evaluator": evaluator,
+             "review_rows": self._build_answer_review(evaluator),
+             "back_url": "/pro_assessment/%s" % token})
+
+    def _build_answer_review(self, evaluator):
+        order = json.loads(evaluator.question_order or "[]")
+        questions = request.env["etp.assessment.pro.question"].sudo() \
+            .browse(order).exists()
+        responses = request.env["etp.assessment.pro.response"].sudo().search([
+            ("assessment_evaluator_id", "=", evaluator.id),
+            ("question_id", "in", questions.ids)])
+        by_q = {r.question_id.id: r for r in responses}
+        badge_map = {"pass": "text-bg-success", "fail": "text-bg-danger",
+                     "info": "text-bg-secondary"}
+        rows = []
+        for i, q in enumerate(questions):
+            r = by_q.get(q.id)
+            qtype = q.question_type
+            chosen = r.line_ids.mapped("selected_option_id").mapped("name") \
+                if r else []
+            justification = (r.justification or "") if r else ""
+            correct, score_pct = [], None
+            if qtype in ("mcq", "msq"):
+                correct = q.question_dimension_ids.mapped("option_line_ids") \
+                    .filtered("is_correct").mapped("name")
+                if not r:
+                    verdict, kind = "Not answered", "info"
+                elif r.max_score and r.score >= r.max_score:
+                    verdict, kind = "Correct", "pass"
+                else:
+                    verdict, kind = "Incorrect", "fail"
+            else:
+                if not r or not (justification or chosen):
+                    verdict, kind = "Not answered", "info"
+                elif r.llm_state == "scored":
+                    verdict = "Passed" if r.llm_passed else "Failed"
+                    kind = "pass" if r.llm_passed else "fail"
+                    score_pct = int(round(r.llm_raw_100 or 0))
+                else:
+                    verdict, kind = "Awaiting grading", "info"
+            rows.append({
+                "index": i + 1,
+                "name": q.name or "Question %s" % (i + 1),
+                "prompt": q.prompt or q.name or "",
+                "type": qtype,
+                "chosen": chosen,
+                "correct": correct,
+                "justification": justification,
+                "verdict": verdict,
+                "badge": badge_map.get(kind, "text-bg-secondary"),
+                "score_pct": score_pct,
+            })
+        return rows
 
     def _unanswered_question_ids(self, evaluator):
         """Question ids in this attempt with no submitted response yet."""
@@ -750,7 +821,7 @@ class EtpAssessmentPortal(http.Controller):
             evaluator.applicant_id.partner_name, assessment.name, reason,
             new_count)
         cap = assessment.max_violations or 0
-        if assessment.violation_action == "auto_submit" and cap and new_count >= cap:
+        if assessment.violation_action == "auto_submit" and (not cap or new_count >= cap):
             self._auto_submit_remaining_single(evaluator)
 
     def _auto_submit_remaining_single(self, evaluator):

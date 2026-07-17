@@ -6,7 +6,7 @@ from odoo.tools import format_datetime
 
 class EtpAssessmentDashboard(models.TransientModel):
     _name = "etp.assessment.pro.dashboard"
-    _description = "ETP Assessment Pro — Analytics Dashboard"
+    _description = "ETP Assessment Pro - Analytics Dashboard"
 
     total_assessments = fields.Integer(string="Assessments", readonly=True)
     total_candidates = fields.Integer(string="Candidates", readonly=True)

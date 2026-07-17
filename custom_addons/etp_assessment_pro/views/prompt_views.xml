@@ -5,6 +5,11 @@
         <field name="model">etp.assessment.pro.prompt</field>
         <field name="arch" type="xml">
             <list js_class="etp_prompt_import_list" class="o_etp_backend">
+                <header>
+                    <button name="action_normalize_tags" type="object"
+                            string="Normalize Tags"
+                            help="Re-extract SOP tags for the selected generators so drifted tags converge on the shared vocabulary and similarity ranking improves."/>
+                </header>
                 <field name="name"/>
                 <field name="tag_ids" widget="many2many_tags"
                        options="{'color_field': 'color'}" optional="hide"
@@ -43,7 +48,7 @@
                 <header>
                     <button name="%(action_etp_assessment_pro_bank_import)d"
                             type="action" string="Import Question Bank"
-                            class="oe_highlight" icon="fa-upload"/>
+                            class="btn-secondary" icon="fa-upload"/>
                     <button name="action_generate_from_sop" type="object"
                             string="Generate Questions"
                             class="oe_highlight"
@@ -51,6 +56,10 @@
                     <button name="action_extract_tags" type="object"
                             string="Extract Tags"
                             invisible="not resource_ids"/>
+                    <button name="action_approve_all_drafts" type="object"
+                            string="Approve All Drafts"
+                            confirm="Approve every pending draft question into the question bank?"
+                            invisible="question_count == 0"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,skills_ready,generating,done"/>
                 </header>
@@ -68,10 +77,29 @@
                             <field name="name" placeholder="Prompt Title"/>
                         </h1>
                     </div>
-                    <group>
+
+                    <!-- Step 1: the mandatory SOP upload, front and centre -->
+                    <field name="has_sop_resource" invisible="1"/>
+                    <div class="o_etp_sop_upload p-2 mb-3">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <label for="upload_sop_file" string="SOP document (required)"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="upload_sop_file" nolabel="1"
+                                   widget="etp_upload_button"
+                                   filename="upload_sop_filename"
+                                   required="not has_sop_resource"
+                                   help="Required: the SOP document questions are generated from."/>
+                            <field name="upload_sop_filename" invisible="1"/>
+                            <field name="resource_ids" nolabel="1"
+                                   widget="etp_file_chips"
+                                   options="{'category': 'sop'}"/>
+                        </div>
+                    </div>
+
+                    <!-- Status: what the system reports (dimmed, secondary) -->
+                    <group class="o_etp_status">
                         <group>
                             <field name="resource_count" readonly="1"/>
-                            <field name="last_extract_summary" readonly="1"/>
                             <field name="sop_gen_state" readonly="1"
                                    decoration-info="sop_gen_state == 'queued'"
                                    decoration-warning="sop_gen_state == 'generating'"
@@ -92,73 +120,117 @@
                                    options="{'color_field': 'color'}"
                                    context="{'etp_hide_tag_prefix': True}"
                                    placeholder="Semantic SOP tags..."/>
-                            <field name="sop_question_count"/>
-                        <field name="force_question_type"/>
-                            <field name="sample_questions_file"
-                                   widget="binary"
-                                   filename="sample_questions_filename"
-                                   string="Sample Questions"
-                                   help="Upload a sample-questions file (PDF/DOCX/MD/image) to match the format — optional"/>
-                            <field name="sample_questions_filename" invisible="1"/>
                         </group>
                         <group>
+                            <field name="last_extract_summary" readonly="1"/>
                             <field name="question_count" readonly="1"/>
                             <field name="approved_count" readonly="1"/>
                         </group>
                     </group>
+
+                    <!-- Generation controls: every knob for the run, in one card -->
+                    <div class="o_etp_panel">
+                        <separator string="Generation controls"/>
+                        <div class="d-flex align-items-center gap-3 flex-wrap mb-2 mt-1">
+                            <label for="question_count_mode" string="Questions to generate"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="question_count_mode" nolabel="1"
+                                   widget="radio" options="{'horizontal': True}"/>
+                            <field name="sop_question_count" nolabel="1" widget="integer"
+                                   invisible="question_count_mode != 'fixed'"
+                                   class="o_etp_count_input"/>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                            <label for="upload_sample_file" string="Sample questions (optional)"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="upload_sample_file" nolabel="1"
+                                   widget="etp_upload_button"
+                                   filename="upload_sample_filename"
+                                   help="Upload a sample-questions file (PDF/DOCX/MD/image) so generated questions match its format - optional."/>
+                            <field name="upload_sample_filename" invisible="1"/>
+                            <field name="resource_ids" nolabel="1"
+                                   widget="etp_file_chips"
+                                   options="{'category': 'sample'}"/>
+                        </div>
+                        <div class="d-flex align-items-center justify-content-between mb-1 mt-3">
+                            <span class="fw-semibold">Allowed question types</span>
+                            <span class="d-inline-flex align-items-center gap-1 small text-muted">
+                                <field name="select_all_types" nolabel="1"/>
+                                <label for="select_all_types" string="Select all" class="mb-0 fw-normal"/>
+                            </span>
+                        </div>
+                        <div class="o_etp_control mb-1 o_etp_qtypes">
+                            <field name="types_all_selected" invisible="1"/>
+                            <span class="o_etp_qtypes_full" invisible="not types_all_selected"/>
+                            <field name="allowed_question_type_ids" nolabel="1"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True, 'no_create_edit': True}"
+                                   domain="[('id', 'not in', allowed_question_type_ids)]"
+                                   placeholder="Add a type…"
+                                   help="Leave empty to let the model choose the best type per item."/>
+                        </div>
+                        <div class="text-muted small mb-2">
+                            The generator may author only these types. Leave empty to let it choose freely per the SOP.
+                            <span class="d-block">“Questions to Generate” is kept at least the number of selected types, so each can appear once.</span>
+                        </div>
+                        <div class="fw-semibold mb-1 mt-3">Extra instructions</div>
+                        <div class="o_etp_control">
+                            <field name="source_text" nolabel="1" rows="4"
+                                   placeholder="Optional extra instructions for the generator…"/>
+                        </div>
+                        <div class="text-muted small mt-1">
+                            Appended to the source material the model reads - e.g. "focus on edge-case moderation calls; keep language plain, avoid legalese."
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap mb-2 mt-3">
+                            <label for="upload_reference_file" string="Reference files (optional)"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="upload_reference_file" nolabel="1"
+                                   widget="etp_upload_button"
+                                   options="{'icon_only': true, 'label': 'Add a reference file'}"
+                                   filename="upload_reference_filename"
+                                   help="Supporting documents the generator reads alongside the SOP and your notes."/>
+                            <field name="upload_reference_filename" invisible="1"/>
+                            <field name="resource_ids" nolabel="1"
+                                   widget="etp_file_chips"
+                                   options="{'category': 'reference'}"/>
+                        </div>
+                    </div>
+
                     <div class="alert alert-info" role="alert"
                          invisible="extract_state not in ('queued','extracting')">
-                        Skill extraction runs in the background. Skills will appear
-                        within about a minute — refresh the page.
+                        Tag extraction runs in the background. Tags will appear
+                        within about a minute.
                     </div>
                     <div class="alert alert-danger" role="alert"
                          invisible="extract_state != 'failed'">
                         <strong>Extraction failed.</strong>
                         <field name="extract_error" readonly="1" nolabel="1"
                                class="d-inline"/>
-                        Fix the issue and click Extract Skills again.
+                        Fix the issue and click Extract Tags again.
                     </div>
-                    <field name="source_text" placeholder="Optional notes appended to resources..."/>
                     <notebook>
-                        <page string="Similar Projects" name="similar_projects">
-                            <div class="o_etp_backend etp-simrank-wrap">
-                                <field name="similar_html" widget="html"
-                                       readonly="1" nolabel="1"/>
-                            </div>
-                        </page>
                         <page string="Resources">
                             <div class="alert alert-info" role="alert">
-                                Pick the right bucket for each file. Accepted formats: .docx, .txt, .md, .csv, .html.
-                                The <strong>SOP</strong> is mandatory.
+                                Every file attached to this generator. Upload from the form above.
+                                Text is extracted from .docx, .txt, .md, .csv, .html, .json and .xml;
+                                .pdf and images are read directly by the model instead.
                             </div>
-                            <field name="has_sop_resource" invisible="1"/>
-                            <group>
-                                <group string="SOP">
-                                    <field name="upload_sop_file"
-                                           widget="binary"
-                                           filename="upload_sop_filename"
-                                           string="File"
-                                           required="not has_sop_resource"
-                                           help="Required: upload the SOP document to extract skills from."/>
-                                    <field name="upload_sop_filename" invisible="1"/>
-                                </group>
-                            </group>
-                            <field name="resource_ids">
-                                <list>
-                                    <field name="sequence" widget="handle"/>
+                            <field name="resource_ids" readonly="1">
+                                <list create="false" delete="false" edit="false">
                                     <field name="category"/>
                                     <field name="name"/>
                                     <field name="file" filename="name"/>
                                     <field name="char_count"/>
+                                    <field name="status"/>
                                     <field name="extraction_error"/>
                                 </list>
                                 <form>
                                     <sheet>
                                         <group>
-                                            <field name="name"/>
-                                            <field name="sequence"/>
-                                            <field name="file" filename="name"/>
+                                            <field name="name" readonly="1"/>
+                                            <field name="file" filename="name" readonly="1"/>
                                             <field name="char_count" readonly="1"/>
+                                            <field name="status" readonly="1"/>
                                             <field name="extraction_error" readonly="1"/>
                                         </group>
                                         <field name="extracted_text" readonly="1"/>
@@ -166,9 +238,21 @@
                                 </form>
                             </field>
                         </page>
+                        <page string="Similar Projects" name="similar_projects">
+                            <div class="o_etp_backend etp-simrank-wrap">
+                                <field name="similar_html" widget="html"
+                                       readonly="1" nolabel="1"/>
+                            </div>
+                        </page>
                         <page string="Question Drafts">
                             <field name="question_ids">
                                 <list>
+                                    <header>
+                                        <button name="action_approve" type="object"
+                                                string="Approve Selected" class="btn-primary"/>
+                                        <button name="action_deny" type="object"
+                                                string="Deny Selected" class="btn-secondary"/>
+                                    </header>
                                     
                                     <field name="name"/>
                                     <field name="question_type"/>
@@ -266,7 +350,7 @@
                                             This item or its answer key
                                             <strong>references the source material</strong>
                                             (SOP / guidelines / a Section). The candidate never
-                                            sees the source — the question must be self-contained.
+                                            sees the source - the question must be self-contained.
                                             Regenerate, or rewrite so the deciding facts live in
                                             the scenario itself.
                                         </div>
@@ -276,7 +360,7 @@
                                              invisible="not has_revealing_option">
                                             An option name embeds its rationale
                                             ("…, <strong>because</strong> …"). Option names are
-                                            shown to the candidate — keep them to the bare choice
+                                            shown to the candidate - keep them to the bare choice
                                             (e.g. <strong>Image B</strong>) and move the "why" to the
                                             hidden <strong>Answer Rationale</strong>. Regenerate or
                                             edit the option text before approving.
@@ -285,7 +369,7 @@
                                              invisible="question_type not in ('mcq','msq','image_ab')">
                                             Each row is one scoring <strong>dimension</strong>; the
                                             <strong>Correct</strong> toggle marks the answer key. Used
-                                            <strong>only for scoring</strong> — candidates see the options
+                                            <strong>only for scoring</strong> - candidates see the options
                                             to choose from but never which one is correct.
                                         </div>
                                         <field name="dimensions_preview" widget="html"
@@ -309,7 +393,7 @@
                                                 </field>
                                             </form>
                                         </field>
-                                        <group string="Answer Key — Rubric"
+                                        <group string="Answer Key - Rubric"
                                                invisible="question_type not in ('subjective_rubric','image_prompt','image_label')">
                                             <field name="ak_ideal_answer"
                                                    invisible="question_type not in ('image_prompt','image_label')"
@@ -333,7 +417,7 @@
                                         </group>
                                         <field name="official_reasoning"
                                                invisible="question_type not in ('mcq','msq','image_ab')"
-                                               placeholder="Hidden answer-key rationale — stored for review/scoring, never shown to the candidate..."/>
+                                               placeholder="Hidden answer-key rationale - stored for review/scoring, never shown to the candidate..."/>
                                         <notebook>
                                             <page string="Advanced (raw JSON)">
                                                 <div class="alert alert-info" role="alert">
@@ -495,7 +579,7 @@
                         This item or its answer key
                         <strong>references the source material</strong>
                         (SOP / guidelines / a Section). The candidate never sees the
-                        source — the question must be self-contained. Regenerate, or
+                        source - the question must be self-contained. Regenerate, or
                         rewrite so the deciding facts live in the scenario itself.
                     </div>
                     <separator string="Answer Key"
@@ -504,7 +588,7 @@
                          invisible="not has_revealing_option">
                         An option name embeds its rationale
                         ("…, <strong>because</strong> …"). Option names are shown to the
-                        candidate — keep them to the bare choice (e.g. <strong>Image B</strong>)
+                        candidate - keep them to the bare choice (e.g. <strong>Image B</strong>)
                         and move the "why" to the hidden <strong>Answer Rationale</strong>.
                         Regenerate or edit the option text before approving.
                     </div>
@@ -512,7 +596,7 @@
                          invisible="question_type not in ('mcq','msq','image_ab')">
                         Each row is one scoring <strong>dimension</strong>; the
                         <strong>Correct</strong> toggle marks the answer key. Used
-                        <strong>only for scoring</strong> — candidates see the options
+                        <strong>only for scoring</strong> - candidates see the options
                         to choose from but never which one is correct.
                     </div>
                     <field name="dimensions_preview" widget="html"
@@ -536,7 +620,7 @@
                             </field>
                         </form>
                     </field>
-                    <group string="Answer Key — Rubric"
+                    <group string="Answer Key - Rubric"
                            invisible="question_type not in ('subjective_rubric','image_prompt','image_label')">
                         <field name="ak_ideal_answer"
                                invisible="question_type not in ('image_prompt','image_label')"
@@ -560,7 +644,7 @@
                     </group>
                     <field name="official_reasoning"
                            invisible="question_type not in ('mcq','msq','image_ab')"
-                           placeholder="Hidden answer-key rationale — stored for review/scoring, never shown to the candidate..."/>
+                           placeholder="Hidden answer-key rationale - stored for review/scoring, never shown to the candidate..."/>
                     <notebook>
                         <page string="Advanced (raw JSON)">
                             <div class="alert alert-info" role="alert">

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_project_cost_line_list" model="ir.ui.view">
+        <field name="name">ethara.project.cost.line.list</field>
+        <field name="model">ethara.project.cost.line</field>
+        <field name="arch" type="xml">
+            <list string="Cost Lines" create="false" delete="false">
+                <field name="period"/>
+                <field name="period_label"/>
+                <field name="granularity"/>
+                <field name="source"/>
+                <field name="service_name"/>
+                <field name="model_name"/>
+                <field name="token_type"/>
+                <field name="usage_quantity"/>
+                <field name="usage_unit"/>
+                <field name="amount_source" sum="Total"/>
+                <field name="ethara_project_id" optional="hide"/>
+                <field name="budget_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_cost_line_search" model="ir.ui.view">
+        <field name="name">ethara.project.cost.line.search</field>
+        <field name="model">ethara.project.cost.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="service_name"/>
+                <field name="model_name"/>
+                <field name="budget_id"/>
+                <field name="ethara_project_id"/>
+                <filter name="filter_day" string="Daily"
+                        domain="[('granularity','=','day')]"/>
+                <filter name="filter_month" string="Monthly"
+                        domain="[('granularity','=','month')]"/>
+                <filter name="filter_aws" string="AWS"
+                        domain="[('source','=','aws')]"/>
+                <filter name="filter_openrouter" string="OpenRouter"
+                        domain="[('source','=','openrouter')]"/>
+                <filter name="filter_moonshot" string="Moonshot"
+                        domain="[('source','=','moonshot')]"/>
+                <filter name="filter_openai" string="OpenAI"
+                        domain="[('source','=','openai')]"/>
+                <filter name="filter_gcp" string="GCP"
+                        domain="[('source','=','gcp')]"/>
+                <group>
+                    <filter name="group_period" string="Period"
+                            context="{'group_by': 'period'}"/>
+                    <filter name="group_service" string="Service"
+                            context="{'group_by': 'service_name'}"/>
+                    <filter name="group_source" string="Source"
+                            context="{'group_by': 'source'}"/>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'ethara_project_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_cost_line" model="ir.actions.act_window">
+        <field name="name">Cost Log</field>
+        <field name="res_model">ethara.project.cost.line</field>
+        <field name="view_mode">list</field>
+        <field name="search_view_id" ref="view_ethara_project_cost_line_search"/>
+    </record>
+
+    <record id="view_ethara_project_cost_fetch_log_list" model="ir.ui.view">
+        <field name="name">ethara.project.cost.fetch.log.list</field>
+        <field name="model">ethara.project.cost.fetch.log</field>
+        <field name="arch" type="xml">
+            <list string="Fetch History" create="false">
+                <field name="fetched_at"/>
+                <field name="budget_id"/>
+                <field name="provider"/>
+                <field name="source"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'success'"
+                       decoration-danger="status == 'error'"/>
+                <field name="created_count"/>
+                <field name="updated_count"/>
+                <field name="triggered_by_id"/>
+                <field name="error_message" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_cost_fetch_log" model="ir.actions.act_window">
+        <field name="name">Fetch History</field>
+        <field name="res_model">ethara.project.cost.fetch.log</field>
+        <field name="view_mode">list</field>
+    </record>
+
+</odoo>

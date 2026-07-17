@@ -24,6 +24,10 @@
               <h1><field name="name" placeholder="e.g. marcus" readonly="not is_kensei2_admin"/></h1>
             </div>
             <field name="is_kensei2_admin" invisible="1"/>
+            <group>
+              <field name="l1_category" readonly="not is_kensei2_admin"/>
+              <field name="l2_category" readonly="not is_kensei2_admin"/>
+            </group>
             <div class="d-flex gap-3 w-100 mb-3 o_kensei2_md_row">
               <div class="flex-fill" style="min-width: 0; flex: 1;">
                 <label for="soul_md" string="SOUL.md" class="fw-bold mb-1"/>

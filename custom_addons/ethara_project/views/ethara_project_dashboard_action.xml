@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="action_ethara_project_budget_health_dashboard" model="ir.actions.client">
+        <field name="name">Budget Health</field>
+        <field name="tag">ethara_project.budget_health_dashboard</field>
+    </record>
+
+</odoo>

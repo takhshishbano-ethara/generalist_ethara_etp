@@ -46,6 +46,9 @@
                     <button name="action_score" type="object"
                             string="Score Now"
                             invisible="state != 'submitted'"/>
+                    <button name="action_rerun_llm_qc" type="object"
+                            string="Re-run LLM QC"
+                            invisible="state not in ('submitted','scored') or llm_qc_state not in ('pending','running','failed','partial')"/>
                     <button name="action_cancel" type="object"
                             string="Cancel"
                             invisible="state in ('scored','cancelled')"/>
@@ -105,6 +108,23 @@
                             <field name="result" widget="badge"/>
                         </group>
                     </group>
+                    <group string="LLM QC">
+                        <group>
+                            <field name="llm_qc_state" widget="badge"
+                                   decoration-info="llm_qc_state in ('pending','running')"
+                                   decoration-success="llm_qc_state == 'done'"
+                                   decoration-warning="llm_qc_state == 'partial'"
+                                   decoration-danger="llm_qc_state == 'failed'"
+                                   decoration-muted="llm_qc_state == 'skipped'"/>
+                            <field name="llm_qc_ran_at" readonly="1"/>
+                            <field name="llm_qc_attempts" readonly="1"/>
+                            <field name="llm_qc_result_email_sent" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="llm_qc_error" readonly="1"
+                                   invisible="not llm_qc_error"/>
+                        </group>
+                    </group>
                     <notebook>
                         <page string="Questions" name="questions">
                             <field name="question_ids" readonly="1">
@@ -153,6 +173,9 @@
                                     <field name="needs_review"/>
                                     <field name="manual_score"/>
                                     <field name="manual_score_set" widget="boolean_toggle"/>
+                                    <field name="llm_qc_percent"/>
+                                    <field name="llm_qc_set" widget="boolean_toggle"/>
+                                    <field name="llm_qc_reasoning" optional="hide"/>
                                 </list>
                                 <form>
                                     <sheet>
@@ -181,6 +204,14 @@
                                             <field name="needs_review"/>
                                             <field name="manual_score"/>
                                             <field name="manual_score_set"/>
+                                        </group>
+                                        <group string="LLM QC">
+                                            <field name="llm_qc_percent" readonly="1"/>
+                                            <field name="llm_qc_set" readonly="1"/>
+                                            <field name="llm_qc_at" readonly="1"/>
+                                            <field name="llm_qc_error" readonly="1"
+                                                   invisible="not llm_qc_error"/>
+                                            <field name="llm_qc_reasoning" readonly="1"/>
                                         </group>
                                     </sheet>
                                 </form>

@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_project_ai_model_list" model="ir.ui.view">
+        <field name="name">ethara.project.ai.model.list</field>
+        <field name="model">ethara.project.ai.model</field>
+        <field name="arch" type="xml">
+            <list string="AI Models" editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="provider" readonly="1"/>
+                <field name="api_url"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_ai_model_form" model="ir.ui.view">
+        <field name="name">ethara.project.ai.model.form</field>
+        <field name="model">ethara.project.ai.model</field>
+        <field name="arch" type="xml">
+            <form string="AI Model">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="provider" readonly="1"/>
+                            <field name="api_url"/>
+                        </group>
+                        <group>
+                            <field name="api_key" password="True"
+                                   groups="base.group_system"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_ai_model" model="ir.actions.act_window">
+        <field name="name">AI Models</field>
+        <field name="res_model">ethara.project.ai.model</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_ethara_project_infra_type_list" model="ir.ui.view">
+        <field name="name">ethara.project.infra.type.list</field>
+        <field name="model">ethara.project.infra.type</field>
+        <field name="arch" type="xml">
+            <list string="Infrastructure Types" editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="code"/>
+                <field name="aws_service_code"/>
+                <field name="is_aws_managed"/>
+                <field name="sync_enabled"/>
+                <field name="item_count"/>
+                <field name="last_synced_at"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_infra_type_form" model="ir.ui.view">
+        <field name="name">ethara.project.infra.type.form</field>
+        <field name="model">ethara.project.infra.type</field>
+        <field name="arch" type="xml">
+            <form string="Infrastructure Type">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="code"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="is_aws_managed"/>
+                            <field name="aws_service_code"/>
+                            <field name="primary_attr"/>
+                            <field name="sync_enabled"/>
+                            <field name="item_count" readonly="1"/>
+                            <field name="last_synced_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="AWS Attributes">
+                        <field name="attribute_names" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_infra_type" model="ir.actions.act_window">
+        <field name="name">Infrastructure Types</field>
+        <field name="res_model">ethara.project.infra.type</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_ethara_project_subscription_list" model="ir.ui.view">
+        <field name="name">ethara.project.subscription.list</field>
+        <field name="model">ethara.project.subscription</field>
+        <field name="arch" type="xml">
+            <list string="Subscriptions" editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="cost"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_subscription" model="ir.actions.act_window">
+        <field name="name">Subscriptions</field>
+        <field name="res_model">ethara.project.subscription</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_ethara_project_aws_credentials_form" model="ir.ui.view">
+        <field name="name">ethara.project.aws.credentials.form</field>
+        <field name="model">ethara.project.aws.credentials</field>
+        <field name="arch" type="xml">
+            <form string="AWS Credentials" create="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="access_key_id"/>
+                            <field name="region_name"/>
+                        </group>
+                        <group>
+                            <field name="secret_key" password="True"
+                                   groups="base.group_system"/>
+                            <field name="secret_key_is_set" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_aws_credentials_list" model="ir.ui.view">
+        <field name="name">ethara.project.aws.credentials.list</field>
+        <field name="model">ethara.project.aws.credentials</field>
+        <field name="arch" type="xml">
+            <list string="AWS Credentials" create="false" delete="false">
+                <field name="access_key_id"/>
+                <field name="region_name"/>
+                <field name="secret_key_is_set"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_aws_credentials" model="ir.actions.act_window">
+        <field name="name">AWS Credentials</field>
+        <field name="res_model">ethara.project.aws.credentials</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

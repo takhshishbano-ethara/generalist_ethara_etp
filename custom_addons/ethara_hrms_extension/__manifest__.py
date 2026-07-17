@@ -14,6 +14,7 @@
         'views/ethara_lead_views.xml',
         'views/hr_applicant_views.xml',
         'views/hr_applicant_screening_views.xml',
+        'data/candidate_me_endpoints.xml',
     ],
     'installable': True,
     'application': False,

@@ -6,7 +6,7 @@
       <field name="name">kensei2.tracker.bulk.allocation.form</field>
       <field name="model">kensei2.tracker.bulk.allocation</field>
       <field name="arch" type="xml">
-        <form string="Bulk Allocation">
+        <form string="Bulk Allocation" class="o_kensei2_tracker_form">
           <field name="state" invisible="1"/>
 
           <!-- ===== Step 1 — Source + configure ===== -->
