@@ -264,8 +264,8 @@
   var evalAllData = [];
   var evalFilteredData = [];
   var evalCurrentPage = 1;
-  var evalCurrentSort = "opus_reward";
-  var evalCurrentSortDir = -1;
+  var evalCurrentSort = "instance_id";
+  var evalCurrentSortDir = 1;
   var evalExpandedId = null;
 
   // Prefix-agnostic model-field access: the dataset's reward fields may be
@@ -386,14 +386,38 @@
     );
   }
 
+  function evalTitleCase(s) {
+    if (!s) return "";
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  function evalTruncate(s, n) {
+    if (!s) return "";
+    return s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
+  }
+
+  function evalChips(items) {
+    if (!items || !items.length) return '<span class="rd-detail-val">none</span>';
+    var out = "";
+    for (var i = 0; i < items.length; i++) {
+      out += '<span class="rd-tier-badge" style="margin:2px 4px 2px 0;display:inline-block">' + esc(String(items[i])) + '</span>';
+    }
+    return out;
+  }
+
   function evalRenderRow(d, isExpanded) {
+    var taskFull = d.task || "";
+    var taskShort = evalTruncate(taskFull, 80);
+    var diff = d.difficulty || "";
     return (
       '<tr class="matrix-row' + (isExpanded ? ' row-expanded' : '') + '" data-eval-id="' + esc(d.instance_id) + '">' +
-        '<td class="rd-etd-instance"><span class="rd-eval-instance-name">' + esc(d.uuid || d.instance_id) + '</span></td>' +
-        '<td class="rd-etd-prrange"><span class="rd-tier-badge ' + langClass(d.language) + '">' + esc(d.language || "") + '</span></td>' +
-        '<td class="rd-etd-lang"><span class="rd-tier-badge ' + tierClass(d.difficulty) + '">' + esc(d.difficulty || "N/A") + '</span></td>' +
-        '<td class="rd-etd-opus">' + evalPassCell(mv(d, "stage3")) + '</td>' +
-        '<td class="rd-etd-repo"><span class="rd-eval-tests-count">' + esc(String(d.test_count || 0)) + '</span></td>' +
+        '<td class="rd-etd-instance"><span class="rd-eval-instance-name">' + esc(d.instance_id) + '</span></td>' +
+        '<td class="rd-etd-prrange"><span class="rd-tier-badge">' + esc(d.domain || "") + '</span></td>' +
+        '<td class="rd-etd-lang"><span class="rd-tier-badge">' + esc(evalTitleCase(diff) || "N/A") + '</span></td>' +
+        '<td class="rd-etd-task" title="' + esc(taskFull) + '">' + esc(taskShort) + '</td>' +
+        '<td class="rd-etd-golden">' + esc(d.golden_end_state || "") + '</td>' +
+        '<td class="rd-etd-modela">' + esc(d.model_a_score == null ? "\u2014" : String(d.model_a_score)) + '</td>' +
+        '<td class="rd-etd-modelb">' + esc(d.model_b_score == null ? "\u2014" : String(d.model_b_score)) + '</td>' +
         '<td class="rd-etd-expand"><span class="expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>' +
       '</tr>'
     );
@@ -403,33 +427,114 @@
     function item(k, v) {
       return '<div class="rd-detail-row-item"><span class="rd-detail-key">' + esc(k) + '</span><span class="rd-detail-val">' + v + '</span></div>';
     }
-    var links = "";
-    if (d.original_repo) links += '<a class="rd-detail-link" href="' + esc(d.original_repo) + '" target="_blank" rel="noopener">Repository</a>';
-    if (d.specification) links += '<a class="rd-detail-link" href="' + esc(d.specification) + '" target="_blank" rel="noopener">Specification</a>';
+    function block(title, inner) {
+      return '<div class="rd-detail-block"><div class="rd-detail-block-title">' + esc(title) + '</div>' + inner + '</div>';
+    }
+    var env = d.environment || {};
+    var agent = d.agent || {};
+    var actor = d.actor || {};
+
+    var taskInfo = (
+      item("Instance", '<span style="font-family:var(--font-mono);font-size:12px">' + esc(d.instance_id || "") + '</span>') +
+      item("Domain", esc(d.domain || "")) +
+      item("Difficulty", esc(evalTitleCase(d.difficulty) || "n/a")) +
+      item("Task", '<span style="white-space:normal">' + esc(d.task || "") + '</span>') +
+      item("Golden End-State", esc(d.golden_end_state || "")) +
+      item("Keywords", evalChips(d.keywords)) +
+      item("Source Task ID", '<span style="font-family:var(--font-mono);font-size:12px">' + esc(d.source_task_id || "") + '</span>')
+    );
+
+    var actorInfo = (
+      item("Name", esc(actor.name || "\u2014")) +
+      item("Email", '<span style="font-family:var(--font-mono);font-size:12px">' + esc(actor.email || "\u2014") + '</span>') +
+      item("User ID", esc(actor.user_id || "\u2014"))
+    );
+    var ctxs = d.gym_contexts || {};
+    var ctxKeys = Object.keys(ctxs);
+    if (ctxKeys.length) {
+      var ctxHtml = "";
+      for (var ci = 0; ci < ctxKeys.length; ci++) {
+        var gymName = ctxKeys[ci];
+        var pairs = ctxs[gymName] || {};
+        var pkeys = Object.keys(pairs);
+        var kvs = "";
+        for (var pi = 0; pi < pkeys.length; pi++) {
+          kvs += '<div style="margin-left:12px;font-size:12px"><span style="color:var(--muted)">' + esc(pkeys[pi]) + ':</span> <span style="font-family:var(--font-mono)">' + esc(String(pairs[pkeys[pi]])) + '</span></div>';
+        }
+        ctxHtml += '<div style="margin-top:6px"><b>' + esc(gymName) + '</b>' + kvs + '</div>';
+      }
+      actorInfo += item("Gym Contexts", '<div>' + ctxHtml + '</div>');
+    }
+
+    var envInfo = (
+      item("Build timeout", esc(env.build_timeout_sec == null ? "\u2014" : String(env.build_timeout_sec) + "s")) +
+      item("CPUs", esc(env.cpus == null ? "\u2014" : String(env.cpus))) +
+      item("Memory", esc(env.memory_mb == null ? "\u2014" : String(env.memory_mb) + " MB")) +
+      item("Storage", esc(env.storage_mb == null ? "\u2014" : String(env.storage_mb) + " MB")) +
+      item("Network mode", esc(env.network_mode || "\u2014")) +
+      item("Allowed hosts", evalChips(env.allowed_hosts))
+    );
+    var mcp = env.mcp_servers || [];
+    if (mcp.length) {
+      var mcpHtml = "";
+      for (var mi = 0; mi < mcp.length; mi++) {
+        var s = mcp[mi] || {};
+        mcpHtml += '<div style="margin-top:6px"><b>' + esc(s.name || "") + '</b>' +
+          '<div style="margin-left:12px;font-size:12px"><span style="color:var(--muted)">transport:</span> ' + esc(s.transport || "") + '</div>' +
+          '<div style="margin-left:12px;font-size:12px;font-family:var(--font-mono)"><span style="color:var(--muted);font-family:inherit">url:</span> ' + esc(s.url || "") + '</div>' +
+          '</div>';
+      }
+      envInfo += item("MCP servers", mcpHtml);
+    }
+
+    var runtimeInfo = (
+      item("Agent timeout", esc(agent.timeout_sec == null ? "\u2014" : String(agent.timeout_sec) + "s")) +
+      item("Agent network mode", esc(agent.network_mode || "\u2014")) +
+      item("Agent allowed hosts", evalChips(agent.allowed_hosts)) +
+      item("Verifier timeout", esc(d.verifier_timeout_sec == null ? "\u2014" : String(d.verifier_timeout_sec) + "s")) +
+      item("Seed files", evalChips(d.seed_files))
+    );
+
+    var toolsInfo = (
+      item("Gyms", evalChips(d.gyms)) +
+      item("Selected tools (" + (d.selected_tools || []).length + ")", evalChips(d.selected_tools)) +
+      item("Restricted tools", evalChips(d.restricted_tools))
+    );
+
+    var vfs = d.verifiers || [];
+    var vfsInner;
+    if (!vfs.length) {
+      vfsInner = '<div class="rd-detail-val">none</div>';
+    } else {
+      var rows = "";
+      for (var vi = 0; vi < vfs.length; vi++) {
+        var v = vfs[vi];
+        rows += '<tr>' +
+          '<td style="padding:6px 10px;vertical-align:top;font-family:var(--font-mono);font-size:12px">' + esc(String(v.idx)) + '</td>' +
+          '<td style="padding:6px 10px;vertical-align:top;font-size:12px"><b>' + esc(v.reward_key || "") + '</b><div style="color:var(--muted);margin-top:2px">' + esc(v.description || "") + '</div></td>' +
+          '<td style="padding:6px 10px;vertical-align:top;font-size:12px">' + esc(v.type || "") + '<div style="color:var(--muted);margin-top:2px">' + esc(v.gym || "") + '</div></td>' +
+          '<td style="padding:6px 10px;vertical-align:top;font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;word-break:break-word;max-width:520px"><code>' + esc(v.query || "") + '</code></td>' +
+          '<td style="padding:6px 10px;vertical-align:top;font-size:12px;white-space:nowrap"><span style="font-family:var(--font-mono)">' + esc(String(v.expected_value)) + '</span><div style="color:var(--muted);margin-top:2px">' + esc(v.comparison_type || "") + '</div></td>' +
+          '</tr>';
+      }
+      vfsInner = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+        '<thead><tr style="text-align:left;border-bottom:1px solid var(--border-2);color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:0.08em">' +
+        '<th style="padding:6px 10px">idx</th><th style="padding:6px 10px">reward key / description</th><th style="padding:6px 10px">type / gym</th><th style="padding:6px 10px">query</th><th style="padding:6px 10px">expected / cmp</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+
     return (
       '<tr class="rd-detail-row" data-eval-detail-for="' + esc(d.instance_id) + '">' +
-        '<td colspan="6">' +
+        '<td colspan="8">' +
           '<div class="rd-detail-content">' +
             '<div class="rd-eval-detail-grid">' +
-              '<div class="rd-detail-block">' +
-                '<div class="rd-detail-block-title">Task Info</div>' +
-                item("Language", esc(d.language || "")) +
-                item("Difficulty", '<span class="rd-tier-badge ' + tierClass(d.difficulty) + '">' + esc(d.difficulty || "n/a") + '</span>') +
-                item("Held-out Tests", esc(String(d.test_count || 0))) +
-                item("Version", esc(setupVer(d) || "")) +
-                item("Test Cmd", esc(d.test_cmd || "")) +
-                item("Source Dir", esc(d.setup_src_dir || "")) +
-              '</div>' +
-              '<div class="rd-detail-block">' +
-                '<div class="rd-detail-block-title">Opus 4.8</div>' +
-                item("Reward", '<span style="font-weight:700">' + fmtPct(mv(d, "stage3")) + '</span>') +
-                item("Stage 1", fmtPct(mv(d, "stage1"))) +
-                item("Stage 2", fmtPct(mv(d, "stage2"))) +
-                item("Stage 3", fmtPct(mv(d, "stage3"))) +
-                item("Gen Time", fmtTime(mv(d, "time"))) +
-              '</div>' +
+              block("Task Info", taskInfo) +
+              block("Actor", actorInfo) +
+              block("Environment", envInfo) +
+              block("Runtime limits & seeds", runtimeInfo) +
             '</div>' +
-            (links ? '<div class="rd-detail-cmds" style="margin-top:14px">' + links + '</div>' : '') +
+            '<div style="margin-top:20px">' + block("Tools", toolsInfo) + '</div>' +
+            '<div style="margin-top:20px">' + block("Verifiers (" + vfs.length + ")", vfsInner) + '</div>' +
           '</div>' +
         '</td>' +
       '</tr>'
@@ -449,7 +554,7 @@
       if (isExpanded) html += evalRenderDetailRow(d);
     }
     if (pageData.length === 0) {
-      html = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--rd-text-muted)">No tasks found.</td></tr>';
+      html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--rd-text-muted)">No tasks found.</td></tr>';
     }
     tbody.innerHTML = html;
     var countEl = document.getElementById("rd-eval-count");
@@ -481,17 +586,17 @@
 
   function evalApplyFilters() {
     var search = (document.getElementById("rd-eval-search").value || "").toLowerCase();
-    var tierSel = document.getElementById("rd-eval-difficulty").value;
-    var langSel = document.getElementById("rd-eval-scope").value;
+    var diffSel = document.getElementById("rd-eval-difficulty").value;
+    var domainSel = document.getElementById("rd-eval-scope").value;
     evalFilteredData = evalAllData.filter(function (d) {
-      if (tierSel && d.difficulty !== tierSel) return false;
-      if (langSel && d.language !== langSel) return false;
+      if (diffSel && d.difficulty !== diffSel) return false;
+      if (domainSel && d.domain !== domainSel) return false;
       if (search) {
         var idMatch = (d.instance_id || "").toLowerCase().indexOf(search) !== -1;
-        var uuidMatch = (d.uuid || "").toLowerCase().indexOf(search) !== -1;
-        var repoMatch = (d.original_repo || "").toLowerCase().indexOf(search) !== -1;
-        var langMatch = (d.language || "").toLowerCase().indexOf(search) !== -1;
-        if (!idMatch && !uuidMatch && !repoMatch && !langMatch) return false;
+        var domainMatch = (d.domain || "").toLowerCase().indexOf(search) !== -1;
+        var taskMatch = (d.task || "").toLowerCase().indexOf(search) !== -1;
+        var goldenMatch = (d.golden_end_state || "").toLowerCase().indexOf(search) !== -1;
+        if (!idMatch && !domainMatch && !taskMatch && !goldenMatch) return false;
       }
       return true;
     });
@@ -504,17 +609,8 @@
     var key = evalCurrentSort;
     var dir = evalCurrentSortDir;
     evalFilteredData.sort(function (a, b) {
-      var av, bv;
-      if (key === "opus_reward") {
-        av = evalRewardSort(a); bv = evalRewardSort(b);
-        return (av - bv) * dir;
-      }
-      if (key === "tests") {
-        av = parseFloat(a.test_count) || 0; bv = parseFloat(b.test_count) || 0;
-        return (av - bv) * dir;
-      }
-      av = (a[key] || "").toString().toLowerCase();
-      bv = (b[key] || "").toString().toLowerCase();
+      var av = (a[key] || "").toString().toLowerCase();
+      var bv = (b[key] || "").toString().toLowerCase();
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
@@ -596,7 +692,7 @@
         evalRenderTable();
       })
       .catch(function () {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--rd-text-muted)">Failed to load task data.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--rd-text-muted)">Failed to load task data.</td></tr>';
       });
 
     document.getElementById("rd-eval-search").addEventListener("input", debounce(evalApplyFilters, 250));

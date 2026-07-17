@@ -4,12 +4,18 @@
    =================================================================== */
 
 .tr-showcase {
-    max-width: 900px;
-    margin: 0 auto;
+    height: 100%;
+    overflow-y: auto;
     padding: 32px 24px;
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: #1a1a2e;
     line-height: 1.6;
+}
+
+.tr-showcase > * {
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 /* ---------- Header ---------- */

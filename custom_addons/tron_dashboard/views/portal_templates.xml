@@ -41,11 +41,11 @@
       <!-- Tron dark editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
            does not override the design). -->
-      <link rel="stylesheet" href="/tron_dashboard/static/src/portal/css/tron_portal.css?v=2"/>
+      <link rel="stylesheet" href="/tron_dashboard/static/src/portal/css/tron_portal.css?v=4"/>
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
-      <script src="/tron_dashboard/static/src/portal/js/tron_portal.js?v=2" defer="defer"/>
+      <script src="/tron_dashboard/static/src/portal/js/tron_portal.js?v=5" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -85,17 +85,17 @@
   <header class="masthead">
     <div class="mast-top">
       <h1 class="wordmark">TRON</h1>
-      <span class="badge mono">TODO: project tagline</span>
+      <span class="badge mono">ENTERPRISE-OPERATIONS AGENTIC CAPABILITIES</span>
     </div>
     <hr class="rule"/>
-    <p class="thesis">TODO: one-sentence project thesis for Tron.</p>
+    <p class="thesis">Can AI agents follow enterprise policies to reliably complete multi-step operations across multi-domain workflows?</p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
     <div class="hero-actions">
-      <a class="rd-link-btn" href="https://example.com/tron-repo" target="_blank" rel="noopener">
+      <a class="rd-link-btn" href="https://github.com/Ethara-Ai/tron-samples" target="_blank" rel="noopener">
         <svg class="rd-brand-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-github"/></svg>
         GitHub
       </a>
-      <a class="rd-link-btn" href="https://example.com/tron-dataset" target="_blank" rel="noopener">
+      <a class="rd-link-btn" href="https://huggingface.co/datasets/ethara/tron-samples" target="_blank" rel="noopener">
         <svg class="rd-brand-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-hf"/></svg>
         Hugging Face
       </a>
@@ -112,31 +112,24 @@
   <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
     <p class="section-label" id="overview-label">01 &#xB7; Overview</p>
 
-    <!-- Hero visual slot (drop-in target for the eventual overview image). -->
-    <div class="tr-placeholder tr-placeholder--image" role="img" aria-label="TODO: overview hero image">
-      <span class="tr-placeholder-label">TODO: image</span>
-    </div>
-
     <div class="overview-grid">
       <div class="prose">
-        <p>TODO: overview paragraph describing what Tron is, the problem it addresses, and the shape of the solution.</p>
+        <p>TRON is a reinforcement-learning environment for training enterprise-operations agents on stateful, multi-step work across eight enterprise domains. Each instance embeds a mock enterprise state &#x2014; HR records, ITSM tickets, calendar entries, drive contents &#x2014; and a task that can only be solved by choosing the <b>right tool, in the right order, under the right policy</b>. Reward signals are generated from deterministic verifiers over the resulting workflow, decomposing performance into policy adherence, tool-sequence correctness, and end-state fidelity. Difficulty is not asserted &#x2014; it is measured on frozen signed pilots, with a cohort name and a measured date on every envelope.</p>
         <ul class="capabilities">
-          <li>TODO: capability 1</li>
-          <li>TODO: capability 2</li>
-          <li>TODO: capability 3</li>
-          <li>TODO: capability 4</li>
-          <li>TODO: capability 5</li>
+          <li><b>SQL-based outcome verification:</b> hidden expert-authored SQL queries that validate final database states to ensure exact business outcomes.</li>
+          <li><b>Resettable containerized sandbox:</b> Model Context Protocol (MCP)-powered live server environments running against freshly seeded SQL database snapshots.</li>
+          <li><b>Long-horizon stateful planning:</b> multi-step trajectories requiring up to 34 sequential steps with permanent, stateful database mutations.</li>
         </ul>
       </div>
 
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
-          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
-          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
-          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
-          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
+          <div class="glance-row"><dt>Tasks</dt><dd><b>10,000+</b></dd></div>
+          <div class="glance-row"><dt>Domains</dt><dd><b>8</b></dd></div>
+          <div class="glance-row"><dt>Models Evaluated</dt><dd>&#x2014;</dd></div>
+          <div class="glance-row"><dt>Methodology</dt><dd>Measured-Never-Claimed</dd></div>
+          <div class="glance-row"><dt>Difficulty</dt><dd>L1 &#xB7; L2 &#xB7; L3</dd></div>
         </dl>
       </aside>
     </div>
@@ -145,22 +138,22 @@
   <!-- ================= §02 KEY METRICS ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label">
     <p class="section-label" id="scale-label">02 &#xB7; Key metrics</p>
-    <p class="section-desc">TODO: one-line description of the headline metrics.</p>
+    <p class="section-desc">Three numbers that define the scope of the TRON environment.</p>
     <div class="kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
       <div class="kpi-card">
-        <p class="kpi-label">TODO: label</p>
-        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
-        <p class="kpi-sub mono">TODO: sub</p>
+        <p class="kpi-label">Tasks</p>
+        <p class="kpi-value"><span class="kpi-big">10,000+</span></p>
+        <p class="kpi-sub mono">enterprise-ops workflows</p>
       </div>
       <div class="kpi-card">
-        <p class="kpi-label">TODO: label</p>
-        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
-        <p class="kpi-sub mono">TODO: sub</p>
+        <p class="kpi-label">Domains</p>
+        <p class="kpi-value"><span class="kpi-big">8</span></p>
+        <p class="kpi-sub mono">HR &#xB7; ITSM &#xB7; CSM &#xB7; Email &#xB7; Calendar &#xB7; Drive &#xB7; Teams &#xB7; Hybrid</p>
       </div>
       <div class="kpi-card">
-        <p class="kpi-label">TODO: label</p>
-        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
-        <p class="kpi-sub mono">TODO: sub</p>
+        <p class="kpi-label">Tools</p>
+        <p class="kpi-value"><span class="kpi-big">512</span></p>
+        <p class="kpi-sub mono">available across domains</p>
       </div>
     </div>
   </section>
@@ -168,44 +161,35 @@
   <!-- ================= §03 METHODOLOGY ================= -->
   <section class="section" id="methodology" aria-labelledby="methodology-label">
     <p class="section-label" id="methodology-label">03 &#xB7; Methodology</p>
-    <p class="section-desc">TODO: one-line description of the methodology principles.</p>
+    <p class="section-desc">How difficulty is measured and rewards are computed. Three principles govern the TRON scoring system.</p>
 
     <div class="pipeline-frame">
-      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(3, 1fr);">
         <article class="phase">
           <p class="phase-label">Principle 01</p>
-          <h4 class="phase-title">TODO: principle 1 title</h4>
+          <h4 class="phase-title">Dual-Axis Process Verification</h4>
           <ul class="phase-body">
-            <li>TODO: principle 1 point</li>
-            <li>TODO: principle 1 point</li>
-            <li>TODO: principle 1 point</li>
+            <li><b>P-axis (Policy):</b> audits policy adherence &#x2014; access scoping, approval order, compliance rules, PII handling.</li>
+            <li><b>T-axis (Tool):</b> audits tool-sequence correctness &#x2014; the right tool called with the right arguments in the right order.</li>
+            <li>Scores = fraction of passed checkpoints on each axis, per task and per domain.</li>
           </ul>
         </article>
         <article class="phase">
           <p class="phase-label">Principle 02</p>
-          <h4 class="phase-title">TODO: principle 2 title</h4>
+          <h4 class="phase-title">End-State Fidelity</h4>
           <ul class="phase-body">
-            <li>TODO: principle 2 point</li>
-            <li>TODO: principle 2 point</li>
-            <li>TODO: principle 2 point</li>
+            <li>Final environment state is diffed against the golden seed-DB target (HR records, ITSM ticket transitions, calendar mutations).</li>
+            <li>Supported match types: exact record equality, structural subset, field-level tolerance.</li>
+            <li>End-state grading eliminates prompt-parroting: the agent must actually change the world correctly.</li>
           </ul>
         </article>
         <article class="phase">
           <p class="phase-label">Principle 03</p>
-          <h4 class="phase-title">TODO: principle 3 title</h4>
+          <h4 class="phase-title">Efficiency (Overstep Metric)</h4>
           <ul class="phase-body">
-            <li>TODO: principle 3 point</li>
-            <li>TODO: principle 3 point</li>
-            <li>TODO: principle 3 point</li>
-          </ul>
-        </article>
-        <article class="phase">
-          <p class="phase-label">Principle 04</p>
-          <h4 class="phase-title">TODO: principle 4 title</h4>
-          <ul class="phase-body">
-            <li>TODO: principle 4 point</li>
-            <li>TODO: principle 4 point</li>
-            <li>TODO: principle 4 point</li>
+            <li><b>Overstep = max(0, S_agent &#x2212; S_human) / (S_human + 1)</b>, where S is tool-call count.</li>
+            <li>Penalizes redundant tool calls relative to the human reference trajectory.</li>
+            <li>Reference tool calls per task: &#x2014; (human baseline).</li>
           </ul>
         </article>
       </div>
@@ -218,40 +202,33 @@
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
-        <h2 class="pipeline-title">TODO: pipeline title sentence.</h2>
-      </div>
-
-      <!-- Pipeline diagram slot (drop-in target for the eventual pipeline diagram). -->
-      <div class="tr-placeholder tr-placeholder--image" role="img" aria-label="TODO: pipeline diagram">
-        <span class="tr-placeholder-label">TODO: image</span>
+        <h2 class="pipeline-title">Three steps from mock enterprise state to scored result.</h2>
       </div>
 
       <div class="pipeline">
         <article class="phase">
           <p class="phase-label">Phase 01</p>
-          <h4 class="phase-title">TODO: phase 1 title</h4>
+          <h4 class="phase-title">Author &amp; Seed</h4>
           <ul class="phase-body">
-            <li>TODO: phase 1 point</li>
-            <li>TODO: phase 1 point</li>
-            <li>TODO: phase 1 point</li>
+            <li>Task is authored as a JSONL bundle: user prompt, system prompt, expected tool calls, verifiers.</li>
+            <li><b>Seed DB</b> materializes the mock enterprise state &#x2014; HR records, ITSM tickets, calendar entries, drive contents &#x2014; the task will act on.</li>
           </ul>
         </article>
         <article class="phase">
           <p class="phase-label">Phase 02</p>
-          <h4 class="phase-title">TODO: phase 2 title</h4>
+          <h4 class="phase-title">Act &amp; Comply</h4>
           <ul class="phase-body">
-            <li>TODO: phase 2 point</li>
-            <li>TODO: phase 2 point</li>
-            <li>TODO: phase 2 point</li>
+            <li>Agent receives the prompt and a scoped tool set for the target domain(s).</li>
+            <li>Must plan the correct tool sequence and obey the enterprise policy layer (access control, approval order, PII rules).</li>
+            <li>Executes against the containerized, resettable <i>EnterpriseOps-Gym</i> environment via the <i>Harbor</i> adapter.</li>
           </ul>
         </article>
         <article class="phase">
           <p class="phase-label">Phase 03</p>
-          <h4 class="phase-title">TODO: phase 3 title</h4>
+          <h4 class="phase-title">Verify &amp; Score</h4>
           <ul class="phase-body">
-            <li>TODO: phase 3 point</li>
-            <li>TODO: phase 3 point</li>
-            <li>TODO: phase 3 point</li>
+            <li>Process-level verification via dual-axis checkpoints (<b>P-axis</b> policy, <b>T-axis</b> tool).</li>
+            <li><b>End-state diff</b> compares the resulting environment against the golden seed-DB target.</li>
           </ul>
         </article>
       </div>
@@ -263,16 +240,16 @@
     <p class="section-label" id="results-label">05 &#xB7; Results</p>
 
     <div class="reveal">
-      <p class="reveal-line">TODO: results summary lead line.</p>
-      <p class="reveal-line reveal-kicker">TODO: results kicker with the headline number and trend.</p>
+      <p class="reveal-line">TODO: results headline (per-model resolution counts).</p>
+      <p class="reveal-line reveal-kicker">HR remains the hardest domain across the board &#x2014; most models sit in the single digits or teens; only &#x2014; models clear 40%. TRON&#x2019;s RL environment is designed to close exactly this gap.</p>
     </div>
 
     <div class="charts">
       <figure class="chart chart--hero">
-        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="TODO: chart 1">
+        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="Per-Domain Success Rate">
           <span class="tr-placeholder-label">TODO: chart</span>
         </div>
-        <figcaption>Fig. 1: TODO: chart 1 caption.</figcaption>
+        <figcaption>Fig. 1: Per-Domain Success Rate (HR, ITSM, CSM, Email, Calendar, Drive, Teams, Hybrid) across evaluated models.</figcaption>
       </figure>
     </div>
 
@@ -280,16 +257,16 @@
 
     <div class="charts">
       <figure class="chart">
-        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="TODO: chart 2">
+        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="Dual-Axis Process Scores">
           <span class="tr-placeholder-label">TODO: chart</span>
         </div>
-        <figcaption>Fig. 2: TODO: chart 2 caption.</figcaption>
+        <figcaption>Fig. 2: Dual-Axis Process Scores (P-axis policy, T-axis tool sequence) by domain.</figcaption>
       </figure>
       <figure class="chart">
-        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="TODO: chart 3">
+        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="Failure Mode Distribution">
           <span class="tr-placeholder-label">TODO: chart</span>
         </div>
-        <figcaption>Fig. 3: TODO: chart 3 caption.</figcaption>
+        <figcaption>Fig. 3: Failure Mode Distribution (policy violation, tool misuse, sequencing error, end-state drift, hallucinated field, timeout, other).</figcaption>
       </figure>
     </div>
 
@@ -321,41 +298,34 @@
   <section class="section" id="rd-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
     <p class="section-label" id="viewer-label">06 &#xB7; Dataset Viewer</p>
 
-    <div class="kpi-row" aria-label="Headline statistics for the delivery">
-      <div class="kpi-card">
-        <p class="kpi-label">TODO: label</p>
-        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
-      </div>
-      <div class="kpi-card">
-        <p class="kpi-label">TODO: label</p>
-        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
-      </div>
-      <div class="kpi-card">
-        <p class="kpi-label">TODO: label</p>
-        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
-      </div>
-      <div class="kpi-card kpi-card--accent">
-        <p class="kpi-label">TODO: label</p>
-        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
-      </div>
-    </div>
-
     <div class="eval-controls">
       <div class="eval-search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="rd-eval-search" placeholder="Search tasks or repos..." autocomplete="off"/>
+        <input type="text" id="rd-eval-search" placeholder="Search instances, domains, or tasks..." autocomplete="off"/>
       </div>
       <div class="eval-filters">
         <select id="rd-eval-scope">
-          <option value="">All Languages</option>
+          <option value="">All Domains</option>
+          <option value="HR">HR</option>
+          <option value="ITSM">ITSM</option>
+          <option value="CSM">CSM</option>
+          <option value="Email">Email</option>
+          <option value="Calendar">Calendar</option>
+          <option value="Drive">Drive</option>
+          <option value="Teams">Teams</option>
+          <option value="Hybrid">Hybrid</option>
         </select>
         <select id="rd-eval-difficulty">
           <option value="">All Difficulties</option>
+          <option value="easy">Easy</option>
+          <option value="medium">Medium</option>
+          <option value="hard">Hard</option>
         </select>
         <select id="rd-eval-sort">
-          <option value="instance_id">Task (A-Z)</option>
-          <option value="language">Language</option>
-          <option value="tests">Tests</option>
+          <option value="instance_id">Instance (A-Z)</option>
+          <option value="domain">Domain</option>
+          <option value="difficulty">Difficulty</option>
+          <option value="task">Task</option>
         </select>
         <button type="button" id="rd-eval-sort-dir-btn" class="sort-dir-btn" title="Descending, click to reverse">&#x2193;</button>
       </div>
@@ -368,11 +338,13 @@
       <table class="eval-table">
         <thead>
           <tr>
-            <th class="eth-instance">Task</th>
-            <th class="eth-prrange">Language</th>
+            <th class="eth-instance">Instance</th>
+            <th class="eth-prrange">Domain</th>
             <th class="eth-lang">Difficulty</th>
-            <th class="eth-opus">Score</th>
-            <th class="eth-repo">Tests</th>
+            <th class="eth-task">Task</th>
+            <th class="eth-golden">Golden End-State</th>
+            <th class="eth-modela">Model A</th>
+            <th class="eth-modelb">Model B</th>
             <th class="eth-expand"></th>
           </tr>
         </thead>
@@ -382,20 +354,21 @@
     <div class="eval-pagination" id="rd-eval-pagination"></div>
   </section>
 
-  <!-- ================= §07 LANGUAGE COMPARISON ================= -->
+  <!-- ================= §07 MODEL COMPARISON ================= -->
   <section class="section" id="models" aria-labelledby="models-label">
-    <p class="section-label" id="models-label">07 &#xB7; Language comparison</p>
-    <p class="section-desc">TODO: description for language comparison cards.</p>
+    <p class="section-label" id="models-label">07 &#xB7; Model comparison</p>
+    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models.</p>
 
-    <div class="kpi-row" id="tr-lang-cards" style="grid-template-columns: repeat(3, 1fr);">
-      <div class="tr-placeholder tr-placeholder--card">
-        <span class="tr-placeholder-label">TODO: language card 1</span>
+    <div class="kpi-row" id="tr-model-cards" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="kpi-card">
+        <p class="kpi-label">Model A</p>
+        <p class="kpi-value"><span class="kpi-big">&#x2014;</span></p>
+        <p class="kpi-sub mono">Overall accuracy</p>
       </div>
-      <div class="tr-placeholder tr-placeholder--card">
-        <span class="tr-placeholder-label">TODO: language card 2</span>
-      </div>
-      <div class="tr-placeholder tr-placeholder--card">
-        <span class="tr-placeholder-label">TODO: language card 3</span>
+      <div class="kpi-card">
+        <p class="kpi-label">Model B</p>
+        <p class="kpi-value"><span class="kpi-big">&#x2014;</span></p>
+        <p class="kpi-sub mono">Overall accuracy</p>
       </div>
     </div>
   </section>
@@ -404,16 +377,16 @@
   <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
     <p class="section-label" id="resources-label">08 &#xB7; Resources</p>
     <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
-      <a class="resource" href="https://example.com/tron-repo" target="_blank" rel="noopener">
+      <a class="resource" href="https://github.com/Ethara-Ai/tron-samples" target="_blank" rel="noopener">
         <p class="res-label mono"><svg class="rd-brand-ico rd-brand-ico--sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-github"/></svg>GitHub</p>
-        <p class="res-title">TODO: repository</p>
-        <p class="res-url mono">example.com/tron-repo</p>
+        <p class="res-title">TRON samples</p>
+        <p class="res-url mono">github.com/Ethara-Ai/tron-samples</p>
         <span class="res-arrow" aria-hidden="true">&#x2197;</span>
       </a>
-      <a class="resource" href="https://example.com/tron-dataset" target="_blank" rel="noopener">
+      <a class="resource" href="https://huggingface.co/datasets/ethara/tron-samples" target="_blank" rel="noopener">
         <p class="res-label mono"><svg class="rd-brand-ico rd-brand-ico--sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-hf"/></svg>Hugging Face</p>
-        <p class="res-title">TODO: dataset</p>
-        <p class="res-url mono">example.com/tron-dataset</p>
+        <p class="res-title">TRON samples dataset</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/tron-samples</p>
         <span class="res-arrow" aria-hidden="true">&#x2197;</span>
       </a>
     </div>

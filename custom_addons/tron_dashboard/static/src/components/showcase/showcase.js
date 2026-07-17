@@ -4,8 +4,8 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, useState, onWillStart } from "@odoo/owl";
 
-const DEFAULT_TRAJECTORIES_URL = "https://example.com/tron-repo";
-const DEFAULT_DATASET_URL = "https://example.com/tron-dataset";
+const DEFAULT_TRAJECTORIES_URL = "https://github.com/Ethara-Ai/tron-samples";
+const DEFAULT_DATASET_URL = "https://huggingface.co/datasets/ethara/tron-samples";
 
 export class TronShowcase extends Component {
     static template = "tron_dashboard.TronShowcase";
