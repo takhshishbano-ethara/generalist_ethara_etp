@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="tron_dashboard.TronShowcase">
+        <div class="tr-showcase">
+            <header class="tr-showcase-header">
+                <span class="tr-tag">TODO: tagline (category &#xB7; domain)</span>
+                <h1 class="tr-title">TRON</h1>
+                <p class="tr-subtitle">
+                    TODO: one-line subtitle describing the project focus.
+                </p>
+                <p class="tr-byline">
+                    by <strong>Ethara AI</strong> &#xB7;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="tr-section tr-description">
+                <p>
+                    TODO: project description paragraph. Replace with the definitive
+                    overview of Tron once content is finalized.
+                </p>
+            </section>
+
+            <section class="tr-section tr-capabilities">
+                <ul class="tr-capabilities-list">
+                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 1</li>
+                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 2</li>
+                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 3</li>
+                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 4</li>
+                    <li><span class="tr-cap-arrow">&#x2192;</span> TODO: capability 5</li>
+                </ul>
+            </section>
+
+            <section class="tr-section tr-metrics">
+                <div class="tr-metric-grid">
+                    <div class="tr-metric-card">
+                        <span class="tr-metric-value">TODO</span>
+                        <span class="tr-metric-label">TODO: metric 1 label</span>
+                        <span class="tr-metric-detail">TODO: metric 1 detail</span>
+                    </div>
+                    <div class="tr-metric-card">
+                        <span class="tr-metric-value">TODO</span>
+                        <span class="tr-metric-label">TODO: metric 2 label</span>
+                        <span class="tr-metric-detail">TODO: metric 2 detail</span>
+                    </div>
+                    <div class="tr-metric-card">
+                        <span class="tr-metric-value">TODO</span>
+                        <span class="tr-metric-label">TODO: metric 3 label</span>
+                        <span class="tr-metric-detail">TODO: metric 3 detail</span>
+                    </div>
+                    <div class="tr-metric-card">
+                        <span class="tr-metric-value">TODO</span>
+                        <span class="tr-metric-label">TODO: metric 4 label</span>
+                        <span class="tr-metric-detail">TODO: metric 4 detail</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="tr-section tr-phases">
+                <div class="tr-phases-row">
+                    <div class="tr-phase-card">
+                        <div class="tr-phase-number">1</div>
+                        <h3>TODO: phase 1 title</h3>
+                        <p>
+                            TODO: phase 1 description.
+                        </p>
+                    </div>
+                    <div class="tr-phase-arrow">&#x2192;</div>
+                    <div class="tr-phase-card">
+                        <div class="tr-phase-number">2</div>
+                        <h3>TODO: phase 2 title</h3>
+                        <p>
+                            TODO: phase 2 description.
+                        </p>
+                    </div>
+                    <div class="tr-phase-arrow">&#x2192;</div>
+                    <div class="tr-phase-card">
+                        <div class="tr-phase-number">3</div>
+                        <h3>TODO: phase 3 title</h3>
+                        <p>
+                            TODO: phase 3 description.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="tr-section tr-links">
+                <a class="tr-btn" t-att-href="state.trajectoriesUrl"
+                   target="_blank" rel="noopener">
+                    Repository
+                </a>
+                <a class="tr-btn tr-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Dataset
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>
