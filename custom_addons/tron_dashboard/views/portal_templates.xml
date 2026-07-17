@@ -1,0 +1,458 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <!--
+    Tron Showcase: public single-page editorial view.
+
+    Mounted at /tron by controllers/main.py (TronShowcaseController).
+    The client-side JS fetches /tron/api/instances to render the dataset
+    viewer table. Content is stubbed with TODO markers pending final copy.
+
+    Layout: standalone HTML (no portal.portal_layout). Dark editorial
+    section-numbered design cloned verbatim from Kaiju Dashboard;
+    all DOM IDs preserved for the tron_portal.js hooks.
+  -->
+
+  <template id="portal_showcase" name="Tron Dashboard">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>TRON &#xB7; ETHARA AI</title>
+      <meta name="description" content="TODO: Tron project meta description."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <!-- Sync theme-setter: reads the saved choice BEFORE stylesheet
+           tokens resolve, so there is no flash when revisiting the page. -->
+      <script>
+        (function(){
+          try {
+            var sysDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.setAttribute('data-theme', sysDark ? 'dark' : 'light');
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&amp;family=Roboto:wght@300;400;500;700&amp;display=swap"/>
+
+      <!-- Tron dark editorial stylesheet served as a static asset
+           (bypasses web.assets_frontend so Bootstrap/portal chrome
+           does not override the design). -->
+      <link rel="stylesheet" href="/tron_dashboard/static/src/portal/css/tron_portal.css?v=2"/>
+
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/tron_dashboard/static/src/portal/js/tron_portal.js?v=2" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+      <svg class="rd-svg-defs" width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute;overflow:hidden">
+        <symbol id="rd-icon-github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+        <symbol id="rd-icon-hf" viewBox="0 0 24 24"><path fill="currentColor" d="M12.025 1.13c-5.77 0-10.449 4.647-10.449 10.378 0 1.112.178 2.181.503 3.185.064-.222.203-.444.416-.577a.96.96 0 0 1 .524-.15c.293 0 .584.124.84.284.278.173.48.408.71.694.226.282.458.611.684.951v-.014c.017-.324.106-.622.264-.874s.403-.487.762-.543c.3-.047.596.06.787.203s.31.313.4.467c.15.257.212.468.233.542.01.026.653 1.552 1.657 2.54.616.605 1.01 1.223 1.082 1.912.055.537-.096 1.059-.38 1.572.637.121 1.294.187 1.967.187.657 0 1.298-.063 1.921-.178-.287-.517-.44-1.041-.384-1.581.07-.69.465-1.307 1.081-1.913 1.004-.987 1.647-2.513 1.657-2.539.021-.074.083-.285.233-.542.09-.154.208-.323.4-.467a1.08 1.08 0 0 1 .787-.203c.359.056.604.29.762.543s.247.55.265.874v.015c.225-.34.457-.67.683-.952.23-.286.432-.52.71-.694.257-.16.547-.284.84-.285a.97.97 0 0 1 .524.151c.228.143.373.388.43.625l.006.04a10.3 10.3 0 0 0 .534-3.273c0-5.731-4.678-10.378-10.449-10.378"/></symbol>
+      </svg>
+
+      <!-- Scroll progress rail. -->
+      <div class="scroll-progress" aria-hidden="true"/>
+
+      <!-- Theme toggle. -->
+      <button type="button" id="rd-theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page" id="rd-portal">
+
+  <!-- ================= MASTHEAD ================= -->
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">TRON</h1>
+      <span class="badge mono">TODO: project tagline</span>
+    </div>
+    <hr class="rule"/>
+    <p class="thesis">TODO: one-sentence project thesis for Tron.</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
+    <div class="hero-actions">
+      <a class="rd-link-btn" href="https://example.com/tron-repo" target="_blank" rel="noopener">
+        <svg class="rd-brand-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-github"/></svg>
+        GitHub
+      </a>
+      <a class="rd-link-btn" href="https://example.com/tron-dataset" target="_blank" rel="noopener">
+        <svg class="rd-brand-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-hf"/></svg>
+        Hugging Face
+      </a>
+      <a class="rd-link-btn rd-link-btn-filled" href="https://www.ethara.ai/contact" target="_blank" rel="noopener">
+        Get in touch
+        <span aria-hidden="true">&#x2192;</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+
+  <!-- ================= §01 Overview ================= -->
+  <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
+    <p class="section-label" id="overview-label">01 &#xB7; Overview</p>
+
+    <!-- Hero visual slot (drop-in target for the eventual overview image). -->
+    <div class="tr-placeholder tr-placeholder--image" role="img" aria-label="TODO: overview hero image">
+      <span class="tr-placeholder-label">TODO: image</span>
+    </div>
+
+    <div class="overview-grid">
+      <div class="prose">
+        <p>TODO: overview paragraph describing what Tron is, the problem it addresses, and the shape of the solution.</p>
+        <ul class="capabilities">
+          <li>TODO: capability 1</li>
+          <li>TODO: capability 2</li>
+          <li>TODO: capability 3</li>
+          <li>TODO: capability 4</li>
+          <li>TODO: capability 5</li>
+        </ul>
+      </div>
+
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
+          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
+          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
+          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
+          <div class="glance-row"><dt>TODO: metric</dt><dd><b>TODO</b></dd></div>
+        </dl>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ================= §02 KEY METRICS ================= -->
+  <section class="section" id="scale" aria-labelledby="scale-label">
+    <p class="section-label" id="scale-label">02 &#xB7; Key metrics</p>
+    <p class="section-desc">TODO: one-line description of the headline metrics.</p>
+    <div class="kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+      <div class="kpi-card">
+        <p class="kpi-label">TODO: label</p>
+        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
+        <p class="kpi-sub mono">TODO: sub</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">TODO: label</p>
+        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
+        <p class="kpi-sub mono">TODO: sub</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">TODO: label</p>
+        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
+        <p class="kpi-sub mono">TODO: sub</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §03 METHODOLOGY ================= -->
+  <section class="section" id="methodology" aria-labelledby="methodology-label">
+    <p class="section-label" id="methodology-label">03 &#xB7; Methodology</p>
+    <p class="section-desc">TODO: one-line description of the methodology principles.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
+        <article class="phase">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">TODO: principle 1 title</h4>
+          <ul class="phase-body">
+            <li>TODO: principle 1 point</li>
+            <li>TODO: principle 1 point</li>
+            <li>TODO: principle 1 point</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">TODO: principle 2 title</h4>
+          <ul class="phase-body">
+            <li>TODO: principle 2 point</li>
+            <li>TODO: principle 2 point</li>
+            <li>TODO: principle 2 point</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">TODO: principle 3 title</h4>
+          <ul class="phase-body">
+            <li>TODO: principle 3 point</li>
+            <li>TODO: principle 3 point</li>
+            <li>TODO: principle 3 point</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">TODO: principle 4 title</h4>
+          <ul class="phase-body">
+            <li>TODO: principle 4 point</li>
+            <li>TODO: principle 4 point</li>
+            <li>TODO: principle 4 point</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §04 PIPELINE ================= -->
+  <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label" data-animate="fade-up">
+    <p class="section-label" id="pipeline-label">04 &#xB7; Evaluation pipeline</p>
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">The method</p>
+        <h2 class="pipeline-title">TODO: pipeline title sentence.</h2>
+      </div>
+
+      <!-- Pipeline diagram slot (drop-in target for the eventual pipeline diagram). -->
+      <div class="tr-placeholder tr-placeholder--image" role="img" aria-label="TODO: pipeline diagram">
+        <span class="tr-placeholder-label">TODO: image</span>
+      </div>
+
+      <div class="pipeline">
+        <article class="phase">
+          <p class="phase-label">Phase 01</p>
+          <h4 class="phase-title">TODO: phase 1 title</h4>
+          <ul class="phase-body">
+            <li>TODO: phase 1 point</li>
+            <li>TODO: phase 1 point</li>
+            <li>TODO: phase 1 point</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 02</p>
+          <h4 class="phase-title">TODO: phase 2 title</h4>
+          <ul class="phase-body">
+            <li>TODO: phase 2 point</li>
+            <li>TODO: phase 2 point</li>
+            <li>TODO: phase 2 point</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 03</p>
+          <h4 class="phase-title">TODO: phase 3 title</h4>
+          <ul class="phase-body">
+            <li>TODO: phase 3 point</li>
+            <li>TODO: phase 3 point</li>
+            <li>TODO: phase 3 point</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §05 RESULTS ================= -->
+  <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
+    <p class="section-label" id="results-label">05 &#xB7; Results</p>
+
+    <div class="reveal">
+      <p class="reveal-line">TODO: results summary lead line.</p>
+      <p class="reveal-line reveal-kicker">TODO: results kicker with the headline number and trend.</p>
+    </div>
+
+    <div class="charts">
+      <figure class="chart chart--hero">
+        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="TODO: chart 1">
+          <span class="tr-placeholder-label">TODO: chart</span>
+        </div>
+        <figcaption>Fig. 1: TODO: chart 1 caption.</figcaption>
+      </figure>
+    </div>
+
+    <p class="section-desc">TODO: two-chart section description.</p>
+
+    <div class="charts">
+      <figure class="chart">
+        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="TODO: chart 2">
+          <span class="tr-placeholder-label">TODO: chart</span>
+        </div>
+        <figcaption>Fig. 2: TODO: chart 2 caption.</figcaption>
+      </figure>
+      <figure class="chart">
+        <div class="tr-placeholder tr-placeholder--chart" role="img" aria-label="TODO: chart 3">
+          <span class="tr-placeholder-label">TODO: chart</span>
+        </div>
+        <figcaption>Fig. 3: TODO: chart 3 caption.</figcaption>
+      </figure>
+    </div>
+
+    <div class="quality-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+      <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
+        <span class="rd-quality-num">TODO</span>
+        <span class="quality-label">TODO: label</span>
+        <span class="quality-pct mono">TODO</span>
+      </div>
+      <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
+        <span class="rd-quality-num">TODO</span>
+        <span class="quality-label">TODO: label</span>
+        <span class="quality-pct mono">TODO</span>
+      </div>
+      <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
+        <span class="rd-quality-num">TODO</span>
+        <span class="quality-label">TODO: label</span>
+        <span class="quality-pct mono">TODO</span>
+      </div>
+    </div>
+
+    <div class="confidence-strip" data-animate="fade-up">
+      <span class="rd-confidence-big">TODO</span>
+      <span class="confidence-lbl mono">TODO: confidence strip label</span>
+    </div>
+  </section>
+
+  <!-- ================= §06 DATASET VIEWER ================= -->
+  <section class="section" id="rd-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
+    <p class="section-label" id="viewer-label">06 &#xB7; Dataset Viewer</p>
+
+    <div class="kpi-row" aria-label="Headline statistics for the delivery">
+      <div class="kpi-card">
+        <p class="kpi-label">TODO: label</p>
+        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">TODO: label</p>
+        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">TODO: label</p>
+        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
+      </div>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">TODO: label</p>
+        <p class="kpi-value"><span class="kpi-big">TODO</span></p>
+      </div>
+    </div>
+
+    <div class="eval-controls">
+      <div class="eval-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="rd-eval-search" placeholder="Search tasks or repos..." autocomplete="off"/>
+      </div>
+      <div class="eval-filters">
+        <select id="rd-eval-scope">
+          <option value="">All Languages</option>
+        </select>
+        <select id="rd-eval-difficulty">
+          <option value="">All Difficulties</option>
+        </select>
+        <select id="rd-eval-sort">
+          <option value="instance_id">Task (A-Z)</option>
+          <option value="language">Language</option>
+          <option value="tests">Tests</option>
+        </select>
+        <button type="button" id="rd-eval-sort-dir-btn" class="sort-dir-btn" title="Descending, click to reverse">&#x2193;</button>
+      </div>
+      <div class="eval-meta">
+        <span id="rd-eval-count">Loading...</span>
+      </div>
+    </div>
+
+    <div class="eval-table-wrap" id="rd-eval-table-wrap">
+      <table class="eval-table">
+        <thead>
+          <tr>
+            <th class="eth-instance">Task</th>
+            <th class="eth-prrange">Language</th>
+            <th class="eth-lang">Difficulty</th>
+            <th class="eth-opus">Score</th>
+            <th class="eth-repo">Tests</th>
+            <th class="eth-expand"></th>
+          </tr>
+        </thead>
+        <tbody id="rd-eval-tbody"></tbody>
+      </table>
+    </div>
+    <div class="eval-pagination" id="rd-eval-pagination"></div>
+  </section>
+
+  <!-- ================= §07 LANGUAGE COMPARISON ================= -->
+  <section class="section" id="models" aria-labelledby="models-label">
+    <p class="section-label" id="models-label">07 &#xB7; Language comparison</p>
+    <p class="section-desc">TODO: description for language comparison cards.</p>
+
+    <div class="kpi-row" id="tr-lang-cards" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="tr-placeholder tr-placeholder--card">
+        <span class="tr-placeholder-label">TODO: language card 1</span>
+      </div>
+      <div class="tr-placeholder tr-placeholder--card">
+        <span class="tr-placeholder-label">TODO: language card 2</span>
+      </div>
+      <div class="tr-placeholder tr-placeholder--card">
+        <span class="tr-placeholder-label">TODO: language card 3</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §08 RESOURCES ================= -->
+  <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
+    <p class="section-label" id="resources-label">08 &#xB7; Resources</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
+      <a class="resource" href="https://example.com/tron-repo" target="_blank" rel="noopener">
+        <p class="res-label mono"><svg class="rd-brand-ico rd-brand-ico--sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-github"/></svg>GitHub</p>
+        <p class="res-title">TODO: repository</p>
+        <p class="res-url mono">example.com/tron-repo</p>
+        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+      </a>
+      <a class="resource" href="https://example.com/tron-dataset" target="_blank" rel="noopener">
+        <p class="res-label mono"><svg class="rd-brand-ico rd-brand-ico--sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-hf"/></svg>Hugging Face</p>
+        <p class="res-title">TODO: dataset</p>
+        <p class="res-url mono">example.com/tron-dataset</p>
+        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+      </a>
+    </div>
+
+    <div class="rd-cta">
+      <div class="rd-cta-copy">
+        <h3 class="rd-cta-title">TODO: CTA headline.</h3>
+        <p class="rd-cta-sub">TODO: CTA sub-copy.</p>
+      </div>
+      <a class="rd-link-btn rd-link-btn-filled" href="https://www.ethara.ai/contact" target="_blank" rel="noopener">
+        Get in touch
+        <span aria-hidden="true">&#x2192;</span>
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono">ethara.ai &#xB7; project tron</p>
+    </div>
+  </footer>
+
+</div><!-- /.page -->
+
+      <!-- Lightbox overlay, hidden until a chart image is clicked. -->
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">&#xD7;</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>

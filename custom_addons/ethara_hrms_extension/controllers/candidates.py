@@ -10,16 +10,14 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response,
     validate_token,
 )
+from odoo.addons.ethara_hrms_extension.constants import (
+    PIPELINE_STATUS_KEYS,
+    PIPELINE_STATUS_LABELS,
+    RESUME_RECOMMENDATION_OUT,
+)
 
 _logger = logging.getLogger(__name__)
 BASE = "/api/v1/candidates"
-
-_REC_OUT = {
-    "shortlist": "shortlisted",
-    "reject": "rejected",
-    "maybe": "needs_review",
-    "needs_review": "needs_review",
-}
 
 _WRITABLE_FIELDS = {
     "fullName":               ("partner_name", str),
@@ -36,78 +34,10 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-_STAGE_ENUM_MAP = [
-    (("new", "initial", "applied", "application"), "new_application"),
-    (("source", "sourc"),                          "source_tagged"),
-    (("resume upload", "resume received"),         "resume_uploaded"),
-    (("screening pending", "screen pending",
-      "resume screening", "qualif"),               "resume_screening_pending"),
-    (("shortlist",),                               "resume_shortlisted"),
-    (("resume reject", "rejected resume"),         "resume_rejected"),
-    (("evaluation assign",),                       "evaluation_assigned"),
-    (("evaluation progress", "in progress",
-      "first interview", "second interview",
-      "interview"),                                "evaluation_in_progress"),
-    (("evaluation pass", "passed"),                "evaluation_passed"),
-    (("evaluation fail", "failed"),                "evaluation_failed"),
-    (("selection form sent", "form sent"),         "selection_form_sent"),
-    (("selection form submit", "form submitted"),  "selection_form_submitted"),
-    (("form validated", "selection validated"),    "selection_form_validated"),
-    (("contract sent", "offer sent",
-      "contract proposal", "proposal"),            "contract_sent"),
-    (("contract signed", "offer signed", "hired"), "contract_signed"),
-    (("induction",),                               "induction_completed"),
-    (("email created", "it email"),                "it_email_created"),
-    (("welcome mail",),                            "welcome_mail_sent"),
-    (("statutory sent",),                          "statutory_forms_sent"),
-    (("statutory submit",),                        "statutory_forms_submitted"),
-    (("compliance verified",),                     "compliance_verified"),
-    (("onboarded", "onboarding complete"),         "onboarding_completed"),
-    (("reject",),                                  "resume_rejected"),
-]
-
-_STAGE_DISPLAY = {
-    "new_application":           "New Application",
-    "source_tagged":             "Source Tagged",
-    "resume_uploaded":           "Resume Uploaded",
-    "resume_screening_pending":  "Screening Pending",
-    "resume_shortlisted":        "Resume Shortlisted",
-    "resume_rejected":           "Rejected",
-    "evaluation_assigned":       "Evaluation Assigned",
-    "evaluation_in_progress":    "Evaluation In Progress",
-    "evaluation_passed":         "Evaluation Passed",
-    "evaluation_failed":         "Evaluation Failed",
-    "selection_form_sent":       "Selection Form Sent",
-    "selection_form_submitted":  "Selection Form Submitted",
-    "selection_form_validated":  "Selection Form Validated",
-    "contract_sent":             "Contract Sent",
-    "contract_signed":           "Contract Signed",
-    "induction_completed":       "Induction Completed",
-    "it_email_created":          "IT Email Created",
-    "welcome_mail_sent":         "Welcome Mail Sent",
-    "statutory_forms_sent":      "Statutory Forms Sent",
-    "statutory_forms_submitted": "Statutory Forms Submitted",
-    "compliance_verified":       "Compliance Verified",
-    "onboarding_completed":      "Onboarded",
-}
-
-
-def _stage_to_enum(stage_name):
-    if not stage_name:
-        return "new_application"
-    lower = stage_name.strip().lower()
-    for keywords, enum in _STAGE_ENUM_MAP:
-        if any(k in lower for k in keywords):
-            return enum
-    return "new_application"
-
-
 def _current_stage(applicant):
-    if applicant.refuse_reason_id:
-        return "resume_rejected"
-    return _stage_to_enum(
-        applicant.stage_id.name if applicant.stage_id else None,
-    )
+    if applicant.pipeline_status == "rejected" or applicant.refuse_reason_id:
+        return "rejected"
+    return applicant.pipeline_status or "applied"
 
 
 def _current_status(applicant):
@@ -115,8 +45,35 @@ def _current_status(applicant):
         return "Blacklisted"
     if applicant.on_hold:
         return "On Hold"
-    return _STAGE_DISPLAY.get(_current_stage(applicant)) \
-        or (applicant.stage_id.name if applicant.stage_id else None)
+    return PIPELINE_STATUS_LABELS.get(_current_stage(applicant), "Applied")
+
+
+def _active_application_conflict(candidate_user_id, exclude_applicant_id):
+    if not candidate_user_id:
+        return request.env["hr.applicant"].sudo().browse()
+    domain = [
+        ("candidate_user_id", "=", candidate_user_id),
+        ("active", "=", True),
+        ("refuse_reason_id", "=", False),
+        ("pipeline_status", "!=", "rejected"),
+    ]
+    if exclude_applicant_id:
+        domain.append(("id", "!=", exclude_applicant_id))
+    return request.env["hr.applicant"].sudo().search(domain, limit=1)
+
+
+def _conflict_summary(conflict):
+    if not conflict:
+        return None
+    return {
+        "applicantId":    conflict.id,
+        "jobId":          conflict.job_id.id if conflict.job_id else None,
+        "jobTitle":       conflict.job_id.name if conflict.job_id else None,
+        "pipelineStatus": conflict.pipeline_status or "applied",
+        "currentStatus":  PIPELINE_STATUS_LABELS.get(
+            conflict.pipeline_status or "applied", "Applied",
+        ),
+    }
 
 
 def _f(rec, fname):
@@ -297,6 +254,14 @@ def _serialize_contract(applicant):
     }
 
 
+def _override_is_fresh(applicant):
+    if not applicant.resume_manual_override_at:
+        return False
+    if not applicant.resume_screened_at:
+        return True
+    return applicant.resume_manual_override_at >= applicant.resume_screened_at
+
+
 def _serialize(applicant):
     payload = {}
     try:
@@ -305,7 +270,7 @@ def _serialize(applicant):
         payload = {}
 
     override = None
-    if applicant.resume_manual_override_reason:
+    if applicant.resume_manual_override_reason and _override_is_fresh(applicant):
         override = {
             "reason": applicant.resume_manual_override_reason,
             "at": _iso(applicant.resume_manual_override_at),
@@ -353,6 +318,12 @@ def _serialize(applicant):
         "duplicateReason":          applicant.duplicate_reason or None,
         "isReapplicationBlocked":   bool(applicant.is_reapplication_blocked),
         "blacklistReason":          applicant.blacklist_reason or "",
+        "activeApplicationConflict": _conflict_summary(
+            _active_application_conflict(
+                applicant.candidate_user_id.id if applicant.candidate_user_id else None,
+                applicant.id,
+            )
+        ),
         "lastAppliedAt":            _iso(applicant.create_date),
         "resumeUrl":                applicant.resume_url or None,
         "resumeScore":              (applicant.resume_score or 0) if applicant.resume_screened_at else 0,
@@ -361,7 +332,7 @@ def _serialize(applicant):
         "resumeSummary":            (applicant.resume_summary or "") if applicant.resume_screened_at else "",
         "resumeText":               applicant.resume_text or None,
         "resumeKeyPoints":          None,
-        "recommendation":           _REC_OUT.get(applicant.resume_recommendation, "pending"),
+        "recommendation":           RESUME_RECOMMENDATION_OUT.get(applicant.resume_recommendation, "pending"),
         "screeningPayload":         payload if applicant.resume_screened_at else {},
         "manualOverride":           override,
         "llmStatus":                applicant.resume_llm_status,
@@ -568,7 +539,7 @@ class EtharaCandidatesApi(http.Controller):
                 r.stage_id.name if r.stage_id else "",
                 _current_status(r) or "",
                 r.resume_score or 0,
-                _REC_OUT.get(r.resume_recommendation, "pending"),
+                RESUME_RECOMMENDATION_OUT.get(r.resume_recommendation, "pending"),
                 r.priority_score or 0,
                 bool(r.on_hold),
                 bool(r.is_reapplication_blocked),
@@ -777,92 +748,111 @@ class EtharaCandidatesApi(http.Controller):
             message="OK", status=200, data=_build_progress_payload(rec),
         )
 
+    @http.route(
+        BASE + "/<int:aid>/history", type="http", auth="none",
+        methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def candidates_history(self, aid, **kwargs):
+        rec, err = _applicant_or_404(aid)
+        if err is not None:
+            return err
+        if not rec.candidate_user_id:
+            return return_Response(
+                message="OK", status=200, data={"applications": []},
+            )
+        sibs = request.env["hr.applicant"].sudo().with_context(
+            active_test=False,
+        ).search(
+            [
+                ("candidate_user_id", "=", rec.candidate_user_id.id),
+                ("id", "!=", rec.id),
+            ],
+            order="create_date desc",
+        )
+        items = [
+            {
+                "applicantId":    s.id,
+                "jobId":          s.job_id.id if s.job_id else None,
+                "jobTitle":       s.job_id.name if s.job_id else None,
+                "pipelineStatus": s.pipeline_status or "applied",
+                "currentStatus":  _current_status(s),
+                "createdAt":      _iso(s.create_date),
+                "screenedAt":     _iso(s.resume_screened_at),
+                "isRejected":     s.pipeline_status == "rejected"
+                                  or bool(s.refuse_reason_id),
+                "isArchived":     not s.active,
+            }
+            for s in sibs
+        ]
+        return return_Response(
+            message="OK", status=200, data={"applications": items},
+        )
+
 
 def _build_progress_payload(rec):
-    stage_enum = _stage_to_enum(rec.stage_id.name if rec.stage_id else "")
-    is_rejected = bool(rec.refuse_reason_id) or stage_enum == "resume_rejected"
+    is_rejected = rec.pipeline_status == "rejected" or bool(rec.refuse_reason_id)
     is_archived = not rec.active
 
-    buckets = [
-        ("applied",     "Applied",     {"new_application", "source_tagged", "resume_uploaded", "resume_screening_pending"}),
-        ("shortlisted", "Shortlisted", {"resume_shortlisted"}),
-        ("evaluation",  "Evaluation",  {"evaluation_assigned", "evaluation_in_progress", "evaluation_passed", "evaluation_failed"}),
-        ("submission",  "Submission",  {"selection_form_sent", "selection_form_submitted", "selection_form_validated"}),
-        ("contract",    "Contract",    {"contract_sent", "contract_signed"}),
-        ("compliance",  "Compliance",  {"statutory_forms_sent", "statutory_forms_submitted", "compliance_verified"}),
-        ("email_id",    "Email ID",    {"it_email_created", "welcome_mail_sent", "induction_completed"}),
-        ("onboarded",   "Onboarded",   {"onboarding_completed"}),
-    ]
+    rec_out = (
+        RESUME_RECOMMENDATION_OUT.get(rec.resume_recommendation)
+        if rec.resume_recommendation
+        else None
+    )
 
-    # Source of truth: hr.applicant.pipeline_status. Do NOT infer from
-    # stage_id — kanban drag or manual override moves stage_id without
-    # actually advancing the pipeline.
-    status_field = rec.pipeline_status or 'applied'
-    if status_field == 'rejected':
-        is_rejected = True
-        current_idx = 1
-    else:
-        current_idx = 0
-        for i, (key, _label, _stages) in enumerate(buckets):
-            if key == status_field:
-                current_idx = i
-                break
-
-    rec_out = _REC_OUT.get(rec.resume_recommendation) if rec.resume_recommendation else None
-
-    # Per-step evidence: (timestamp, detail-string) or (None, None) when no
-    # concrete data proves the step happened. A step past the current
-    # bucket with no evidence is `skipped`, not `completed` — because the
-    # applicant was moved forward manually (kanban drag or auto-advance)
-    # without the step actually producing data.
     evidence = {
-        "applied":     (_iso(rec.create_date), "Registered as candidate"),
+        "applied": (_iso(rec.create_date), "Registered as candidate"),
         "shortlisted": (
             _iso(rec.resume_screened_at),
             (
                 ("Rejected · Score %s" % int(rec.resume_score or 0))
-                if is_rejected else
-                ("Score %s · %s" % (int(rec.resume_score or 0),
-                                    rec_out.replace("_", " ").title()))
-                if rec_out else None
+                if is_rejected
+                else ("Score %s · %s" % (
+                    int(rec.resume_score or 0),
+                    rec_out.replace("_", " ").title(),
+                )) if rec_out else None
             ),
         ) if rec.resume_screened_at else (None, None),
-        "evaluation":  (None, None),
-        "submission":  (None, None),
-        "contract":    (None, None),
-        "compliance":  (None, None),
-        "email_id":    (None, None),
-        "onboarded":   (None, None),
     }
 
-    steps = []
-    for i, (key, label, _stages) in enumerate(buckets):
-        ev_at, ev_detail = evidence.get(key, (None, None))
+    total = len(PIPELINE_STATUS_KEYS)
 
+    if is_rejected:
+        current_idx = 1
+    else:
+        current_idx = total - 1
+        for i, key in enumerate(PIPELINE_STATUS_KEYS):
+            ev_at, _ev_detail = evidence.get(key, (None, None))
+            if not ev_at:
+                current_idx = i
+                break
+
+    steps = []
+    for i, key in enumerate(PIPELINE_STATUS_KEYS):
+        ev_at, ev_detail = evidence.get(key, (None, None))
         if is_rejected:
             if i == 0:
-                status = "completed"
+                step_status = "completed" if ev_at else "current"
             elif i == 1:
-                status = "rejected"
+                step_status = "rejected"
             else:
-                status = "pending"
+                step_status = "pending"
+        elif ev_at:
+            step_status = "completed"
         elif i == current_idx:
-            status = "current"
-        elif i < current_idx:
-            status = "completed" if ev_at else "skipped"
+            step_status = "current"
         else:
-            status = "pending"
-
+            step_status = "pending"
         steps.append({
             "key": key,
-            "label": label,
-            "status": status,
+            "label": PIPELINE_STATUS_LABELS[key],
+            "status": step_status,
             "at": ev_at,
             "detail": ev_detail,
         })
 
     override_block = None
-    if rec.resume_manual_override_reason:
+    if rec.resume_manual_override_reason and _override_is_fresh(rec):
         override_block = {
             "reason": rec.resume_manual_override_reason,
             "at":     _iso(rec.resume_manual_override_at),
@@ -878,15 +868,13 @@ def _build_progress_payload(rec):
         "override":        override_block,
     }
 
-    total = len(buckets)
     progress_percent = int(round((current_idx / max(total - 1, 1)) * 100))
 
     return {
         "candidateId":     rec.id,
         "candidateName":   rec.partner_name or (rec.partner_id.name if rec.partner_id else None),
-        "currentStage":    stage_enum,
         "currentStatus":   _current_status(rec),
-        "currentBucket":   buckets[current_idx][0],
+        "currentBucket":   "rejected" if is_rejected else PIPELINE_STATUS_KEYS[current_idx],
         "currentIndex":    current_idx,
         "totalSteps":      total,
         "progressPercent": progress_percent,

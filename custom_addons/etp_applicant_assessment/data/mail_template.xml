@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="1">
+    <!-- Templates are code-managed (no noupdate): every module upgrade
+         re-applies the design below. The 19.0.4.2.0 pre-migration clears the
+         noupdate flag left on records created by older versions. -->
+    <data>
 
         <record id="mail_template_applicant_assessment" model="mail.template">
             <field name="name">Applicant Assessment: Invitation</field>
             <field name="model_id" ref="model_etp_applicant_assessment"/>
-            <field name="subject">Assessment for {{ object.job_id.name }}</field>
+            <field name="subject">Assessment Invitation - {{ object.job_id.name }}</field>
             <field name="email_from">{{ (object.company_id.email or user.email or '') }}</field>
             <field name="email_to">{{ object.applicant_id.email_from }}</field>
             <!-- Must stay off: with it on, Odoo ignores email_to above and asks the
@@ -14,90 +17,225 @@
             <field name="auto_delete" eval="False"/>
             <field name="lang">{{ user.lang }}</field>
             <field name="body_html" type="html">
-                <div style="margin:0px;padding:0px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#333333;">
-                    <p>Hello <t t-out="object.applicant_id.partner_name or 'Candidate'"/>,</p>
-                    <p>
-                        You have been invited to take an online assessment as part of your application for the position
-                        <strong><t t-out="object.job_id.name"/></strong>.
-                    </p>
-                    <p>
-                        <strong>Duration:</strong>
-                        <t t-if="object.duration_minutes">
-                            <t t-out="object.duration_minutes"/> minutes
-                        </t>
-                        <t t-else="">
-                            No time limit
-                        </t>
-                        <br/>
-                        <strong>Questions:</strong> <t t-out="object.question_count"/>
-                    </p>
-                    <p>
-                        The assessment is proctored. You will be asked to grant access to your webcam and to remain in
-                        fullscreen mode. Switching tabs, minimising the window, or leaving fullscreen will be recorded
-                        as warnings and may cause the assessment to be auto-submitted.
-                    </p>
-                    <p>
-                        <a t-att-href="object.portal_url"
-                           style="background-color:#875A7B;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:4px;display:inline-block;">
-                            Start Assessment
-                        </a>
-                    </p>
-                    <p style="color:#888888;font-size:12px;">
-                        If the button does not work, copy this link into your browser:
-                        <br/>
-                        <t t-out="object.portal_url"/>
-                    </p>
-                    <p>Good luck!</p>
-                </div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background-color:#f2f3f7;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
+                    <tr>
+                        <td align="center">
+                            <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+                                   style="max-width:600px;width:100%;background-color:#f7f8fb;border-radius:10px;">
+                                <tr>
+                                    <td style="padding:28px 32px 16px 32px;">
+                                        <span style="font-size:22px;font-weight:bold;color:#e6007e;">Ethara</span><span style="font-size:22px;font-weight:bold;color:#1b1b3a;">.AI</span>
+                                    </td>
+                                </tr>
+                                <tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                                <tr>
+                                    <td style="padding:24px 32px 8px 32px;color:#33343f;font-size:15px;line-height:1.6;">
+                                        <p style="margin:0 0 16px 0;">Hi <strong><t t-out="object.applicant_id.partner_name or 'Candidate'"/></strong>,</p>
+                                        <p style="margin:0 0 20px 0;">
+                                            You have been invited to complete an online assessment as part of your application
+                                            for the position of <strong><t t-out="object.job_id.name"/></strong><t t-if="object.company_id.name"> at <strong><t t-out="object.company_id.name"/></strong></t>.
+                                        </p>
+                                        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0;">
+                                            <tr>
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Position</td>
+                                                <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.job_id.name"/></td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Questions</td>
+                                                <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.question_count"/></td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Duration</td>
+                                                <td style="padding:4px 0;color:#4b4c57;">
+                                                    <t t-if="object.duration_minutes"><t t-out="object.duration_minutes"/> minutes</t>
+                                                    <t t-else="">No time limit</t>
+                                                </td>
+                                            </tr>
+                                            <tr t-if="object.pass_mark_percent">
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Pass mark</td>
+                                                <td style="padding:4px 0;color:#4b4c57;"><t t-out="'%g' % round(object.pass_mark_percent, 2)"/>%</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:10px 32px 4px 32px;">
+                                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                                               style="background-color:#fdf3e3;border:1px solid #f0d9ae;border-radius:8px;">
+                                            <tr>
+                                                <td style="padding:14px 18px;color:#7a5c1e;font-size:13px;line-height:1.6;">
+                                                    <div style="font-weight:bold;margin-bottom:4px;">Before you begin: this assessment is proctored</div>
+                                                    You will be asked to allow webcam access and to remain in fullscreen mode.
+                                                    Switching tabs, minimising the window, or leaving fullscreen is recorded as a
+                                                    warning and may cause the assessment to be submitted automatically.
+                                                    Please sit in a quiet, well-lit place with a stable internet connection.
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:18px 32px 8px 32px;">
+                                        <a t-att-href="object.portal_url"
+                                           style="display:inline-block;background-color:#e6007e;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 24px;border-radius:8px;">Start Assessment</a>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:6px 32px 8px 32px;color:#8a8b96;font-size:12px;line-height:1.6;">
+                                        If the button does not work, copy this link into your browser:<br/>
+                                        <a t-att-href="object.portal_url" style="color:#2563eb;text-decoration:underline;word-break:break-all;"><t t-out="object.portal_url"/></a>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:8px 32px 12px 32px;color:#4b4c57;font-size:14px;line-height:1.6;">
+                                        Good luck! We look forward to your submission.<br/>
+                                        <span style="color:#6b6c78;">The <t t-out="object.company_id.name or 'Ethara.AI'"/> Recruitment Team</span>
+                                    </td>
+                                </tr>
+                                <tr><td style="padding:8px 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                                <tr>
+                                    <td style="padding:8px 32px 28px 32px;color:#8a8b96;font-size:12px;line-height:1.6;">
+                                        <div style="font-weight:bold;color:#33343f;margin-bottom:4px;">Ethara.AI</div>
+                                        <div>5th Floor, Plot <a href="https://maps.google.com/?q=Udyog+Vihar+Phase+1+Sector+20+Gurugram" style="color:#2563eb;text-decoration:underline;">No. 273, Udyog Vihar Phase 1, Sector 20, Gurugram, Haryana 122016</a></div>
+                                        <div style="margin-top:4px;"><a href="https://www.ethara.ai" style="color:#e6007e;text-decoration:none;">www.ethara.ai</a></div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
             </field>
         </record>
 
         <record id="mail_template_applicant_assessment_result" model="mail.template">
             <field name="name">Applicant Assessment: Result</field>
             <field name="model_id" ref="model_etp_applicant_assessment"/>
-            <field name="subject">Your Assessment Result: {{ object.job_id.name }}</field>
-            <field name="email_from">{{ (object.company_id.email or user.email or '') }}</field>
+            <field name="subject">{{ 'Congratulations! Assessment Cleared' if object.result == 'pass' else 'Your Assessment Result' }} - {{ object.job_id.name }}</field>
+            <field name="email_from">{{ (object.company_id.email or 'no-reply@ethara.ai') }}</field>
             <field name="email_to">{{ object.applicant_id.email_from }}</field>
+            <!-- Must stay off: with it on, Odoo ignores email_to above and asks the
+                 model for default recipients, which this model does not provide. -->
             <field name="use_default_to" eval="False"/>
             <field name="auto_delete" eval="False"/>
             <field name="lang">{{ user.lang }}</field>
             <field name="body_html" type="html">
-                <div style="margin:0px;padding:0px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#333333;">
-                    <p>Hello <t t-out="object.applicant_id.partner_name or 'Candidate'"/>,</p>
-                    <p>
-                        Thank you for completing the assessment for the position
-                        <strong><t t-out="object.job_id.name"/></strong>.
-                        Your submission has now been evaluated.
-                    </p>
-                    <t t-if="object.result == 'pass'">
-                        <p>
-                            <span style="background-color:#28a745;color:#ffffff;padding:6px 14px;border-radius:4px;display:inline-block;font-weight:bold;">
-                                Result: Passed
-                            </span>
-                        </p>
-                        <p>
-                            Congratulations — you have cleared the assessment. Our recruitment team
-                            will reach out with the next steps shortly.
-                        </p>
-                    </t>
-                    <t t-else="">
-                        <p>
-                            <span style="background-color:#6c757d;color:#ffffff;padding:6px 14px;border-radius:4px;display:inline-block;font-weight:bold;">
-                                Result: Not Selected
-                            </span>
-                        </p>
-                        <p>
-                            Unfortunately, your responses did not meet the required threshold for
-                            this role. We truly appreciate the time you invested and encourage
-                            you to apply for future openings that match your profile.
-                        </p>
-                    </t>
-                    <p style="color:#555555;">
-                        <strong>Your Score:</strong> <t t-out="'%.2f' % (object.final_score or 0.0)"/>%<br/>
-                        <strong>Passing Score:</strong> <t t-out="'%.2f' % (object.pass_mark_percent or 0.0)"/>%
-                    </p>
-                    <p>Regards,<br/>Recruitment Team</p>
-                </div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background-color:#f2f3f7;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
+                    <tr>
+                        <td align="center">
+                            <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+                                   style="max-width:600px;width:100%;background-color:#f7f8fb;border-radius:10px;">
+                                <tr>
+                                    <td style="padding:28px 32px 16px 32px;">
+                                        <span style="font-size:22px;font-weight:bold;color:#e6007e;">Ethara</span><span style="font-size:22px;font-weight:bold;color:#1b1b3a;">.AI</span>
+                                    </td>
+                                </tr>
+                                <tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                                <tr>
+                                    <td style="padding:24px 32px 8px 32px;color:#33343f;font-size:15px;line-height:1.6;">
+                                        <p style="margin:0 0 16px 0;">Hi <strong><t t-out="object.applicant_id.partner_name or 'Candidate'"/></strong>,</p>
+                                        <p style="margin:0 0 16px 0;">
+                                            Thank you for completing the online assessment for the position of
+                                            <strong><t t-out="object.job_id.name"/></strong><t t-if="object.company_id.name"> at <strong><t t-out="object.company_id.name"/></strong></t>.
+                                            Your result is now available.
+                                        </p>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:0 32px 4px 32px;">
+                                        <t t-if="object.result == 'pass'">
+                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                                                   style="background-color:#e8f7ef;border:1px solid #bce5cd;border-radius:8px;">
+                                                <tr>
+                                                    <td style="padding:16px 18px;">
+                                                        <div style="color:#1a7f4b;font-size:16px;font-weight:bold;margin-bottom:2px;">&#10004; Congratulations, you passed!</div>
+                                                        <div style="color:#2e6b4f;font-size:13px;line-height:1.6;">You have successfully cleared the online assessment for this role.</div>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                        </t>
+                                        <t t-elif="object.result == 'fail'">
+                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                                                   style="background-color:#fdecec;border:1px solid #f2c4c4;border-radius:8px;">
+                                                <tr>
+                                                    <td style="padding:16px 18px;">
+                                                        <div style="color:#b3403a;font-size:16px;font-weight:bold;margin-bottom:2px;">Assessment not cleared</div>
+                                                        <div style="color:#9a5550;font-size:13px;line-height:1.6;">Unfortunately, your score did not meet the pass mark for this role this time.</div>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                        </t>
+                                        <t t-else="">
+                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                                                   style="background-color:#eef2fb;border:1px solid #c9d6f2;border-radius:8px;">
+                                                <tr>
+                                                    <td style="padding:16px 18px;">
+                                                        <div style="color:#2f4b8f;font-size:16px;font-weight:bold;margin-bottom:2px;">Result under review</div>
+                                                        <div style="color:#4a5f96;font-size:13px;line-height:1.6;">Your submission is being reviewed by our recruitment team. We will get back to you shortly.</div>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                        </t>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:14px 32px 8px 32px;color:#33343f;font-size:15px;line-height:1.6;">
+                                        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0;">
+                                            <tr>
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Position</td>
+                                                <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.job_id.name"/></td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Your score</td>
+                                                <td style="padding:4px 0;color:#4b4c57;"><t t-out="'%g' % round(object.final_score or 0.0, 2)"/>%</td>
+                                            </tr>
+                                            <tr t-if="object.pass_mark_percent">
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Pass mark</td>
+                                                <td style="padding:4px 0;color:#4b4c57;"><t t-out="'%g' % round(object.pass_mark_percent, 2)"/>%</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Result</td>
+                                                <td style="padding:4px 0;">
+                                                    <t t-if="object.result == 'pass'"><span style="color:#1a7f4b;font-weight:bold;">Passed</span></t>
+                                                    <t t-elif="object.result == 'fail'"><span style="color:#b3403a;font-weight:bold;">Not cleared</span></t>
+                                                    <t t-else=""><span style="color:#2f4b8f;font-weight:bold;">Under review</span></t>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:8px 32px 12px 32px;color:#4b4c57;font-size:14px;line-height:1.6;">
+                                        <t t-if="object.result == 'pass'">
+                                            Our recruitment team will review your overall application and reach out to you
+                                            with the next steps shortly. No action is needed from your side right now.
+                                        </t>
+                                        <t t-elif="object.result == 'fail'">
+                                            We really appreciate the time and effort you put into this application.
+                                            We encourage you to keep an eye on our careers page and apply for future
+                                            openings that match your profile. We wish you the very best in your journey ahead.
+                                        </t>
+                                        <t t-else="">
+                                            We will notify you as soon as the review is complete.
+                                        </t>
+                                        <br/><br/>
+                                        Best regards,<br/>
+                                        <span style="color:#6b6c78;">The <t t-out="object.company_id.name or 'Ethara.AI'"/> Recruitment Team</span>
+                                    </td>
+                                </tr>
+                                <tr><td style="padding:8px 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                                <tr>
+                                    <td style="padding:8px 32px 28px 32px;color:#8a8b96;font-size:12px;line-height:1.6;">
+                                        <div style="font-weight:bold;color:#33343f;margin-bottom:4px;">Ethara.AI</div>
+                                        <div>5th Floor, Plot <a href="https://maps.google.com/?q=Udyog+Vihar+Phase+1+Sector+20+Gurugram" style="color:#2563eb;text-decoration:underline;">No. 273, Udyog Vihar Phase 1, Sector 20, Gurugram, Haryana 122016</a></div>
+                                        <div style="margin-top:4px;"><a href="https://www.ethara.ai" style="color:#e6007e;text-decoration:none;">www.ethara.ai</a></div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
             </field>
         </record>
 

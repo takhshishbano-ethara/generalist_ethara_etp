@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="project_tracker.TrackerStepper">
+        <div class="o_kts_stepper">
+            <div class="o_kts_head">
+                <span class="o_kts_stage">Stage <t t-out="stageNo"/></span>
+                <t t-if="currentStep">
+                    <span class="o_kts_sep">·</span>
+                    <span class="o_kts_now"><t t-out="currentStep.label"/></span>
+                    <span t-att-class="'o_kts_age' + (isStale ? ' o_kts_age_stale' : '')"
+                          t-att-title="isStale ? 'This step has been open a while' : ''">
+                        <i class="fa fa-clock-o me-1"/><t t-out="ageLabel"/>
+                    </span>
+                </t>
+                <t t-else="">
+                    <span class="o_kts_sep">·</span>
+                    <span class="o_kts_now o_kts_done_all">Complete</span>
+                </t>
+            </div>
+        </div>
+    </t>
+</templates>

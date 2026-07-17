@@ -640,21 +640,49 @@ class HrApplicant(models.Model):
             return 'needs_review'
         return 'needs_review'
 
-    def _advance_stage_after_screening(self):
+    def _advance_stage_after_screening(self, allow_regress=False):
         self.ensure_one()
         Stage = self.env['hr.recruitment.stage'].sudo()
         rec = self.resume_recommendation
 
         if rec == 'reject':
-            self.sudo().write({
-                'pipeline_status': 'rejected',
-            })
+            if self.pipeline_status != 'rejected':
+                self.sudo().write({'pipeline_status': 'rejected'})
             return
 
         if rec != 'shortlist':
             return
 
-        self.sudo().write({'pipeline_status': 'shortlisted'})
+        if not allow_regress and self.candidate_user_id:
+            conflict = self.env['hr.applicant'].sudo().with_context(
+                active_test=False,
+            ).search(
+                [
+                    ('candidate_user_id', '=', self.candidate_user_id.id),
+                    ('id', '!=', self.id),
+                    ('active', '=', True),
+                    ('refuse_reason_id', '=', False),
+                    ('pipeline_status', '!=', 'rejected'),
+                ],
+                limit=1,
+            )
+            if conflict:
+                _logger.info(
+                    'LLM auto-shortlist skipped for applicant %s: '
+                    'conflicting active application %s',
+                    self.id, conflict.id,
+                )
+                return
+
+        current_status = self.pipeline_status or 'applied'
+        if allow_regress:
+            if current_status != 'shortlisted':
+                self.sudo().write({'pipeline_status': 'shortlisted'})
+        else:
+            if current_status == 'rejected':
+                return
+            if self._pipeline_order_index('shortlisted') > self._pipeline_order_index(current_status):
+                self.sudo().write({'pipeline_status': 'shortlisted'})
 
         current_seq = self.stage_id.sequence if self.stage_id else -1
         job_ids = self.job_id.ids or [0]

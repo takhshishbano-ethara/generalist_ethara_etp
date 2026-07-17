@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <!-- Shared date-filter + refresh controls for the dashboards' top bar.
+         Relies on the base component's state (dateFrom/dateTo/loading) and
+         methods (onDateInput/setPreset/isFiltered/onRefresh). -->
+    <t t-name="project_tracker.DashboardFilterBar">
+        <div class="o_ktd_topbar_actions">
+            <!-- Project filter — only dashboards that load a project list show it
+                 (the tasker's personal dashboard has no `projects` in its state). -->
+            <div class="o_ktd_filters" t-if="state.projects and state.projects.length"
+                 title="Filter by project">
+                <i class="fa fa-folder-open-o o_ktd_filter_icon"/>
+                <select class="o_ktd_date" aria-label="Project"
+                        t-on-change="ev => this.onProjectChange(ev)">
+                    <option value="" t-att-selected="!state.projectId">All Projects</option>
+                    <t t-foreach="state.projects" t-as="p" t-key="p.id">
+                        <option t-att-value="p.id" t-att-selected="state.projectId === p.id">
+                            <t t-out="p.name"/>
+                        </option>
+                    </t>
+                </select>
+            </div>
+            <div class="o_ktd_filters" title="Filter by assignment date">
+                <i class="fa fa-calendar o_ktd_filter_icon"/>
+                <input type="date" class="o_ktd_date" aria-label="From date"
+                       t-att-value="state.dateFrom"
+                       t-on-change="ev => this.onDateInput('dateFrom', ev)"/>
+                <span class="o_ktd_date_sep">→</span>
+                <input type="date" class="o_ktd_date" aria-label="To date"
+                       t-att-value="state.dateTo"
+                       t-on-change="ev => this.onDateInput('dateTo', ev)"/>
+                <button class="o_ktd_preset" t-on-click="() => this.setPreset(1)">Today</button>
+                <button class="o_ktd_preset" t-on-click="() => this.setPreset(7)">7D</button>
+                <button class="o_ktd_preset" t-on-click="() => this.setPreset(30)">30D</button>
+                <button class="o_ktd_preset"
+                        t-att-class="{ 'o_ktd_preset_active': !isFiltered }"
+                        t-on-click="() => this.setPreset(null)">All</button>
+            </div>
+            <button class="o_ktd_refresh_btn" t-on-click="onRefresh"
+                    t-att-disabled="state.loading">
+                <i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/>
+                <span>Refresh</span>
+            </button>
+            <button class="o_ktd_refresh_btn" t-on-click="onExport"
+                    t-att-disabled="!canExport"
+                    title="Download the figures shown, as CSV">
+                <i class="fa fa-download"/>
+                <span>Export</span>
+            </button>
+        </div>
+    </t>
+</templates>

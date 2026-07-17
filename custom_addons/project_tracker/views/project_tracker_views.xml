@@ -1,0 +1,799 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+
+    <!-- ===================== Task Allocation: Kanban (pipeline board) ===================== -->
+    <record model="ir.ui.view" id="project_tracker_allocation_kanban">
+      <field name="name">project.tracker.allocation.kanban</field>
+      <field name="model">project.tracker.allocation</field>
+      <field name="arch" type="xml">
+        <kanban default_group_by="status_label" group_create="false" class="o_kanban_small_column">
+          <field name="final_status"/>
+          <templates>
+            <t t-name="card">
+              <div class="oe_kanban_global_click">
+                <div class="d-flex justify-content-between align-items-center">
+                  <strong><field name="task_id"/></strong>
+                  <span class="badge text-bg-light">Stage <field name="stage_no"/></span>
+                </div>
+                <div><field name="tasker_name"/></div>
+                <div class="text-muted"><field name="persona_id"/></div>
+                <div class="text-muted small mt-1">
+                  <i class="fa fa-user-o me-1" title="Project Lead"/><field name="assigned_pl_id"/>
+                  <i class="fa fa-calendar ms-2 me-1" title="Assigned"/><field name="assigned_date"/>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                  <field name="overall_score" widget="progressbar"/>
+                  <field name="final_status" widget="badge"
+                         decoration-success="final_status == 'deliverable'"
+                         decoration-danger="final_status == 'failed'"
+                         decoration-info="final_status == 'in_progress'"/>
+                </div>
+              </div>
+            </t>
+          </templates>
+        </kanban>
+      </field>
+    </record>
+
+    <!-- ===================== Task Allocation: List ===================== -->
+    <record model="ir.ui.view" id="project_tracker_allocation_list">
+      <field name="name">project.tracker.allocation.list</field>
+      <field name="model">project.tracker.allocation</field>
+      <field name="arch" type="xml">
+        <!-- export enabled by default (no export="0"); Export dialog offers "Export All"
+
+             Row decorations do the triage the badges used to make you read: finished
+             work recedes, dead work is red. Everything else stays at normal weight. -->
+        <!-- js_class: adds the stat cards above the rows. The cards are scoped by
+             the record rules and follow the active search filters, so they always
+             agree with the rows underneath. See static/src/list_stats/. -->
+        <list string="Task Allocation" sample="1" js_class="project_tracker_stats_list"
+              decoration-muted="status == 'deliverable'"
+              decoration-danger="status == 'failed'">
+          <header>
+            <!-- Two persona entry points, deliberately distinct:
+                 - Bulk Upload Personas: CSV -> personas only, left UNASSIGNED.
+                   "Load the data now, decide who works it later."
+                 - Bulk Allocation: distributes personas to taskers (from a CSV
+                   directly, or from the pool of unassigned ones). -->
+            <button name="%(action_project_tracker_persona_import)d" type="action"
+                    string="Upload Personas" class="btn-secondary text-nowrap"
+                    icon="fa-upload" display="always"
+                    groups="project_tracker.group_project_tracker_ql"/>
+            <button name="%(action_project_tracker_bulk_allocation)d" type="action"
+                    string="Bulk Allocation" class="btn-primary text-nowrap"
+                    icon="fa-random" display="always"
+                    groups="project_tracker.group_project_tracker_ql"/>
+          </header>
+          <field name="task_id"/>
+          <field name="stage_no" string="Stage"/>
+          <field name="tasker_name" string="Tasker"/>
+          <field name="persona_id" optional="show"/>
+          <field name="project_id" optional="show"/>
+          <field name="assigned_pl_id" string="PL" optional="show"/>
+
+          <!-- Colour encodes HEALTH, not phase. Four states used to share
+                 decoration-info, which made the badge blue for most of the pipeline
+                 and told you nothing:
+                   info    — someone is actively working it
+                   warning — parked, waiting on another human to act
+                   success — done       danger — dead -->
+          <!-- status_label, not status: the list mixes both stages, and one Selection
+               label is wrong for half the rows (a stage-2 row must read "Pass @ K
+               Generated", not "Baseline Generated"). The raw value still drives the
+               colours. -->
+          <field name="status" column_invisible="1"/>
+          <field name="status_label" string="Current Status" widget="badge"
+                 decoration-success="status == 'deliverable'"
+                 decoration-danger="status == 'failed'"
+                 decoration-info="status in ('in_progress','ready_baseline','baseline_generated')"
+                 decoration-warning="status in ('tasker_qc_completed','manual_qc','ready_next_stage')"/>
+          <field name="overall_score" widget="progressbar" optional="show"/>
+          <field name="assigned_date"/>
+
+          <!-- Available from the column picker, off by default: tasker_email only
+               disambiguates duplicate names, and final_status is DERIVED from status
+               (deliverable/failed/in_progress) so as a column it can never say
+               anything the status badge did not already say. -->
+          <field name="tasker_email" optional="hide"/>
+          <field name="assigned_ql_id" string="QL" optional="hide"/>
+          <field name="baseline_gen_status" widget="badge" optional="hide"
+                 decoration-success="baseline_gen_status == 'done'"
+                 decoration-danger="baseline_gen_status == 'failed'"
+                 decoration-info="baseline_gen_status == 'in_progress'"/>
+          <field name="pytest_score" optional="hide"/>
+          <field name="final_status" widget="badge" optional="hide"
+                 decoration-success="final_status == 'deliverable'"
+                 decoration-danger="final_status == 'failed'"
+                 decoration-info="final_status == 'in_progress'"/>
+          <field name="notes" optional="hide"/>
+        </list>
+      </field>
+    </record>
+
+    <!-- ===================== Task Allocation: Form (edit) =====================
+
+         A task runs through exactly TWO stages, and each stage is its own record
+         (own tasker, own scores, own audit trail — see project.tracker.allocation).
+         This form shows BOTH of them:
+
+           * the stage you are actually ON is editable, gated step by step;
+           * the OTHER stage is mirrored in read-only (the s1_* / s2_* fields), so
+             one form tells the whole story of the task without pretending you can
+             edit someone else's record from here.
+    -->
+    <record model="ir.ui.view" id="project_tracker_allocation_form">
+      <field name="name">project.tracker.allocation.form</field>
+      <field name="model">project.tracker.allocation</field>
+      <field name="arch" type="xml">
+        <form string="Task Allocation" class="o_kensei2_alloc_form o_project_tracker_form"
+              js_class="project_tracker_autosave">
+          <header>
+            <button name="action_hand_off" type="object" string="Hand off to Stage 2"
+                    class="btn-primary" icon="fa-share"
+                    invisible="not can_hand_off"
+                    groups="project_tracker.group_project_tracker_ql"/>
+            <!-- Getting back into a finished task is an explicit, audited act, not a
+                 side effect of editing a field: action_reopen reverts the record out of
+                 its terminal status (which is what unlocks it) and logs to the chatter. -->
+            <button name="action_reopen" type="object" string="Reopen"
+                    class="btn-secondary" icon="fa-undo"
+                    confirm="Reopening withdraws this task's completion: its delivery date is cleared and it drops back into the pipeline. Continue?"
+                    invisible="status not in ('deliverable', 'failed')"
+                    groups="project_tracker.group_project_tracker_ql"/>
+            <!-- Reset THIS stage only: clears this stage's inputs, leaves the others.
+                 Blocked (with a message) if a later stage was built on this one. -->
+            <button name="action_reset_stage" type="object" string="Reset Stage"
+                    class="btn-secondary text-danger" icon="fa-eraser"
+                    confirm="Reset THIS stage? Its inputs — drive link, QC results, scores and notes for this stage only — will be permanently erased and the stage starts again from the beginning. Other stages are unchanged. This cannot be undone."
+                    groups="project_tracker.group_project_tracker_ql"/>
+            <!-- Reset is NOT Reopen. Reopen un-freezes one stage and keeps its work;
+                 this DESTROYS the work on every stage and starts the task over. It is
+                 always available (a task can be reset at any point in the pipeline),
+                 QL/PL-only, and confirmed — there is no undo. -->
+            <button name="action_reset_task" type="object" string="Reset Task"
+                    class="btn-secondary text-danger" icon="fa-refresh"
+                    confirm="Reset the ENTIRE task? Every stage input — drive links, QC results, scores and notes — will be permanently erased, any later stage will be DELETED, and the task will start again from Tasker QC. Its Task ID, persona, tasker and leads are kept. This cannot be undone."
+                    groups="project_tracker.group_project_tracker_ql"/>
+            <field name="can_hand_off" invisible="1"/>
+            <field name="stage_no" invisible="1"/>
+            <!-- One bar PER STAGE instead of one bar listing all eight states, which
+                 squeezed the labels into each other. Stage 1 never reaches Deliverable
+                 (it hands off), and stage 2 never touches the three authoring states, so
+                 neither record ever needed the full list.
+
+                 'failed' is deliberately in neither list: StatusBarField.getAllItems()
+                 keeps `value === currentValue` regardless of statusbar_visible, so a
+                 failed task still shows Failed — it just no longer takes up a slot on
+                 every healthy one. -->
+            <!-- One bar PER STAGE — and each stage names the trajectory step its own
+                 way: stage 1 says Baseline, stage 2 says Pass @ K. Same stored values;
+                 `stage2_status` is just `status` under stage 2's labels. -->
+            <field name="status" widget="project_tracker_statusbar" invisible="stage_no == 2"
+                   statusbar_visible="in_progress,tasker_qc_completed,ready_baseline,baseline_generated,manual_qc,ready_next_stage"/>
+            <field name="stage2_status" widget="project_tracker_statusbar" invisible="stage_no != 2"
+                   statusbar_visible="ready_baseline,baseline_generated,manual_qc,deliverable"/>
+          </header>
+          <sheet>
+            <div class="oe_button_box" name="button_box">
+              <button name="action_view_stage_chain" type="object"
+                      class="oe_stat_button" icon="fa-sitemap">
+                <field name="stage_no" widget="statinfo" string="Stage"/>
+              </button>
+            </div>
+            <div class="oe_title">
+              <label for="task_id"/>
+              <h1><field name="task_id" readonly="1"/></h1>
+              <!-- Name the PERSON, not the UUID. Every stage shares the task_id, so the
+                   parent_id link rendered the very same string the title above already
+                   shows — "handed off from <the id you are looking at>", which says
+                   nothing. What is actually useful here is WHO did the previous stage. -->
+              <div class="text-muted" invisible="not parent_id">
+                <i class="fa fa-share me-1"/>Handed off from
+                <b>Stage <field name="parent_stage_no" readonly="1" nolabel="1" class="oe_inline"/></b>,
+                worked by
+                <b><field name="parent_tasker_id" readonly="1" nolabel="1" class="oe_inline"
+                          options="{'no_open': True}"/></b>
+                <button name="action_open_parent" type="object" string="Open it"
+                        class="btn-link btn-sm p-0 ms-2" icon="fa-external-link"/>
+              </div>
+            </div>
+
+            <!-- Control fields referenced by the readonly=/invisible= expressions
+                 below; never rendered themselves. -->
+            <field name="is_manager" invisible="1"/>
+            <field name="is_current_stage" invisible="1"/>
+            <field name="is_final_stage" invisible="1"/>
+            <field name="has_stage_2" invisible="1"/>
+            <field name="is_locked" invisible="1"/>
+            <field name="is_doc_locked" invisible="1"/>
+            <field name="days_in_status" invisible="1"/>
+            <field name="qc_candidate_ids" invisible="1"/>
+            <field name="pl_candidate_ids" invisible="1"/>
+
+            <!-- A FRESH STAGE 2 IS EMPTY ON PURPOSE, and without saying so it reads as
+                 data loss: the hand-off drops you straight onto this record, every field
+                 is blank, and stage 1's work is on another tab entirely. Say it plainly,
+                 and point at where the work actually went. -->
+            <div class="alert alert-info" role="alert"
+                 invisible="stage_no != 2 or status != 'ready_baseline'">
+              <i class="fa fa-info-circle me-1"/>This is <b>Stage 2</b>, and it starts empty
+              on purpose — stage 2 generates its <b>own</b> Pass @ K trajectory and QCs it.
+              <b>Nothing has been lost:</b> stage 1's drive link, scores and QC are intact on
+              the <b>Stage 1</b> tab.
+            </div>
+
+            <!-- Outcome banners — above the notebook so they show on every tab. -->
+            <div class="alert alert-success" role="alert" invisible="status != 'deliverable'">
+              <i class="fa fa-check-circle me-1"/>This task is complete and marked as <b>Deliverable</b>.
+              Its results are frozen — use <b>Reopen</b> to make changes.
+            </div>
+            <div class="alert alert-info" role="alert" invisible="status != 'ready_next_stage'">
+              <i class="fa fa-share me-1"/>Stage 1 is finished. Hand the task off to
+              <b>Stage 2</b> to generate its baseline trajectory.
+            </div>
+            <div class="alert alert-danger" role="alert" invisible="status != 'failed'">
+              <i class="fa fa-times-circle me-1"/>Workflow terminated — this task has <b>Failed</b>.
+              <field name="failure_reason" nolabel="1" readonly="1" class="mt-2"
+                     placeholder="No failure reason recorded."/>
+            </div>
+
+            <!-- Locked because a NEXT stage was built on this one's results. Not a
+                 terminal status, so the Reopen button does not apply: the fix is to
+                 remove stage 2 first. -->
+            <div class="alert alert-warning" role="alert"
+                 invisible="not is_locked or status in ('deliverable', 'failed')">
+              <i class="fa fa-lock me-1"/>This stage has been <b>handed off</b> to the next
+              stage, which was built on its results. Its inputs are frozen — delete the next
+              stage before changing them.
+            </div>
+
+            <!-- Guided stepper: one glance at where this stage is, what's next, and
+                 how long it has been parked. Replaces the per-step "do X to unlock Y"
+                 hints that used to be scattered through the sub-tabs. -->
+            <widget name="project_tracker_stepper"/>
+
+            <group>
+              <group string="Task Details">
+                <!-- One record = one stage = one tasker. The label follows the stage
+                     this record actually is; the other stage's tasker is on the
+                     Summary and Stage tabs. -->
+                <field name="tasker_member_id" string="Stage 1 Tasker"
+                       invisible="stage_no != 1" readonly="not is_manager"
+                       options="{'no_create': True, 'no_open': True}"
+                       placeholder="Search a team member by name or email…"/>
+                <field name="tasker_member_id" string="Stage 2 Tasker"
+                       invisible="stage_no == 1" readonly="not is_manager"
+                       options="{'no_create': True, 'no_open': True}"
+                       placeholder="Search a team member by name or email…"/>
+                <field name="tasker_email" readonly="1"/>
+                <field name="persona_id" readonly="not is_manager"
+                       options="{'no_open': True}"/>
+                <field name="project_id" readonly="not is_manager"
+                       options="{'no_create_edit': True, 'no_open': True}"/>
+              </group>
+              <group string="Assignment">
+                <field name="assigned_pl_id" string="PL"
+                       readonly="not is_manager"
+                       domain="[('id', 'in', pl_candidate_ids)]"
+                       options="{'no_create': True, 'no_open': True}"/>
+                <field name="assigned_ql_id" string="QL" readonly="1"/>
+                <field name="function" readonly="1"/>
+                <field name="assigned_date" readonly="not is_manager"/>
+                <!-- Fixed at 2 by the model. Shown for context, never an input. -->
+                <field name="total_stages" readonly="1"/>
+                <field name="status" readonly="1" invisible="stage_no == 2"/>
+                <field name="stage2_status" readonly="1" invisible="stage_no != 2"/>
+                <field name="final_status" readonly="1"/>
+              </group>
+            </group>
+
+            <notebook>
+
+              <!-- ================= Summary: the whole task ================= -->
+              <page string="Summary" name="page_summary">
+                <group>
+                  <group string="Stage 1 — Authoring &amp; Verification">
+                    <field name="stage1_tasker_id" string="Tasker" readonly="1"
+                           options="{'no_open': True}"/>
+                    <!-- The PL/QL of stage 1's tasker. Each stage syncs its own leads
+                         from its own tasker's roster row, so these can differ from
+                         stage 2's below. -->
+                    <field name="s1_assigned_pl_id" string="PL" readonly="1"
+                           options="{'no_open': True}"/>
+                    <field name="s1_assigned_ql_id" string="QL" readonly="1"
+                           options="{'no_open': True}"/>
+                    <field name="s1_status" string="Status" readonly="1"/>
+                    <field name="s1_drive_link" string="Drive Link" widget="url" readonly="1"/>
+                    <field name="s1_pl_verified_status" string="PL Verification" readonly="1"/>
+                    <field name="s1_baseline_ready_status" string="Ready for Baseline" readonly="1"/>
+                    <field name="s1_baseline_drive_link" string="Baseline Link"
+                           widget="url" readonly="1"/>
+                    <field name="s1_baseline_gen_status" string="Baseline Generation" readonly="1"/>
+                    <field name="s1_manual_qc_status" string="Manual QC" readonly="1"/>
+                    <field name="s1_qced_by" string="QCed By" readonly="1"
+                           options="{'no_open': True}"/>
+                    <field name="s1_rubric_score" string="Rubric (%)" readonly="1"/>
+                    <field name="s1_pytest_score" string="Pytest (%)" readonly="1"/>
+                    <field name="s1_overall_score" string="Overall (%)" readonly="1"/>
+                    <field name="s1_date_final" string="Completed On" readonly="1"/>
+                  </group>
+                  <group string="Stage 2 — Pass @ K and QC">
+                    <div class="text-muted" colspan="2" invisible="has_stage_2">
+                      <i class="fa fa-hourglass-half me-1"/>Not started — stage 2 is
+                      assigned once every stage 1 step is complete.
+                    </div>
+                    <field name="stage2_tasker_id" string="Tasker" readonly="1"
+                           invisible="not has_stage_2" options="{'no_open': True}"/>
+                    <field name="s2_assigned_pl_id" string="PL" readonly="1"
+                           invisible="not has_stage_2" options="{'no_open': True}"/>
+                    <field name="s2_assigned_ql_id" string="QL" readonly="1"
+                           invisible="not has_stage_2" options="{'no_open': True}"/>
+                    <field name="s2_status" string="Status" readonly="1"
+                           invisible="not has_stage_2"/>
+                    <field name="s2_baseline_drive_link" string="Pass @ K Link"
+                           widget="url" readonly="1" invisible="not has_stage_2"/>
+                    <field name="s2_baseline_gen_status" string="Pass @ K Generation"
+                           readonly="1" invisible="not has_stage_2"/>
+                    <field name="s2_manual_qc_status" string="Manual QC" readonly="1"
+                           invisible="not has_stage_2"/>
+                    <field name="s2_qced_by" string="QCed By" readonly="1"
+                           invisible="not has_stage_2" options="{'no_open': True}"/>
+                    <field name="s2_rubric_score" string="Rubric (%)" readonly="1"
+                           invisible="not has_stage_2"/>
+                    <field name="s2_pytest_score" string="Pytest (%)" readonly="1"
+                           invisible="not has_stage_2"/>
+                    <field name="s2_overall_score" string="Overall (%)" readonly="1"
+                           invisible="not has_stage_2"/>
+                    <field name="s2_date_final" string="Completed On" readonly="1"
+                           invisible="not has_stage_2"/>
+                  </group>
+                </group>
+
+                <!-- Scoped by record rules, so a tasker sees the stages they are on
+                     and a QL/PL sees the whole chain. -->
+                <group string="Stage Chain">
+                  <field name="stage_ids" nolabel="1" readonly="1" colspan="2">
+                    <list decoration-success="final_status == 'deliverable'"
+                          decoration-danger="final_status == 'failed'">
+                      <field name="stage_no" string="Stage"/>
+                      <field name="tasker_name" string="Tasker"/>
+                      <field name="tasker_email" optional="show"/>
+                      <field name="assigned_pl_id" string="PL" optional="show"/>
+                      <field name="assigned_date"/>
+                      <!-- This list shows EVERY stage of the task at once, so it is
+                           the one place a stage-1 and a stage-2 row sit side by side.
+                           Rendering raw `status` here labels both from stage 1's
+                           Selection, so the stage-2 row would read "Baseline
+                           Generated" and "Stage 1 Manual QC". status_label is stored
+                           and stage-aware; status stays only to drive decorations. -->
+                      <field name="status" column_invisible="1"/>
+                      <field name="status_label" string="Status" widget="badge"
+                             decoration-success="status == 'deliverable'"
+                             decoration-danger="status == 'failed'"
+                             decoration-warning="status in ('manual_qc','ready_next_stage')"/>
+                      <field name="overall_score" optional="show"/>
+                      <field name="date_final" string="Completed On" optional="show"/>
+                      <field name="final_status" widget="badge" optional="hide"/>
+                    </list>
+                  </field>
+                </group>
+
+                <group string="Notes">
+                  <!-- colspan=2 so the textarea spans the group's full width instead
+                       of just the value column (which left it half-width). -->
+                  <field name="notes" nolabel="1" colspan="2"
+                         placeholder="Progress notes, blockers, context…"/>
+                </group>
+              </page>
+
+              <!-- ================= Stage 1 ================= -->
+              <page string="Stage 1" name="page_stage_1">
+                <div class="alert alert-secondary" role="alert" invisible="stage_no == 1">
+                  <i class="fa fa-lock me-1"/>Stage 1 runs on its own record — shown here
+                  read-only.
+                </div>
+                <notebook>
+
+                  <!-- Each step's tab only appears once the PREVIOUS step is signed
+                       off, so the pipeline can only be filled front to back. Gated on
+                       `invisible` because that is the one per-record modifier the form
+                       compiler forwards to a page — it never emits `isDisabled`, so a
+                       greyed-out-but-visible tab is not reachable from a view.
+                       On stage 2's record these pages are read-only mirrors of stage 1,
+                       which is already finished, so they are always shown. -->
+                  <page string="1. Tasker QC" name="page_s1_tasker_qc">
+                    <group invisible="stage_no != 1">
+                      <field name="drive_link" widget="project_tracker_drive_link" readonly="is_locked"
+                             placeholder="https://drive.google.com/…" force_save="1"/>
+                      <field name="tasker_qc_notes" readonly="is_locked" placeholder="Notes for this stage…" force_save="1"/>
+                    </group>
+                    <group invisible="stage_no == 1">
+                      <field name="s1_drive_link" widget="url" readonly="1"/>
+                      <field name="s1_tasker_qc_notes" readonly="1"/>
+                    </group>
+                  </page>
+
+                  <page string="2. PL Verification" name="page_s1_pl_verification">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or drive_link">
+                      <i class="fa fa-lock me-1"/>Locked — add the <b>Drive Link</b> in
+                      <b>1. Tasker QC</b> to start PL Verification.
+                    </div>
+                    <group invisible="stage_no != 1">
+                      <field name="pl_verified_status" readonly="is_doc_locked or not drive_link" force_save="1"/>
+                      <field name="pl_verified_reason" readonly="is_doc_locked"
+                             invisible="pl_verified_status != 'failed'"
+                             required="pl_verified_status == 'failed' and not is_doc_locked"
+                             placeholder="Reason for failure…" force_save="1"/>
+                      <field name="pl_verified_notes" readonly="is_doc_locked or not drive_link"
+                             placeholder="Notes for this stage…" force_save="1"/>
+                    </group>
+                    <group invisible="stage_no == 1">
+                      <field name="s1_pl_verified_status" readonly="1"/>
+                      <field name="s1_pl_verified_reason" readonly="1"
+                             invisible="s1_pl_verified_status != 'failed'"/>
+                      <field name="s1_pl_verified_notes" readonly="1"/>
+                    </group>
+                  </page>
+
+                  <page string="3. Ready for Baseline" name="page_s1_ready_baseline">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or pl_verified_status == 'done'">
+                      <i class="fa fa-lock me-1"/>Locked — mark <b>PL Verification</b>
+                      as <b>Done</b> to unlock this step.
+                    </div>
+                    <group invisible="stage_no != 1">
+                      <field name="baseline_ready_status"
+                             readonly="is_doc_locked or pl_verified_status != 'done'" force_save="1"/>
+                      <field name="baseline_ready_reason" readonly="is_doc_locked"
+                             invisible="baseline_ready_status != 'failed'"
+                             required="baseline_ready_status == 'failed' and not is_doc_locked"
+                             placeholder="Reason for failure…" force_save="1"/>
+                      <field name="baseline_ready_notes"
+                             readonly="is_doc_locked or pl_verified_status != 'done'"
+                             placeholder="Notes for this stage…" force_save="1"/>
+                    </group>
+                    <group invisible="stage_no == 1">
+                      <field name="s1_baseline_ready_status" readonly="1"/>
+                      <field name="s1_baseline_ready_reason" readonly="1"
+                             invisible="s1_baseline_ready_status != 'failed'"/>
+                      <field name="s1_baseline_ready_notes" readonly="1"/>
+                    </group>
+                  </page>
+
+                  <page string="4. Baseline Trajectory" name="page_s1_baseline_trajectory">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or baseline_ready_status == 'done'">
+                      <i class="fa fa-lock me-1"/>Locked — sign off <b>Ready for
+                      Baseline</b> as <b>Done</b> to unlock this step.
+                    </div>
+                    <group invisible="stage_no != 1">
+                      <group string="Trajectory">
+                        <field name="baseline_drive_link" widget="project_tracker_drive_link" readonly="is_locked or baseline_ready_status != 'done'"
+                               placeholder="https://drive.google.com/…" force_save="1"/>
+                        <field name="baseline_gen_status"
+                               readonly="is_doc_locked or not baseline_drive_link" force_save="1"/>
+                        <field name="baseline_gen_reason" readonly="is_doc_locked"
+                               invisible="baseline_gen_status != 'failed'"
+                               required="baseline_gen_status == 'failed' and not is_doc_locked"
+                               placeholder="Reason for failure…" force_save="1"/>
+                      </group>
+                      <!-- Unlocked by Pass @ K Generation = Done; _check_baseline_metrics
+                           then refuses to save that Done without a QCed By. -->
+                      <group string="Evaluation Metrics">
+                        <field name="rubric_score" widget="project_tracker_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="pytest_score" widget="project_tracker_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="overall_score" widget="project_tracker_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" required="baseline_gen_status == 'done'" options="{'no_open': True}"
+                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
+                        <div class="text-muted small" colspan="2"
+                             invisible="baseline_gen_status != 'done'">
+                          <i class="fa fa-info-circle me-1"/>Each score must be
+                          <b>0–100</b>. An out-of-range value is highlighted in red and
+                          blocks saving.
+                        </div>
+                      </group>
+                    </group>
+                    <group string="Notes" invisible="stage_no != 1">
+                      <field name="baseline_gen_notes" nolabel="1"
+                             readonly="is_doc_locked or baseline_ready_status != 'done'"
+                             placeholder="Notes for this stage…" force_save="1"/>
+                    </group>
+                    <group invisible="stage_no == 1">
+                      <group string="Trajectory">
+                        <field name="s1_baseline_drive_link" widget="url" readonly="1"/>
+                        <field name="s1_baseline_gen_status" readonly="1"/>
+                        <field name="s1_baseline_gen_reason" readonly="1"
+                               invisible="s1_baseline_gen_status != 'failed'"/>
+                      </group>
+                      <group string="Evaluation Metrics">
+                        <field name="s1_rubric_score" readonly="1"/>
+                        <field name="s1_pytest_score" readonly="1"/>
+                        <field name="s1_overall_score" readonly="1"/>
+                        <field name="s1_qced_by" readonly="1" options="{'no_open': True}"/>
+                      </group>
+                    </group>
+                    <group string="Notes" invisible="stage_no == 1">
+                      <field name="s1_baseline_gen_notes" nolabel="1" readonly="1"/>
+                    </group>
+                  </page>
+
+                  <page string="5. Manual QC" name="page_s1_manual_qc">
+                    <!-- Locked until the Baseline step is FULLY complete: generation
+                         Done, QCed By set, AND all three scores valid — the same bar the
+                         status ladder uses to REACH Manual QC. Sequential, like every
+                         earlier step, so it cannot be signed off out of order. -->
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 1 or (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)">
+                      <i class="fa fa-lock me-1"/>Locked — complete the <b>Baseline
+                      Trajectory</b> step (Generation <b>Done</b>, <b>QCed By</b> set and
+                      all three scores 0–100) to start Manual QC.
+                    </div>
+                    <group invisible="stage_no != 1">
+                      <field name="manual_qc_status" force_save="1"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"/>
+                      <field name="manual_qc_reason"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
+                             invisible="manual_qc_status != 'failed'"
+                             required="manual_qc_status == 'failed' and not is_doc_locked"
+                             placeholder="Reason for failure…" force_save="1"/>
+                      <field name="manual_qc_notes"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
+                             placeholder="Notes for this stage…" force_save="1"/>
+                    </group>
+                    <group invisible="stage_no == 1">
+                      <field name="s1_manual_qc_status" readonly="1"/>
+                      <field name="s1_manual_qc_reason" readonly="1"
+                             invisible="s1_manual_qc_status != 'failed'"/>
+                      <field name="s1_manual_qc_notes" readonly="1"/>
+                    </group>
+                  </page>
+
+                </notebook>
+              </page>
+
+              <!-- ================= Stage 2 ================= -->
+              <!-- The whole Stage 2 tab stays hidden until stage 1 is finished
+                   (can_hand_off) or stage 2 already exists — choosing the stage-2 tasker
+                   IS the hand-off, so there is nothing here to act on before then. A
+                   tasker only ever sees the stage assigned to them, so for a stage-1
+                   tasker has_stage_2 is false even after the hand-off: the record rules
+                   scope it (see _sibling_stages). -->
+              <page string="Stage 2" name="page_stage_2"
+                    invisible="stage_no == 1 and not can_hand_off and not has_stage_2">
+                <div class="alert alert-info" role="alert" invisible="not can_hand_off">
+                  <i class="fa fa-user-plus me-1"/>Stage 1 is complete — choose who works
+                  stage 2.
+                  <button name="action_hand_off" type="object"
+                          string="Choose Stage 2 Tasker"
+                          class="btn-primary btn-sm ms-2" icon="fa-share"
+                          groups="project_tracker.group_project_tracker_ql"/>
+                </div>
+                <div class="alert alert-secondary" role="alert"
+                     invisible="stage_no == 2 or not has_stage_2">
+                  <i class="fa fa-lock me-1"/>Stage 2 runs on its own record — shown here
+                  read-only.
+                </div>
+
+                <group invisible="not has_stage_2">
+                  <field name="stage2_tasker_id" string="Stage 2 Tasker" readonly="1"
+                         options="{'no_open': True}"/>
+                </group>
+
+                <notebook>
+
+                  <!-- Stage 2's own steps. Nothing to show until stage 2 has actually
+                       been assigned, and Manual QC only appears once the trajectory is
+                       generated and QCed By is set. -->
+                  <page string="Pass @ K" name="page_s2_baseline_trajectory"
+                        invisible="stage_no != 2 and not has_stage_2">
+                    <!-- The whole Tracker calls this step Pass @ K. Stage 1 and stage 2
+                         share these very fields, so it is one step done twice, not two
+                         different things — hence one name, on the model AND here. -->
+                    <group invisible="stage_no != 2">
+                      <group string="Pass @ K">
+                        <field name="baseline_drive_link" string="Pass @ K Drive Link"
+                               widget="project_tracker_drive_link" readonly="is_locked"
+                               placeholder="https://drive.google.com/…" force_save="1"/>
+                        <field name="baseline_gen_status" string="Pass @ K Generation"
+                               readonly="is_doc_locked or not baseline_drive_link" force_save="1"/>
+                        <field name="baseline_gen_reason" string="Pass @ K Failure Reason"
+                               readonly="is_doc_locked"
+                               invisible="baseline_gen_status != 'failed'"
+                               required="baseline_gen_status == 'failed' and not is_doc_locked"
+                               placeholder="Reason for failure…" force_save="1"/>
+                      </group>
+                      <group string="Evaluation Metrics">
+                        <field name="rubric_score" widget="project_tracker_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="pytest_score" widget="project_tracker_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="overall_score" widget="project_tracker_score" readonly="is_locked or not baseline_drive_link" required="baseline_gen_status == 'done'" force_save="1"/>
+                        <field name="qced_by" domain="[('id', 'in', qc_candidate_ids)]" required="baseline_gen_status == 'done'" options="{'no_open': True}"
+                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
+                        <div class="text-muted small" colspan="2"
+                             invisible="baseline_gen_status != 'done'">
+                          <i class="fa fa-info-circle me-1"/>Each score must be
+                          <b>0–100</b>. An out-of-range value is highlighted in red and
+                          blocks saving.
+                        </div>
+                      </group>
+                    </group>
+                    <group string="Pass @ K Notes" invisible="stage_no != 2">
+                      <field name="baseline_gen_notes" nolabel="1" readonly="is_doc_locked"
+                             placeholder="Notes for this stage…" force_save="1"/>
+                    </group>
+                    <!-- The same tab as seen FROM STAGE 1: stage 2's work, read-only.
+                         Same naming, so the step is called Pass @ K wherever it shows. -->
+                    <group invisible="stage_no == 2">
+                      <group string="Pass @ K">
+                        <field name="s2_baseline_drive_link" string="Pass @ K Drive Link"
+                               widget="url" readonly="1"/>
+                        <field name="s2_baseline_gen_status" string="Pass @ K Generation"
+                               readonly="1"/>
+                        <field name="s2_baseline_gen_reason" string="Pass @ K Failure Reason"
+                               readonly="1"
+                               invisible="s2_baseline_gen_status != 'failed'"/>
+                      </group>
+                      <group string="Evaluation Metrics">
+                        <field name="s2_rubric_score" readonly="1"/>
+                        <field name="s2_pytest_score" readonly="1"/>
+                        <field name="s2_overall_score" readonly="1"/>
+                        <field name="s2_qced_by" readonly="1" options="{'no_open': True}"/>
+                      </group>
+                    </group>
+                    <group string="Pass @ K Notes" invisible="stage_no == 2">
+                      <field name="s2_baseline_gen_notes" nolabel="1" readonly="1"/>
+                    </group>
+                  </page>
+
+                  <page string="Manual QC" name="page_s2_manual_qc"
+                        invisible="stage_no != 2 and not has_stage_2">
+                    <div class="alert alert-light border" role="alert"
+                         invisible="stage_no != 2 or (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)">
+                      <i class="fa fa-lock me-1"/>Locked — complete the <b>Pass @ K</b>
+                      step (Generation <b>Done</b>, <b>QCed By</b> set and all three
+                      scores 0–100) to start Manual QC.
+                    </div>
+                    <group invisible="stage_no != 2">
+                      <field name="manual_qc_status" force_save="1"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"/>
+                      <field name="manual_qc_reason"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
+                             invisible="manual_qc_status != 'failed'"
+                             required="manual_qc_status == 'failed' and not is_doc_locked"
+                             placeholder="Reason for failure…" force_save="1"/>
+                      <field name="manual_qc_notes"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
+                             placeholder="Notes for this stage…" force_save="1"/>
+                    </group>
+                    <group invisible="stage_no == 2">
+                      <field name="s2_manual_qc_status" readonly="1"/>
+                      <field name="s2_manual_qc_reason" readonly="1"
+                             invisible="s2_manual_qc_status != 'failed'"/>
+                      <field name="s2_manual_qc_notes" readonly="1"/>
+                    </group>
+                  </page>
+
+                </notebook>
+              </page>
+
+            </notebook>
+
+            <!-- Explicit Save at the bottom, next to auto-save. Clicking it saves the
+                 record (Odoo saves a dirty record before running an object button);
+                 empty required fields block the save and are highlighted, same as
+                 auto-save. Hidden once the record is frozen (delivered / handed off). -->
+            <div class="d-flex justify-content-end mt-3" invisible="is_locked">
+              <button name="action_manual_save" type="object" string="Save"
+                      class="btn-primary" icon="fa-floppy-o"/>
+            </div>
+          </sheet>
+          <chatter/>
+        </form>
+      </field>
+    </record>
+
+    <!-- ===================== Search ===================== -->
+    <record model="ir.ui.view" id="project_tracker_allocation_search">
+      <field name="name">project.tracker.allocation.search</field>
+      <field name="model">project.tracker.allocation</field>
+      <field name="arch" type="xml">
+        <search string="Task Allocation">
+          <field name="task_id"/>
+          <field name="tasker_name"/>
+          <field name="tasker_email"/>
+          <field name="pl_id"/>
+          <field name="persona_id"/>
+          <field name="project_id"/>
+
+          <!-- Each stage of a task is its own record, so a handed-off task otherwise
+               appears TWICE (stage 1 + stage 2) under the same Task ID, with no way to
+               tell which row is live. is_current_stage is true only for the record the
+               task actually sits on right now (it is what the dashboard already counts
+               by), so this collapses the list back to one row per task. The action
+               switches it on by default; untick it to see the full stage history. -->
+          <filter name="f_current_stage" string="Current Stage Only"
+                  domain="[('is_current_stage', '=', True)]"/>
+          <separator/>
+          <filter name="f_active" string="Active" domain="[('final_status', '=', 'in_progress')]"/>
+          <filter name="f_deliverable" string="Deliverable" domain="[('final_status', '=', 'deliverable')]"/>
+          <filter name="f_failed" string="Failed" domain="[('final_status', '=', 'failed')]"/>
+          <separator/>
+          <!-- "Who is it parked on, and what has gone quiet?" — the questions a PL or QL
+               actually opens this page to answer. -->
+          <filter name="f_waiting_pl" string="Waiting on PL"
+                  domain="[('drive_link', '!=', False), ('pl_verified_status', '=', 'in_progress')]"/>
+          <!-- Manual QC is each stage's OWN gate, and the two stages store the same
+               value for it. A single "Waiting on Manual QC" filter therefore mixes
+               stage 1's QC with stage 2's, which are different queues worked by
+               different people. Split, so a lead can open exactly their own. -->
+          <filter name="f_manual_qc_s1" string="Waiting on Stage 1 Manual QC"
+                  domain="[('status', '=', 'manual_qc'), ('stage_no', '=', 1)]"/>
+          <filter name="f_manual_qc_s2" string="Waiting on Stage 2 Manual QC"
+                  domain="[('status', '=', 'manual_qc'), ('stage_no', '=', 2)]"/>
+          <filter name="f_ready_next" string="Awaiting Hand-off" domain="[('status', '=', 'ready_next_stage')]"/>
+          <filter name="f_stalled" string="Stalled &gt; 7 Days"
+                  domain="[('final_status', '=', 'in_progress'),
+                           ('assigned_date', '&lt;=', (context_today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+          <separator/>
+          <filter name="f_my_tasks" string="My Tasks" domain="[('tasker_user_id', '=', uid)]"/>
+          <separator/>
+          <filter name="f_stage_1" string="Stage 1" domain="[('stage_no', '=', 1)]"/>
+          <filter name="f_stage_2" string="Stage 2" domain="[('stage_no', '=', 2)]"/>
+
+          <!-- Odoo 19: Group-By block is a bare &lt;group&gt; (no expand/string attrs) -->
+          <group>
+            <filter name="g_stage" string="Stage" context="{'group_by': 'stage_no'}"/>
+            <filter name="g_tasker" string="Tasker" context="{'group_by': 'tasker_member_id'}"/>
+            <filter name="g_pl" string="PL" context="{'group_by': 'pl_id'}"/>
+            <filter name="g_function" string="Function" context="{'group_by': 'function'}"/>
+            <!-- status_label, NOT status. Grouping on the raw value merges the two
+                 stages into one group and titles it with whichever stage's label the
+                 Selection happens to carry, so every stage-2 group would read
+                 "Stage 1 Manual QC". status_label is the stored, stage-aware name
+                 (the kanban already groups on it). -->
+            <filter name="g_status" string="Status" context="{'group_by': 'status_label'}"/>
+            <filter name="g_final" string="Final Status" context="{'group_by': 'final_status'}"/>
+            <filter name="g_persona" string="Persona" context="{'group_by': 'persona_id'}"/>
+            <filter name="g_project" string="Project" context="{'group_by': 'project_id'}"/>
+            <filter name="g_assigned" string="Assignment Date" context="{'group_by': 'assigned_date'}"/>
+          </group>
+        </search>
+      </field>
+    </record>
+
+    <!-- ===================== Actions ===================== -->
+    <record model="ir.actions.act_window" id="project_tracker_allocation_action">
+      <field name="name">Task Allocation</field>
+      <field name="res_model">project.tracker.allocation</field>
+      <field name="view_mode">list,kanban,form</field>
+      <!-- Open on one row per task; the stage history is one click away (see
+           f_current_stage in the search view). -->
+      <field name="context">{'search_default_f_current_stage': 1}</field>
+      <field name="search_view_id" ref="project_tracker_allocation_search"/>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('project_tracker_allocation_list')}),
+            (0, 0, {'view_mode': 'kanban', 'view_id': ref('project_tracker_allocation_kanban')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('project_tracker_allocation_form')})]"/>
+      <field name="help" type="html">
+        <p class="o_view_nocontent_smiling_face">No task allocations yet</p>
+        <p>Allocate a task to a tasker and track it through the RL pipeline.</p>
+      </field>
+    </record>
+
+    <!-- Daily Tracker: custom professional pivot table (client action) -->
+    <record model="ir.actions.client" id="project_tracker_daily_action">
+      <field name="name">Daily Tracker</field>
+      <field name="tag">project_tracker_daily</field>
+    </record>
+
+    <!-- ===================== Dashboard (client actions) ===================== -->
+    <!-- Role dispatcher used by the menu (org overview vs personal dashboard). -->
+    <record model="ir.actions.client" id="project_tracker_main_dashboard_action">
+      <field name="name">Dashboard</field>
+      <field name="tag">project_tracker_main_dashboard</field>
+    </record>
+
+  </data>
+</odoo>
