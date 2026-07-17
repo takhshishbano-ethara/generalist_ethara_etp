@@ -1,20 +1,10 @@
-"""Candidate self-service endpoints.
-
-Mirrors the Node HRMS backend's `GET /candidates/me` +
-`PATCH /candidates/me/profile` used by the React `/portal/*` pages.
-
-Auth: the shared `@validate_token` decorator from `api_auth_gateway` —
-that decorator reads the `access_token` header, resolves the
-`res.users`, and populates `request.env.user`. We then map the current
-user → their `hr.applicant` rows via `candidate_user_id` (the canonical
-linkage used by `employee_extension/logged_user_details_extension.py`).
-"""
-
 import json
 import logging
 from datetime import datetime
 
-from odoo import http
+from dateutil.relativedelta import relativedelta
+
+from odoo import fields, http
 from odoo.http import request
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
@@ -22,9 +12,6 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-# Reuse the rich serializer that already renders the exact
-# CandidatePortalOverview.currentApplication / applications[] shape
-# used by the recruiter API.
 from .candidates import (
     _iso,
     _serialize,
@@ -67,28 +54,25 @@ def _read_json_body():
 
 
 def _coerce_date(value):
-    """Accepts ISO date/datetime strings. Returns a `date` or `None`."""
     if not value:
         return None
     if isinstance(value, datetime):
         return value.date()
     text = str(value).strip()
     for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ",
-                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+                "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d"):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
-    return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except (ValueError, TypeError):
+        return None
 
 
 def _applications_for_user():
-    """All `hr.applicant` rows owned by the currently-authenticated user.
-
-    Uses the canonical `hr.applicant.candidate_user_id` linkage (the same
-    one `logged_user_details_extension.py` relies on). Ordered newest-
-    first so `_current_application` picks the most recent record.
-    """
     user = request.env.user
     if not user or not user.exists():
         return request.env["hr.applicant"].sudo().browse()
@@ -101,28 +85,49 @@ def _applications_for_user():
 
 
 def _current_application(applications):
-    """The React portal treats "current" as the most-recently-updated
-    ongoing (active + no refusal) application. Fallback: the newest
-    record regardless of status.
-    """
     if not applications:
         return None
     for app in applications:
-        if app.active and not app.refuse_reason_id:
+        if (
+            app.active
+            and not app.refuse_reason_id
+            and app.pipeline_status != "rejected"
+        ):
             return app
     return applications[0]
 
 
+REAPPLY_COOLDOWN_MONTHS = 3
+
+
+def _reapply_blocked_until(user_id, job_id):
+    if not user_id or not job_id:
+        return None
+    cutoff = fields.Datetime.now() - relativedelta(months=REAPPLY_COOLDOWN_MONTHS)
+    prior = request.env["hr.applicant"].sudo().with_context(
+        active_test=False,
+    ).search(
+        [
+            ("candidate_user_id", "=", user_id),
+            ("job_id", "=", job_id),
+            ("write_date", ">=", cutoff),
+            "|",
+            ("pipeline_status", "=", "rejected"),
+            ("refuse_reason_id", "!=", False),
+        ],
+        order="write_date desc",
+        limit=1,
+    )
+    if not prior:
+        return None
+    return prior.write_date + relativedelta(months=REAPPLY_COOLDOWN_MONTHS)
+
+
 def _email_verified_at(user):
-    # Odoo has no built-in email-verification flag on `res.users`; use
-    # the account creation timestamp as a proxy so the React chip
-    # renders "verified" as soon as the account is provisioned. When a
-    # real verification flow lands, swap this for the real field.
     return user.create_date if user and user.exists() else None
 
 
 def _coerce_value(raw, kind):
-    """Return (coerced_value, is_valid). is_valid=False means silently drop."""
     if kind == "str":
         if raw is None:
             return "", True
@@ -198,15 +203,34 @@ class EtharaCandidateMeApi(http.Controller):
             return return_Response(message="Job posting not found.", status=404)
 
         user = request.env.user
-        existing = request.env["hr.applicant"].sudo().search([
-            ("candidate_user_id", "=", user.id),
-            ("job_id", "=", job.id),
-        ], limit=1)
-        if existing:
+        active = request.env["hr.applicant"].sudo().with_context(
+            active_test=False,
+        ).search(
+            [
+                ("candidate_user_id", "=", user.id),
+                ("job_id", "=", job.id),
+                ("active", "=", True),
+                ("refuse_reason_id", "=", False),
+                ("pipeline_status", "!=", "rejected"),
+            ],
+            limit=1,
+        )
+        if active:
             return return_Response(
                 message="You have already applied to this role.",
                 status=400,
-                data={"record": _serialize(existing)},
+                data={"record": _serialize(active)},
+            )
+
+        unblock_at = _reapply_blocked_until(user.id, job.id)
+        if unblock_at:
+            return return_Response(
+                message=(
+                    "You can reapply to this role after %s."
+                    % unblock_at.strftime("%B %d, %Y")
+                ),
+                status=409,
+                data={"reapplyBlockedUntil": _iso(unblock_at)},
             )
 
         partner = user.partner_id
@@ -250,9 +274,6 @@ class EtharaCandidateMeApi(http.Controller):
             if key not in body:
                 continue
             if dfield not in applicant._fields:
-                # Field not present on this Odoo instance — silently skip
-                # rather than 500. The response payload will show the
-                # persisted state so the caller can see what was accepted.
                 continue
             coerced, ok = _coerce_value(body[key], kind)
             if not ok:
@@ -270,17 +291,12 @@ class EtharaCandidateMeApi(http.Controller):
         if vals:
             applicant.sudo().write(vals)
 
-        # Mirror React shape — return the whole CandidatePortalOverview so
-        # the client doesn't need a follow-up GET to refresh the form.
         return return_Response(
             message="Profile updated.", status=200,
             data=_overview_payload(),
         )
 
 
-# Keep the imported serializer helpers reachable so linters don't complain
-# about "unused import" for the reusable helpers we deliberately re-export
-# for other candidate-self modules to build on.
 __all__ = (
     "EtharaCandidateMeApi",
     "_serialize_position",
