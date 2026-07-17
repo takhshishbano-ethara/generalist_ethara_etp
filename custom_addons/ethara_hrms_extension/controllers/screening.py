@@ -257,12 +257,15 @@ class EtharaScreeningApi(http.Controller):
                     data={"activeApplicationConflict": _conflict_summary(conflict)},
                 )
 
-        rec.write({
+        write_vals = {
             "resume_recommendation": internal,
             "resume_manual_override_reason": reason,
             "resume_manual_override_at": fields.Datetime.now(),
             "resume_manual_override_by_id": request.env.user.id,
-        })
+        }
+        if internal == "reject":
+            write_vals["pipeline_status"] = "rejected"
+        rec.write(write_vals)
         try:
             rec._advance_stage_after_screening(allow_regress=True)
         except Exception:

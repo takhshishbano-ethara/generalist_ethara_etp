@@ -312,6 +312,7 @@ def _serialize(applicant):
         "stageName":                applicant.stage_id.name if applicant.stage_id else None,
         "currentStage":             _current_stage(applicant),
         "currentStatus":            _current_status(applicant),
+        "status":                   _f(applicant, "status") or None,
         "priorityScore":            applicant.priority_score or 0,
         "onHold":                   bool(applicant.on_hold),
         "isDuplicate":              bool(applicant.is_duplicate),
@@ -819,6 +820,10 @@ def _build_progress_payload(rec):
 
     if is_rejected:
         current_idx = 1
+    elif not rec.job_id:
+        current_idx = 0
+    elif (rec.pipeline_status or "applied") == "applied" and not rec.resume_screened_at:
+        current_idx = 0
     else:
         current_idx = total - 1
         for i, key in enumerate(PIPELINE_STATUS_KEYS):
@@ -837,6 +842,8 @@ def _build_progress_payload(rec):
                 step_status = "rejected"
             else:
                 step_status = "pending"
+        elif i == current_idx:
+            step_status = "current"
         elif ev_at:
             step_status = "completed"
         elif i == current_idx:
