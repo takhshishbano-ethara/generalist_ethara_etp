@@ -261,14 +261,19 @@
                      Summary and Stage tabs. -->
                 <field name="tasker_member_id" string="Stage 1 Tasker"
                        invisible="stage_no != 1" readonly="not is_manager"
+                       domain="[('project_ids', 'in', project_id)]"
                        options="{'no_create': True, 'no_open': True}"
                        placeholder="Search a team member by name or email…"/>
                 <field name="tasker_member_id" string="Stage 2 Tasker"
                        invisible="stage_no == 1" readonly="not is_manager"
+                       domain="[('project_ids', 'in', project_id)]"
                        options="{'no_create': True, 'no_open': True}"
                        placeholder="Search a team member by name or email…"/>
                 <field name="tasker_email" readonly="1"/>
+                <!-- This project's personas, plus any not yet claimed by a
+                     project (they get pinned to this one on allocation). -->
                 <field name="persona_id" readonly="not is_manager"
+                       domain="['|', ('pt_project_id', '=', project_id), ('pt_project_id', '=', False)]"
                        options="{'no_open': True}"/>
                 <field name="project_id" readonly="not is_manager"
                        options="{'no_create_edit': True, 'no_open': True}"/>

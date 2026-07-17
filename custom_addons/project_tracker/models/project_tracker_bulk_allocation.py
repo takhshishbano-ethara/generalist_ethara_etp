@@ -107,6 +107,10 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
         'name': ['persona name', 'persona', 'name'],
         'l1': ['l1', 'l1 category', 'l1category'],
         'l2': ['l2', 'l2 category', 'l2category'],
+        # RLHF taxonomy — parsed alongside L1/L2; a given project's CSV only fills
+        # the pair that matches its type.
+        'domain': ['domain'],
+        'agent_type': ['agent type', 'agenttype'],
     }
 
     @staticmethod
@@ -135,7 +139,8 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
             colmap[key] = next((i for i, h in enumerate(header)
                                 if h in [self._norm(a) for a in aliases]), None)
         if colmap['name'] is None:
-            colmap = {'name': 0, 'l1': None, 'l2': None}
+            colmap = {'name': 0, 'l1': None, 'l2': None,
+                      'domain': None, 'agent_type': None}
             data = rows
         else:
             data = rows[1:]
@@ -149,7 +154,9 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
             if name:
                 result.append({'name': name,
                                'l1': cell(row, colmap['l1']),
-                               'l2': cell(row, colmap['l2'])})
+                               'l2': cell(row, colmap['l2']),
+                               'domain': cell(row, colmap['domain']),
+                               'agent_type': cell(row, colmap['agent_type'])})
         return result
 
     # ------------------------------------------------------------------ #
@@ -191,6 +198,7 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
                 raise UserError(_("There are no unassigned personas to allocate."))
             return [{'sanitized': p.name, 'name': p.name,
                      'l1': p.l1_category or '', 'l2': p.l2_category or '',
+                     'domain': p.pt_domain or '', 'agent_type': p.pt_agent_type or '',
                      'is_new': False, 'persona': p} for p in personas]
 
         rows = self._parse_rows()
@@ -205,8 +213,9 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
                 continue
             seen.add(sanitized)
             entries.append({'sanitized': sanitized, 'name': r['name'],
-                            'l1': r['l1'], 'l2': r['l2'], 'is_new': True,
-                            'persona': Persona.browse()})
+                            'l1': r['l1'], 'l2': r['l2'],
+                            'domain': r['domain'], 'agent_type': r['agent_type'],
+                            'is_new': True, 'persona': Persona.browse()})
 
         # one query resolves all existing personas (archived included -> reuse)
         existing = {
@@ -221,6 +230,10 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
                 e['persona'] = p
 
         if create_missing:
+            # New personas inherit the project the upload was launched from, so
+            # they show up in that project immediately (context key set by the
+            # persona action / import wizard smart button).
+            project_id = self.env.context.get('default_pt_project_id')
             new_vals = []
             for e in entries:
                 if e['is_new']:
@@ -229,6 +242,12 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
                         vals['l1_category'] = e['l1']
                     if e['l2']:
                         vals['l2_category'] = e['l2']
+                    if e['domain']:
+                        vals['pt_domain'] = e['domain']
+                    if e['agent_type']:
+                        vals['pt_agent_type'] = e['agent_type']
+                    if project_id:
+                        vals['pt_project_id'] = project_id
                     new_vals.append((e, vals))
             if new_vals:
                 created = Persona.create([v for _e, v in new_vals])

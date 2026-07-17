@@ -17,6 +17,7 @@
           </header>
           <field name="member_name" string="Name"/>
           <field name="email"/>
+          <field name="project_ids" widget="many2many_tags" string="Projects" optional="show"/>
           <field name="role" widget="badge"
                  decoration-danger="role == 'admin'"
                  decoration-success="role == 'pl'"
@@ -90,6 +91,9 @@
               </group>
               <group string="Assignment">
                 <field name="role" widget="badge" readonly="1"/>
+                <field name="project_ids" widget="many2many_tags"
+                       options="{'no_create_edit': True}"
+                       placeholder="Projects this member works on…"/>
                 <field name="assigned_pl_id"
                        options="{'no_create': True}"/>
                 <field name="assigned_ql_id"
@@ -114,6 +118,7 @@
       <field name="arch" type="xml">
         <search string="Team Members">
           <field name="member_name" string="Name"/>
+          <field name="project_ids" string="Project"/>
           <field name="email"/>
           <field name="assigned_pl_id"/>
           <field name="assigned_ql_id"/>

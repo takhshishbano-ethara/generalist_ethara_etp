@@ -19,6 +19,11 @@ class Kensei2TrackerProject(models.Model):
     code = fields.Char(
         string='Code', index=True,
         help='Short reference used in lists and exports (e.g. KEN2, ARC).')
+    project_type = fields.Selection(
+        [('sft', 'SFT'), ('rlhf', 'RLHF'), ('other', 'Other')],
+        string='Type', default='sft', required=True, index=True,
+        help='Drives which persona attributes apply: SFT projects use the '
+             'L1/L2 taxonomy, RLHF projects use Domain / Agent Type.')
     description = fields.Text(string='Description')
     active = fields.Boolean(
         default=True,
@@ -28,6 +33,17 @@ class Kensei2TrackerProject(models.Model):
         'project.tracker.allocation', 'project_id', string='Allocations')
     allocation_count = fields.Integer(
         string='Allocations', compute='_compute_allocation_count')
+    persona_ids = fields.One2many(
+        'kensei2.persona', 'pt_project_id', string='Personas')
+    persona_count = fields.Integer(
+        string='Personas', compute='_compute_persona_count')
+    team_member_ids = fields.Many2many(
+        'project.tracker.team.member',
+        'project_tracker_project_team_member_rel',
+        'project_id', 'member_id',
+        string='Team Members')
+    team_count = fields.Integer(
+        string='Team', compute='_compute_team_count')
 
     _name_uniq = models.Constraint(
         'unique(name)', 'A project with this name already exists.')
@@ -38,6 +54,16 @@ class Kensei2TrackerProject(models.Model):
         for rec in self:
             rec.allocation_count = counts.get(rec, 0)
 
+    def _compute_persona_count(self):
+        counts = dict(self.env['kensei2.persona']._read_group(
+            [('pt_project_id', 'in', self.ids)], ['pt_project_id'], ['__count']))
+        for rec in self:
+            rec.persona_count = counts.get(rec, 0)
+
+    def _compute_team_count(self):
+        for rec in self:
+            rec.team_count = len(rec.team_member_ids)
+
     def action_view_allocations(self):
         self.ensure_one()
         return {
@@ -47,6 +73,16 @@ class Kensei2TrackerProject(models.Model):
             'domain': [('project_id', '=', self.id)],
             'view_mode': 'list,form',
             'context': {'default_project_id': self.id},
+        }
+
+    def action_open_dashboard(self):
+        """Open the org dashboard scoped to this project (via context)."""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'project_tracker_dashboard',
+            'name': _('%s — Dashboard', self.name),
+            'context': {'active_project_id': self.id},
         }
 
     def ondelete(self):

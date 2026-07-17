@@ -370,6 +370,14 @@ _PERSONA_SAMPLE_CSV = (
     "Leo,Retail,\n"
 )
 
+# RLHF projects describe personas by Domain / Agent Type instead of L1 / L2.
+_PERSONA_SAMPLE_CSV_RLHF = (
+    "Persona Name,Domain,Agent Type\n"
+    "Marcus,Math,Solver\n"
+    "Sophia,Coding,Reviewer\n"
+    "Leo,Science,\n"
+)
+
 _TEAM_SAMPLE_CSV = (
     "Email,Assigned PL,Assigned QL,Status\n"
     "alice@example.com,maya.rodriguez@example.com,Sofia Nguyen,Active\n"
@@ -382,12 +390,18 @@ class Kensei2TrackerController(http.Controller):
 
     @http.route("/project_tracker/persona/sample_csv", type="http", auth="user")
     def persona_sample_csv(self, **kw):
-        """Serve a downloadable sample CSV for the persona import."""
+        """Serve a downloadable sample CSV for the persona import.
+
+        ``?type=rlhf`` returns the Domain / Agent Type template; anything else
+        the default SFT L1 / L2 template."""
+        rlhf = kw.get("type") == "rlhf"
+        body = _PERSONA_SAMPLE_CSV_RLHF if rlhf else _PERSONA_SAMPLE_CSV
+        fname = "persona_sample_rlhf.csv" if rlhf else "persona_sample.csv"
         return request.make_response(
-            _PERSONA_SAMPLE_CSV,
+            body,
             headers=[
                 ("Content-Type", "text/csv"),
-                ("Content-Disposition", 'attachment; filename="persona_sample.csv"'),
+                ("Content-Disposition", 'attachment; filename="%s"' % fname),
             ],
         )
 

@@ -27,6 +27,10 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         super.setup();
         this.groups = GROUPS;
         this.stages = STAGES;
+        // Opened from a project workspace ("Open Dashboard") the action carries
+        // active_project_id, so the dashboard lands pre-filtered to that project.
+        // From the menu there is no such key → all-projects view.
+        const ctx = (this.props.action && this.props.action.context) || {};
         this.state = useState({
             loading: true,
             teamComposition: [],
@@ -35,7 +39,7 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
             rows: [],
             groupBy: "pl",
             stage: null,
-            projectId: null,
+            projectId: ctx.active_project_id || null,
             projects: [],
             lastUpdated: "",
             dateFrom: "",

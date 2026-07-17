@@ -14,19 +14,34 @@
         <list string="Personas" sample="1" multi_edit="1" js_class="project_tracker_stats_list"
               decoration-muted="pt_assignment_status == 'assigned'">
           <header>
+            <!-- Forward the project we're scoped to (set by the project's
+                 Personas smart button) so the wizards stamp imports with it and
+                 pick the right taxonomy columns. -->
             <button name="%(action_project_tracker_persona_import)d" type="action"
                     string="Upload Personas" class="btn-primary text-nowrap"
                     icon="fa-upload" display="always"
+                    context="{'default_pt_project_id': context.get('default_pt_project_id')}"
                     groups="project_tracker.group_project_tracker_ql"/>
             <button name="%(action_project_tracker_bulk_allocation)d" type="action"
                     string="Bulk Allocation" class="btn-secondary text-nowrap"
                     icon="fa-random" display="always"
+                    context="{'default_pt_project_id': context.get('default_pt_project_id')}"
                     groups="project_tracker.group_project_tracker_ql"/>
           </header>
 
           <field name="name"/>
-          <field name="l1_category" optional="show"/>
-          <field name="l2_category" optional="show"/>
+          <field name="pt_project_id" string="Project" optional="show"/>
+          <!-- Columns follow the project type carried in context (set by a
+               project's Personas smart button): RLHF shows L1/L2, SFT shows
+               Domain/Agent Type. -->
+          <field name="l1_category" string="L1 Category"
+                 column_invisible="context.get('pt_project_type') != 'rlhf'"/>
+          <field name="l2_category" string="L2 Category"
+                 column_invisible="context.get('pt_project_type') != 'rlhf'"/>
+          <field name="pt_domain" string="Domain"
+                 column_invisible="context.get('pt_project_type') == 'rlhf'"/>
+          <field name="pt_agent_type" string="Agent Type"
+                 column_invisible="context.get('pt_project_type') == 'rlhf'"/>
 
           <field name="pt_assignment_status" widget="badge"
                  decoration-success="pt_assignment_status == 'assigned'"
@@ -58,6 +73,7 @@
       <field name="arch" type="xml">
         <search string="Personas">
           <field name="name"/>
+          <field name="pt_project_id" string="Project"/>
           <field name="l1_category"/>
           <field name="l2_category"/>
           <field name="pt_current_task_ref" string="Task ID"/>
@@ -80,6 +96,8 @@
           <filter name="f_archived" string="Archived" domain="[('active', '=', False)]"/>
 
           <group>
+            <filter name="g_project" string="Project"
+                    context="{'group_by': 'pt_project_id'}"/>
             <filter name="g_assignment" string="Assignment"
                     context="{'group_by': 'pt_assignment_status'}"/>
             <filter name="g_status" string="Task Status"
@@ -107,6 +125,23 @@
         <p class="o_view_nocontent_smiling_face">No personas yet</p>
         <p>Use <b>Bulk Upload Personas</b> to import them from a CSV, then
            <b>Bulk Allocation</b> to distribute them to taskers.</p>
+      </field>
+    </record>
+
+    <!-- ===================== Persona form: Tracker fields ===================== -->
+    <!-- Add the project link + the RLHF taxonomy (Domain / Agent Type) next to
+         the SFT L1/L2 on the shared kensei2 persona form, so a persona's
+         attributes are editable wherever it is opened. -->
+    <record model="ir.ui.view" id="kensei2_persona_form_pt_fields">
+      <field name="name">kensei2.persona.form.project.tracker</field>
+      <field name="model">kensei2.persona</field>
+      <field name="inherit_id" ref="kensei2.kensei2_persona_form"/>
+      <field name="arch" type="xml">
+        <field name="l2_category" position="after">
+          <field name="pt_project_id" options="{'no_create_edit': True}"/>
+          <field name="pt_domain"/>
+          <field name="pt_agent_type"/>
+        </field>
       </field>
     </record>
 
