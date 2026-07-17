@@ -58,7 +58,7 @@
                          invisible="not has_revealing_option">
                         <strong>Option reveals its rationale.</strong> An option
                         name embeds a "…, because …" justification. Option names
-                        are shown to the candidate — keep them to the bare choice
+                        are shown to the candidate - keep them to the bare choice
                         (e.g. <strong>Image B</strong>) and move the "why" to the
                         hidden Answer Rationale. Regenerate or edit the option text.
                     </div>
@@ -66,7 +66,7 @@
                          invisible="not has_source_reference">
                         <strong>References the source material.</strong> This item
                         (or its answer key) cites the SOP / guidelines / a Section,
-                        but the candidate never sees the source — the question must
+                        but the candidate never sees the source - the question must
                         be self-contained. Regenerate, or rewrite so the deciding
                         facts live in the scenario itself.
                     </div>
@@ -129,7 +129,7 @@
                                     image on the Single row (a photo, or a UI
                                     screenshot), pick the matching <strong>Detection
                                     Mode</strong> above, then click
-                                    <strong>Detect Now</strong> — or wait a minute for
+                                    <strong>Detect Now</strong> - or wait a minute for
                                     the background cron. Detection draws the numbered
                                     overlay the candidate sees and stores the answer
                                     key below.</span>

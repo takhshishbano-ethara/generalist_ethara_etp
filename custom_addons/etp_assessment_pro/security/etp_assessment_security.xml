@@ -22,6 +22,12 @@
             <field name="name">Manager</field>
             <field name="privilege_id" ref="privilege_etp_assessment"/>
             <field name="implied_ids" eval="[(4, ref('etp_assessment_pro.group_assessment_evaluator')), (4, ref('hr_recruitment.group_hr_recruitment_user'))]"/>
+            <!-- Grant the installing admin the Manager group. Without this a FRESH
+                 install leaves this group with zero members, and since every ETP
+                 menu/action is restricted to it the admin who just installed the
+                 app cannot open Generators/Questions/Assessments at all. (4,…) is
+                 an additive link, so it is idempotent across upgrades. -->
+            <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
         </record>
     </data>
 </odoo>

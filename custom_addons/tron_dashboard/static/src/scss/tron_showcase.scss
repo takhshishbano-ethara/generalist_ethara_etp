@@ -1,0 +1,272 @@
+/* ===================================================================
+   Tron Dashboard - Backend (OWL) Styles
+   Prefix: tr-  |  Max-width: 900px
+   =================================================================== */
+
+.tr-showcase {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a2e;
+    line-height: 1.6;
+}
+
+/* ---------- Header ---------- */
+.tr-showcase-header {
+    text-align: center;
+    margin-bottom: 48px;
+}
+
+.tr-showcase-header .tr-tag {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #6366f1;
+    border: 1px solid #6366f1;
+    border-radius: 4px;
+    padding: 3px 10px;
+    margin-bottom: 12px;
+}
+
+.tr-showcase-header .tr-title {
+    font-size: 2.8rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: #1a1a2e;
+    margin: 0 0 12px;
+}
+
+.tr-showcase-header .tr-subtitle {
+    font-size: 1rem;
+    color: #6c757d;
+    margin: 0 0 6px;
+}
+
+.tr-showcase-header .tr-byline {
+    font-size: 0.8rem;
+    color: #9ca3af;
+    margin: 0;
+}
+
+.tr-showcase-header .tr-byline a {
+    color: #6366f1;
+    text-decoration: none;
+}
+
+.tr-showcase-header .tr-byline a:hover {
+    text-decoration: underline;
+}
+
+/* ---------- Sections ---------- */
+.tr-showcase .tr-section {
+    margin-bottom: 48px;
+    padding: 0;
+}
+
+/* ---------- Description ---------- */
+.tr-showcase .tr-description p {
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto;
+    font-size: 0.95rem;
+    color: #6c757d;
+    line-height: 1.7;
+}
+
+/* ---------- Capabilities ---------- */
+.tr-showcase .tr-capabilities-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 auto 24px;
+    max-width: 680px;
+}
+
+.tr-showcase .tr-capabilities-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: #6c757d;
+    padding: 6px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.tr-showcase .tr-capabilities-list li:last-child {
+    border-bottom: none;
+}
+
+.tr-showcase .tr-cap-arrow {
+    color: #4f46e5;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+
+/* ---------- Metrics ---------- */
+.tr-showcase .tr-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+.tr-showcase .tr-metric-card {
+    background: #f8f9fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.tr-showcase .tr-metric-value {
+    display: block;
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #6366f1;
+    line-height: 1;
+    margin-bottom: 6px;
+}
+
+.tr-showcase .tr-metric-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #1a1a2e;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+
+.tr-showcase .tr-metric-detail {
+    display: block;
+    font-size: 0.7rem;
+    color: #9ca3af;
+}
+
+/* ---------- Phases ---------- */
+.tr-showcase .tr-phases-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 12px;
+}
+
+.tr-showcase .tr-phase-card {
+    flex: 1;
+    max-width: 240px;
+    background: #f8f9fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.tr-showcase .tr-phase-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #6366f1;
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.tr-showcase .tr-phase-card h3 {
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: #1a1a2e;
+}
+
+.tr-showcase .tr-phase-card p {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.tr-showcase .tr-phase-arrow {
+    display: flex;
+    align-items: center;
+    padding-top: 28px;
+    color: #9ca3af;
+    font-size: 1.2rem;
+}
+
+/* ---------- Links ---------- */
+.tr-showcase .tr-links {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.tr-showcase .tr-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid #e5e7eb;
+    color: #1a1a2e;
+    background: #fff;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.tr-showcase .tr-btn:hover {
+    border-color: #6366f1;
+    color: #6366f1;
+}
+
+.tr-showcase .tr-btn-filled {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: #fff;
+}
+
+.tr-showcase .tr-btn-filled:hover {
+    background: #818cf8;
+    border-color: #818cf8;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 700px) {
+    .tr-showcase {
+        padding: 24px 16px;
+    }
+
+    .tr-showcase-header .tr-title {
+        font-size: 2rem;
+    }
+
+    .tr-showcase .tr-metric-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .tr-showcase .tr-phases-row {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .tr-showcase .tr-phase-card {
+        max-width: 100%;
+    }
+
+    .tr-showcase .tr-phase-arrow {
+        transform: rotate(90deg);
+        padding-top: 0;
+    }
+
+    .tr-showcase .tr-links {
+        flex-direction: column;
+        align-items: center;
+    }
+}

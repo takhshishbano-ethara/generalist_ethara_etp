@@ -24,7 +24,7 @@ class EtpAssessmentQuestionType(models.Model):
 
     code = fields.Char(
         string="Code", required=True, index=True,
-        help="Stable taxonomy code — one of constants.QUESTION_TYPE_SELECTION.")
+        help="Stable taxonomy code - one of constants.QUESTION_TYPE_SELECTION.")
     name = fields.Char(string="Name", required=True, translate=False)
     sequence = fields.Integer(default=10)
     active = fields.Boolean(default=True)

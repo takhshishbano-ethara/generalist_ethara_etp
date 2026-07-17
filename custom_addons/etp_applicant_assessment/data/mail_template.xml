@@ -52,5 +52,54 @@
             </field>
         </record>
 
+        <record id="mail_template_applicant_assessment_result" model="mail.template">
+            <field name="name">Applicant Assessment: Result</field>
+            <field name="model_id" ref="model_etp_applicant_assessment"/>
+            <field name="subject">Your Assessment Result: {{ object.job_id.name }}</field>
+            <field name="email_from">{{ (object.company_id.email or user.email or '') }}</field>
+            <field name="email_to">{{ object.applicant_id.email_from }}</field>
+            <field name="use_default_to" eval="False"/>
+            <field name="auto_delete" eval="False"/>
+            <field name="lang">{{ user.lang }}</field>
+            <field name="body_html" type="html">
+                <div style="margin:0px;padding:0px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#333333;">
+                    <p>Hello <t t-out="object.applicant_id.partner_name or 'Candidate'"/>,</p>
+                    <p>
+                        Thank you for completing the assessment for the position
+                        <strong><t t-out="object.job_id.name"/></strong>.
+                        Your submission has now been evaluated.
+                    </p>
+                    <t t-if="object.result == 'pass'">
+                        <p>
+                            <span style="background-color:#28a745;color:#ffffff;padding:6px 14px;border-radius:4px;display:inline-block;font-weight:bold;">
+                                Result: Passed
+                            </span>
+                        </p>
+                        <p>
+                            Congratulations — you have cleared the assessment. Our recruitment team
+                            will reach out with the next steps shortly.
+                        </p>
+                    </t>
+                    <t t-else="">
+                        <p>
+                            <span style="background-color:#6c757d;color:#ffffff;padding:6px 14px;border-radius:4px;display:inline-block;font-weight:bold;">
+                                Result: Not Selected
+                            </span>
+                        </p>
+                        <p>
+                            Unfortunately, your responses did not meet the required threshold for
+                            this role. We truly appreciate the time you invested and encourage
+                            you to apply for future openings that match your profile.
+                        </p>
+                    </t>
+                    <p style="color:#555555;">
+                        <strong>Your Score:</strong> <t t-out="'%.2f' % (object.final_score or 0.0)"/>%<br/>
+                        <strong>Passing Score:</strong> <t t-out="'%.2f' % (object.pass_mark_percent or 0.0)"/>%
+                    </p>
+                    <p>Regards,<br/>Recruitment Team</p>
+                </div>
+            </field>
+        </record>
+
     </data>
 </odoo>

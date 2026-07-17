@@ -9,6 +9,7 @@ HIRING_STATUS_SELECTION = [
     ('resume_screening_passed', 'Resume Screening Passed'),
     ('pending_assessment', 'Pending Assessment'),
     ('assessment_in_progress', 'Assessment In Progress'),
+    ('assessment_pending_review', 'Assessment Pending Review'),
     ('assessment_rejected', 'Assessment Rejected'),
     ('assessment_passed', 'Assessment Passed'),
     ('documents_requested', 'Documents Requested'),

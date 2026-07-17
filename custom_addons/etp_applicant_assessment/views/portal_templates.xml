@@ -17,9 +17,9 @@
                 <!-- ?v= busts the 7-day browser cache on static files; bump it
                      whenever portal.css / portal.js change. -->
                 <link rel="stylesheet" type="text/css"
-                      href="/etp_applicant_assessment/static/src/portal/portal.css?v=20260715-dark-3"/>
+                      href="/etp_applicant_assessment/static/src/portal/portal.css?v=20260716-s3-fix"/>
                 <script type="module"
-                        src="/etp_applicant_assessment/static/src/portal/portal.js?v=20260715-dark-3"/>
+                        src="/etp_applicant_assessment/static/src/portal/portal.js?v=20260716-s3-fix"/>
             </head>
             <body class="eaa-body">
                 <div class="eaa-shell">
@@ -64,7 +64,10 @@
                 </div>
                 <h2>Thanks — Your Assessment Has Been Submitted</h2>
                 <p>Your answers were recorded. The recruiter will get back to you.</p>
-                <p t-if="assessment.state == 'submitted'">
+                <p t-if="assessment.state == 'submitted' and assessment.llm_qc_state in ('pending','running','partial')">
+                    Your answers are being evaluated by our AI — you will receive an email once the result is ready.
+                </p>
+                <p t-if="assessment.state == 'submitted' and assessment.llm_qc_state not in ('pending','running','partial')">
                     Your submission is under review.
                 </p>
                 <p t-if="assessment.state == 'scored' and assessment.result == 'pass'">
@@ -284,6 +287,37 @@
                                         <div t-if="q.question_type == 'date'" class="eaa-textbox">
                                             <input type="date" t-att-name="'q_%s' % q.id" class="form-control"/>
                                         </div>
+                                        <div t-if="q.question_type == 'fill_blank'" class="eaa-textbox">
+                                            <input type="text" t-att-name="'q_%s' % q.id" class="form-control" maxlength="500" placeholder="Type your answer"/>
+                                        </div>
+                                        <div t-if="q.question_type == 'numeric'" class="eaa-textbox">
+                                            <input type="number" t-att-name="'q_%s' % q.id" class="form-control" step="any" placeholder="Enter a number"/>
+                                        </div>
+                                        <div t-if="q.question_type == 'code'" class="eaa-textbox">
+                                            <textarea t-att-name="'q_%s' % q.id" class="form-control eaa-code" rows="10" spellcheck="false" placeholder="Write your code here"/>
+                                        </div>
+                                        <div t-if="q.question_type == 'matching'" class="eaa-textbox eaa-textbox--stack">
+                                            <div class="eaa-hint" t-if="q.option_ids">
+                                                <p class="eaa-hint__label">Items to match:</p>
+                                                <ul class="eaa-hint__list">
+                                                    <t t-foreach="q.option_ids" t-as="opt">
+                                                        <li t-esc="opt.label"/>
+                                                    </t>
+                                                </ul>
+                                            </div>
+                                            <textarea t-att-name="'q_%s' % q.id" class="form-control" rows="5" placeholder="Enter your matches, one per line (e.g. Item A -&gt; Answer 1)"/>
+                                        </div>
+                                        <div t-if="q.question_type == 'ordering'" class="eaa-textbox eaa-textbox--stack">
+                                            <div class="eaa-hint" t-if="q.option_ids">
+                                                <p class="eaa-hint__label">Items to order:</p>
+                                                <ul class="eaa-hint__list">
+                                                    <t t-foreach="q.option_ids" t-as="opt">
+                                                        <li t-esc="opt.label"/>
+                                                    </t>
+                                                </ul>
+                                            </div>
+                                            <textarea t-att-name="'q_%s' % q.id" class="form-control" rows="5" placeholder="Enter items in the correct order, one per line"/>
+                                        </div>
                                         <div t-if="q.question_type == 'rating'" class="eaa-options eaa-options--rating">
                                             <t t-foreach="q.option_ids" t-as="opt">
                                                 <label class="eaa-option eaa-option--rating">
@@ -359,6 +393,37 @@
                                 </div>
                                 <div t-if="q.question_type == 'date'" class="eaa-textbox">
                                     <input type="date" t-att-name="'q_%s' % q.id" class="form-control"/>
+                                </div>
+                                <div t-if="q.question_type == 'fill_blank'" class="eaa-textbox">
+                                    <input type="text" t-att-name="'q_%s' % q.id" class="form-control" maxlength="500" placeholder="Type your answer"/>
+                                </div>
+                                <div t-if="q.question_type == 'numeric'" class="eaa-textbox">
+                                    <input type="number" t-att-name="'q_%s' % q.id" class="form-control" step="any" placeholder="Enter a number"/>
+                                </div>
+                                <div t-if="q.question_type == 'code'" class="eaa-textbox">
+                                    <textarea t-att-name="'q_%s' % q.id" class="form-control eaa-code" rows="10" spellcheck="false" placeholder="Write your code here"/>
+                                </div>
+                                <div t-if="q.question_type == 'matching'" class="eaa-textbox eaa-textbox--stack">
+                                    <div class="eaa-hint" t-if="q.option_ids">
+                                        <p class="eaa-hint__label">Items to match:</p>
+                                        <ul class="eaa-hint__list">
+                                            <t t-foreach="q.option_ids" t-as="opt">
+                                                <li t-esc="opt.label"/>
+                                            </t>
+                                        </ul>
+                                    </div>
+                                    <textarea t-att-name="'q_%s' % q.id" class="form-control" rows="5" placeholder="Enter your matches, one per line (e.g. Item A -&gt; Answer 1)"/>
+                                </div>
+                                <div t-if="q.question_type == 'ordering'" class="eaa-textbox eaa-textbox--stack">
+                                    <div class="eaa-hint" t-if="q.option_ids">
+                                        <p class="eaa-hint__label">Items to order:</p>
+                                        <ul class="eaa-hint__list">
+                                            <t t-foreach="q.option_ids" t-as="opt">
+                                                <li t-esc="opt.label"/>
+                                            </t>
+                                        </ul>
+                                    </div>
+                                    <textarea t-att-name="'q_%s' % q.id" class="form-control" rows="5" placeholder="Enter items in the correct order, one per line"/>
                                 </div>
                                 <div t-if="q.question_type == 'rating'" class="eaa-options eaa-options--rating">
                                     <t t-foreach="q.option_ids" t-as="opt">

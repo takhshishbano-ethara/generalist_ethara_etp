@@ -33,6 +33,11 @@
             <field name="project_type">technical</field>
             <field name="user_type">employee</field>
         </record>
+        <record id="role_rnd_technical" model="api.role">
+            <field name="name">RnD</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">RnD</field>
+        </record>
         <record id="role_cfo_technical" model="api.role">
             <field name="name">CFO</field>
             <field name="project_type">technical</field>

@@ -32,9 +32,6 @@ from ..constants import (
 
 _logger = logging.getLogger(__name__)
 
-# video_prompt is the video twin of image_prompt: it authors an image_specs
-# draft (briefs + answer key) rather than options, so it routes through the same
-# _build_image_draft_fields / forced-directive gate as the image types.
 _IMAGE_OR_VIDEO_TYPES = frozenset(_IMAGE_TYPES | _VIDEO_TYPES)
 
 INLINE_QUESTION_PROMPT = (
@@ -74,9 +71,6 @@ _SOURCE_LEAK_CORRECTION = (
 
 
 def _item_cites_source(item):
-    """True when a generated question item references the source the candidate
-    never sees — checked across name, prompt, options, correct_answer, rubric,
-    official_reasoning and image_specs. Drives the regenerate-on-leak guard."""
     if not isinstance(item, dict):
         return False
     parts = [item.get("name"), item.get("prompt"), item.get("official_reasoning")]
@@ -110,11 +104,6 @@ def _vertex_creds(env):
 
 
 def _vertex_image_model(env):
-    """The model used to RENDER images. Prefers a dedicated ``image_model``
-    config key so the bare ``vertex_model`` default can be a cheap TEXT model
-    without ever routing image rendering onto it (and vice-versa). Falls back to
-    ``vertex_model`` for backward compatibility with deployments that set only
-    the single Default Model field."""
     return _param(env, "etp_assessment_pro.image_model") \
         or _vertex_creds(env)[2]
 
@@ -123,8 +112,6 @@ _HTTPX_CLIENT = None
 
 
 def _httpx():
-    """SVC-5: one pooled, thread-safe httpx client reused across Vertex calls
-    instead of building and tearing one down per request."""
     global _HTTPX_CLIENT
     if _HTTPX_CLIENT is None:
         import httpx
@@ -289,10 +276,7 @@ _PRICING = {
 }
 _DEFAULT_PRICE = {"in": 1.0, "out": 5.0, "image": 0.0}
 
-# --- VIDEO (Veo) pricing: billed PER SECOND of generated clip, NOT per token.
-# Kept separate from _PRICING so the per-1k-token math above is never touched.
-# Public list rates (USD per second of output); audio-on Veo 3.x ~ $0.40/s,
-# the 'fast' variants ~ $0.15/s, Veo 2 ~ $0.35/s. Each Veo submit = one clip.
+# Veo bills PER SECOND of output clip, not per token. USD/s list rates.
 _VIDEO_PRICING = {
     "veo-3.1-generate-001":       0.40,
     "veo-3.1-fast-generate-001":  0.15,
@@ -311,13 +295,11 @@ def _estimate_cost(model, tokens_in, tokens_out, thoughts, image_count):
 
 
 def _estimate_video_cost(model, video_seconds):
-    """Per-second Veo cost for one generated clip. Independent of token math."""
     rate = _VIDEO_PRICING.get(model or "", _DEFAULT_VIDEO_RATE)
     return (video_seconds or 0.0) * rate
 
 
 def _log_usage(env, model, usage_meta, image_count, ctx):
-    """Write one LLM-usage ledger row. Best-effort: failures are swallowed."""
     try:
         meta = usage_meta or {}
         ctx = ctx or {}
@@ -351,10 +333,7 @@ def _log_usage(env, model, usage_meta, image_count, ctx):
 
 
 class LLMRefusalError(RuntimeError):
-    """The model declined / was blocked / returned no usable text.
-
-    Distinct from transport/parse errors so callers can give an actionable message.
-    """
+    """The model declined / was blocked / returned no usable text."""
 
 
 _BLOCKING_FINISH_REASONS = {
@@ -370,7 +349,6 @@ _REFUSAL_MARKERS = (
 
 
 def _detect_refusal_text(text):
-    """Reason string if ``text`` reads like a prose refusal (not JSON), else None."""
     t = (text or "").strip()
     if not t:
         return "the model returned an empty response"
@@ -383,14 +361,11 @@ def _detect_refusal_text(text):
     return None
 
 
+# Gemini 2.5 Pro rejects thinkingBudget 0 with HTTP 400.
 _NO_THINKING_BUDGET_ZERO = ("gemini-2.5-pro",)
 
 
 def _apply_thinking_budget(gen_config, model):
-    """Ask the model to skip 'thinking' so hidden tokens don't truncate the JSON.
-    Skipped for Gemini 2.5 Pro (rejects budget 0, HTTP 400). gemini-3-pro-image
-    accepts the flag (it just ignores it and thinks anyway — its thought parts
-    are filtered out when reading the response)."""
     m = (model or "").strip()
     if any(m.startswith(x) for x in _NO_THINKING_BUDGET_ZERO):
         return
@@ -399,9 +374,7 @@ def _apply_thinking_budget(gen_config, model):
 
 _MAX_OUTPUT_TOKENS_CEILING = 64000
 
-# Start generation at the output ceiling: a higher cap costs nothing extra for
-# short outputs (billed per generated token, stops at finish=STOP) but avoids a
-# doomed truncate + unparseable-JSON double call on large dense image_label JSON.
+# Billed per generated token, so this high cap costs nothing on short outputs.
 _GEN_MAX_OUTPUT_TOKENS = 64000
 
 _TERSE_RETRY_DIRECTIVE = (
@@ -413,7 +386,6 @@ _TERSE_RETRY_DIRECTIVE = (
 
 
 def _json_parses(text):
-    """True if ``text`` (optionally markdown-fenced) is parseable JSON."""
     t = (text or "").strip()
     t = re.sub(r"^```(?:json)?", "", t).strip()
     t = re.sub(r"```$", "", t).strip()
@@ -427,14 +399,6 @@ def _json_parses(text):
 def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
                  temperature=0.4, usage_ctx=None, response_json=False,
                  response_schema=None, user_parts=None, model=None):
-    """Single generateContent call with a built-in MAX_TOKENS recovery.
-
-    Heavy hidden 'thinking' can eat the whole budget (finishReason=MAX_TOKENS,
-    no parts); we retry once with a doubled budget (<= _MAX_OUTPUT_TOKENS_CEILING).
-    ``user_parts`` (a list of Gemini content parts) supersedes ``user_text`` for
-    multimodal calls (e.g. a native SOP document); ``model`` overrides the
-    default configured model.
-    """
     import httpx
     _project, _loc, default_model, _key = _vertex_creds(env)
     model = model or default_model
@@ -533,21 +497,13 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
 
 
 class VertexQuotaError(RuntimeError):
-    """Vertex returned HTTP 429 (quota / rate limit). Transient: the caller
-    re-queues and retries later instead of marking the item permanently failed.
-
-    ``partial`` carries any already-rendered slots (list of image dicts) that a
-    multi-image render managed to produce before the 429 fired, so the caller
-    can persist them and re-render only the missing slots — never re-paying for
-    a picture that already came back. Empty for single-image / non-render calls.
-    """
+    """HTTP 429 (transient). ``partial`` holds slots already rendered and PAID for
+    before the 429, so the caller re-renders only what is missing."""
 
     partial = []
 
 
 def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
-    """Text->image via the Gemini image model. Returns ``(b64_str, mime)``;
-    raises VertexQuotaError on 429, RuntimeError when no image part comes back."""
     import httpx
     model = _vertex_image_model(env)
     url, headers = _gemini_request(env, model, "generateContent")
@@ -613,15 +569,11 @@ def _video_default_duration(env):
 
 
 def video_generation_available(env):
-    """Config gate for async Veo generation: True only when a Veo model AND a
-    resolvable Vertex bearer are present. When it is False the submit trigger
-    leaves a video_prompt draft 'pending' so the admin fills its clips by
-    upload (Phase 1) — video generation is strictly optional."""
     if not _video_model(env):
         return False
     try:
         return bool(_vertex_bearer(env))
-    except Exception:  # noqa: BLE001 - a creds error means "not available"
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -643,12 +595,7 @@ def _brief_prompt_text(brief):
 
 def submit_video_op(env, brief, *, model=None, location=None, duration_s=None,
                     aspect="16:9", prompt_id=None):
-    """Submit ONE Veo long-running text-to-video op and return its operation
-    NAME (the poll handle). ``brief`` is the clip brief (a dict with a "prompt",
-    or the prompt string). Model/location resolve from the video_model /
-    video_location params (defaults veo-3.1-generate-001 / us-central1 — Veo
-    404s on 'global', so never reuse the gemini location). Raises
-    VertexQuotaError on 429 so the caller re-queues without failing."""
+    """Veo 404s on the 'global' location — never reuse the gemini location here."""
     model = model or _video_model(env)
     location = location or _video_location(env)
     bearer = _minted_bearer(env) or _vertex_bearer(env)
@@ -696,9 +643,6 @@ def submit_video_op(env, brief, *, model=None, location=None, duration_s=None,
 
 
 def _extract_video_payload(resp):
-    """Pull ``(video_b64, gcs_uri)`` out of a done Veo operation response,
-    walking the several shapes Veo returns (videos / generatedSamples /
-    predictions, each carrying inline base64 bytes and/or a GCS uri)."""
     if not isinstance(resp, dict):
         return None, None
     items = []
@@ -725,9 +669,6 @@ def _extract_video_payload(resp):
 
 
 def fetch_video_op(env, op_name, *, model, location):
-    """Poll ONE Veo op, returning ``{done, video_b64, gcs_uri, error}`` parsed
-    defensively. Raises VertexQuotaError on 429 (transient: the caller keeps the
-    op and retries next tick)."""
     model = model or _video_model(env)
     location = location or _video_location(env)
     bearer = _minted_bearer(env) or _vertex_bearer(env)
@@ -758,14 +699,6 @@ def fetch_video_op(env, op_name, *, model, location):
 
 
 def _unwrap_json_list(value):
-    """Return the list of items from an LLM JSON response.
-
-    Accepts a bare top-level array, OR an object that wraps the array under a
-    common key (skills / items / questions / data / results). A prompt that
-    returns ``{"skills": [...]}`` (or the governance-style object) then parses
-    the same as a bare ``[...]`` — iterating a dict would otherwise yield its
-    KEYS and silently produce zero items.
-    """
     if isinstance(value, list):
         return value
     if isinstance(value, dict):
@@ -776,14 +709,6 @@ def _unwrap_json_list(value):
 
 
 def _salvage_json_objects(text):
-    """Recover the leading COMPLETE objects of a truncated JSON array.
-
-    When the model hits the output-token ceiling mid-array the response ends with
-    a partial trailing object, and neither ``json.loads`` nor the greedy ``[.*]``
-    regex can parse it. Locate the first ``[`` then repeatedly ``raw_decode``
-    top-level objects, skipping the commas/whitespace between them, until the
-    truncation point; return every fully-parsed object and drop the incomplete
-    tail. Returns ``[]`` when nothing complete can be recovered."""
     start = text.find("[")
     if start == -1:
         return []
@@ -888,16 +813,7 @@ def _detection_model(env):
 
 
 def detect_image_elements(env, image_b64, ui=False, model=None, usage_ctx=None):
-    """Detect distinct objects (or interactive UI elements when ``ui``) in the
-    base64 PNG, returning ``[{"box_2d":[ymin,xmin,ymax,xmax], "label", "description"}]``
-    with boxes normalized to Gemini's 0-1000 space. De-duplicates object
-    categories (unique lowercase label) for non-ui, keeps every element for ui,
-    mirroring the reference prototype.
-
-    ``usage_ctx`` lets the caller thread the owning generator (``prompt_id``) onto
-    the logged usage row so this detection spend attributes as that project's
-    authoring cost instead of landing in the dashboard's Unattributed bucket; the
-    operation is always forced to ``detect_image_elements``."""
+    """Gemini returns box_2d as [ymin,xmin,ymax,xmax] on a normalized 0-1000 grid."""
     model = model or _detection_model(env)
     prompt = _UI_PROMPT if ui else _DETECT_PROMPT
     user_parts = [
@@ -950,17 +866,11 @@ _IMG_PROMPT_RULE = (
 
 
 def _ab_fallback_dims():
-    """The built-in A/B rubric as [{"label","choices"}], from constants only."""
     return [{"label": name, "choices": list(_AB_CHOICES)}
             for name in _AB_DIM_NAMES.values()]
 
 
 def _image_type_contract(qtype, ab_dims=None):
-    """The per-type ``image_specs`` OUTPUT CONTRACT body only (no "generate N"
-    preamble), so it can be appended BOTH to the exclusive forced-type directive
-    AND to the generic multi-type SOP directive without over-pinning the run to a
-    single type. For image_ab this is the flaw_plan/construction_keys contract the
-    platform materializes into the answer key (Phase 3)."""
     if qtype == "image_ab":
         return (
             "FLAW-INJECTION (mandatory): from a single TARGET brief, plan a PAIR "
@@ -1144,9 +1054,6 @@ def _image_type_contract(qtype, ab_dims=None):
 
 
 def _image_question_directive(qtype, count, ab_dims=None):
-    """Exclusive directive that pins a whole run to one image type: the "generate
-    N of type X" preamble plus that type's image_specs contract. Used on the
-    forced-type path for a run forced to a single image type."""
     base = (
         f"Generate exactly {count} question(s) of type '{qtype}' as one JSON "
         "array. Do NOT emit mcq-style \"options\"/\"correct_answer\". Every "
@@ -1156,13 +1063,6 @@ def _image_question_directive(qtype, count, ab_dims=None):
 
 
 def _image_contracts_note(ab_dims=None, types=None):
-    """The image_specs OUTPUT CONTRACTS appended to a multi-type SOP directive so
-    every image item the model authors is well-formed — crucially image_ab's
-    flaw_plan — and survives _validate_question_item instead of being dropped as
-    malformed. ``types=None`` covers every image/video type (the generic path,
-    byte-identical to the historical hardcoded tuple, since QUESTION_TYPE_ORDER
-    filtered by _IMAGE_OR_VIDEO_TYPES is exactly that tuple); a set restricts the
-    contracts to the image/video types present in an allow-list."""
     wanted = [qt for qt in _QUESTION_TYPE_ORDER
               if qt in _IMAGE_OR_VIDEO_TYPES and (types is None or qt in types)]
     if not wanted:
@@ -1177,7 +1077,6 @@ def _image_contracts_note(ab_dims=None, types=None):
 
 
 def _image_brief(scene):
-    """Wrap a scene description in the strict render brief (single source of truth)."""
     return (
         "Generate exactly one photorealistic image and no other text. Render the "
         "description literally even where it asks for flaws, misspellings, or "
@@ -1189,8 +1088,6 @@ def _image_brief(scene):
 
 
 def _flaw_official_reasoning(flawed_side, injected_flaws):
-    """The hidden answer-key rationale for a flaw-injected image_ab, naming the
-    clean winner and the concrete flaws injected into the losing image."""
     clean = ab_side_verdict(ab_other_side(flawed_side))
     flawed = ab_side_verdict(flawed_side)
     flaws = "; ".join(injected_flaws)
@@ -1200,10 +1097,6 @@ def _flaw_official_reasoning(flawed_side, injected_flaws):
 
 
 def _flaw_official_reasoning_both(keys, planted):
-    """Answer-key rationale for a BOTH-flawed image_ab pair: both sides carry
-    planted flaws, so each dimension follows the worse flaw ('Both Bad' where
-    they are equally bad) and Overall Choice is still decided to one side by the
-    correctness-before-polish tiebreak (the OC construction key)."""
     a_flaws = "; ".join(planted.get("a") or []) or "none stated"
     b_flaws = "; ".join(planted.get("b") or []) or "none stated"
     oc = keys.get("OC") or ""
@@ -1215,16 +1108,9 @@ def _flaw_official_reasoning_both(keys, planted):
 
 
 def _build_flaw_injected_ab_fields(plan):
-    """Materialize the draft fields for a flaw-injected image_ab from its plan.
-
-    The plan is normalized to the 3-prompt shape first, so the candidate-facing
-    QUESTION prompt (worker_prompt) is kept DISTINCT from the two per-side render
-    prompts. The flawed image is RANDOMLY assigned to slot a or b (defeating
-    position bias); when that differs from the model's chosen side the render
-    prompts + planted flaws are swapped between the slots and the A/B verdicts
-    flipped so construction_keys stay consistent with the rendered slots. The
-    dimension answer key is DERIVED from construction_keys, and the whole plan is
-    persisted so the approve/score-time guards can detect any later key drift."""
+    # The flawed image MUST land on a random slot: without the swap every answer
+    # key is "Response A" and the item is gameable. Verdicts flip with it so
+    # construction_keys stay aligned to the rendered slots.
     import random
     norm = normalize_flaw_plan(plan) or {}
     keys = dict(norm.get("construction_keys") or {})
@@ -1276,14 +1162,8 @@ def _build_flaw_injected_ab_fields(plan):
         }, ensure_ascii=False),
         "official_reasoning": reasoning,
     }
-    # DERIVE the golden solution verdicts FROM the authoritative construction_keys
-    # (which are slot-aligned, and flipped above when the flawed side was swapped),
-    # so the stored golden answer can NEVER contradict the rendered images. The
-    # model's separately-written solution verdicts are NOT trusted here — a
-    # thinking model sometimes writes them for the pre-swap side or self-
-    # contradicts, which would grade a worker against a wrong key (observed:
-    # ~40% of flaw drafts had an A/B label mismatch). rationale is preserved when
-    # the model supplied one; the verdicts are always the construction ground truth.
+    # Verdicts MUST derive from construction_keys (slot-aligned, swap-corrected);
+    # the model's own solution verdicts often name the pre-swap side.
     _CK2SOL = {"IF": "instruction_following", "VQ": "visual_quality",
                "LAI": "less_ai_generated", "OC": "overall_preference"}
     derived = {_CK2SOL[k]: v for k, v in keys.items() if k in _CK2SOL}
@@ -1307,14 +1187,6 @@ _IMAGE_PROMPT_SLOT_LABEL = {"reference": "Reference", "output": "Output",
 
 
 def _image_prompt_briefs(images):
-    """Render briefs for an image_prompt item, honouring the reference/output
-    roles so a transform/compare task renders BOTH images (not just the first).
-
-    Each image_specs image carrying a non-empty prompt becomes one brief. A
-    SINGLE image maps to slot 'single' (from-scratch: write the prompt for this
-    one image); TWO or more map to 'reference' then 'output' — honouring any slot
-    the model set and filling the rest in that order — so the reference (input)
-    always precedes the output (target). Returns ``[{slot,label,prompt}]``."""
     imgs = [i for i in images
             if isinstance(i, dict) and (i.get("prompt") or "").strip()]
     if not imgs:
@@ -1347,18 +1219,10 @@ def _image_prompt_briefs(images):
 
 
 def _video_prompt_briefs(videos):
-    """Render briefs for a video_prompt item — the video twin of
-    _image_prompt_briefs. Each clip brief carrying a non-empty prompt becomes one
-    brief; a SINGLE clip maps to slot 'single' (from-scratch), TWO or more map to
-    'reference' then 'output' (the transform/compare pair) honouring any slot the
-    model set, so the reference clip always precedes the output clip. The clip
-    slot vocabulary is identical to image_prompt's, so this reuses the same
-    role-resolution logic. Returns ``[{slot,label,prompt}]``."""
     return _image_prompt_briefs(videos)
 
 
 def _label_key_sort(k):
-    """Sort per-box map keys numerically, with non-numeric keys last."""
     try:
         return (0, int(k))
     except (TypeError, ValueError):
@@ -1366,8 +1230,6 @@ def _label_key_sort(k):
 
 
 def _normalize_box_2d(box):
-    """Coerce a model-supplied box to ``[ymin,xmin,ymax,xmax]`` ints clamped to
-    the 0-1000 grid (Gemini/annotate_image space), or None when malformed."""
     if not isinstance(box, (list, tuple)) or len(box) != 4:
         return None
     try:
@@ -1378,15 +1240,6 @@ def _normalize_box_2d(box):
 
 
 def _image_label_boxes(specs):
-    """Ordered per-box plan for a DENSE image_label from ``image_specs``.
-
-    Reads the model's ``boxes`` list ([{number?, box_2d, element|label,
-    functionality|description}]) and, where a box omits its functionality, fills
-    it from the ``answer_key.ideal_labels`` per-box MAP ({number: functionality}).
-    Only boxes carrying a VALID box_2d are kept — we can draw a numbered box only
-    where the model told us it sits — and they are renumbered 1..N in the given
-    reading order. Returns ``[{number, box_2d, element, functionality}]`` (empty
-    when the item is not dense, i.e. no boxes with coordinates)."""
     answer_key = specs.get("answer_key") or {}
     ideal = answer_key.get("ideal_labels") if isinstance(answer_key, dict) else None
     labels_map = ideal if isinstance(ideal, dict) else {}
@@ -1414,11 +1267,7 @@ def _image_label_boxes(specs):
     return entries
 
 
-# Golden-set seeds used to REPAIR an image_label that omitted its (now
-# mandatory) source_url: map the model's stated application / site — or a site
-# name leaking through the synthetic brief — to a real, public, stable homepage
-# so the real-page DOM-capture path still runs instead of a synthetic render.
-# Ordered most-specific first; each host matches when any of its needles appears.
+# Ordered most-specific first: the first host with a matching needle wins.
 _IMAGE_LABEL_URL_SEEDS = (
     ("https://open.spotify.com", ("spotify",)),
     ("https://github.com", ("github",)),
@@ -1432,15 +1281,6 @@ _IMAGE_LABEL_URL_SEEDS = (
 
 
 def _repair_image_label_source_url(specs):
-    """Derive a real public source_url for an image_label item that omitted it.
-
-    source_url is MANDATORY for image_label, but generation must never fail
-    outright: when the model authored a synthetic brief with no source_url we try
-    to recover one from the stated ``application`` (or a known site name leaking
-    through the synthetic ``images`` brief) using the golden-set seeds, so the
-    real-page capture path runs instead of the fake-screenshot path. Returns a
-    URL string, or "" when nothing in the item names a known public site (the
-    caller then keeps the synthetic brief as the genuine fallback)."""
     if not isinstance(specs, dict):
         return ""
     hay = (str(specs.get("application") or "") + " "
@@ -1456,24 +1296,12 @@ def _repair_image_label_source_url(specs):
 
 
 def _apply_capture_directives(specs, vals):
-    """Persist the REAL-PAGE CAPTURE directives of an image_label ``image_specs``
-    into ``vals``: the url, a capture_config_json (viewport / wait_ms / dismiss),
-    an omit_spec_json, coverage_expected and label_application.
-
-    source_url is MANDATORY for image_label; when the model omitted it we try to
-    REPAIR one from the stated application via the golden-set seeds so the draft
-    still captures a real page. No-op only when there is no source_url AND none
-    can be derived (the item then relies on the synthetic fallback)."""
     src = str(specs.get("source_url") or "").strip()
     if not src:
         src = _repair_image_label_source_url(specs)
     if not src:
         return
     vals["source_url"] = src[:2000]
-    # A source_url means the label target is a live web page / app UI, so the
-    # detection prompt must be the UI-element one (not the physical-object one).
-    # This makes the synthetic fallback + any Gemini detect use the right prompt,
-    # and matches the live DOM capture that is now the render-time default.
     vals["detection_mode"] = "ui"
     cfg: dict = {}
     vp = specs.get("viewport")
@@ -1507,30 +1335,6 @@ def _apply_capture_directives(specs, vals):
 
 
 def _image_label_draft_fields(specs):
-    """Answer-key + image-brief draft fields for one image_label item.
-
-    DENSE form (reference proj-2 screenshot labelling): the model authored a
-    single screenshot showing MULTIPLE interactive elements, an ordered ``boxes``
-    plan (each with approximate normalized coordinates + the ACTION it performs),
-    an ``application`` name and a coverage expectation. We persist that as the
-    Phase-4 shapes — ``behavioural_key_json`` (the per-box action key),
-    ``label_boxes_json`` (the numbered-box geometry the overlay is drawn from at
-    approve, reusing imaging.annotate_image — no second Vertex/detection call),
-    ``coverage_expected`` / ``omitted_element_json`` (the coverage gate) and
-    ``label_application`` — so the candidate UI and scoring treat model-authored
-    boxes exactly like DOM-captured ones. ``ideal_labels`` is flattened to a
-    readable STRING in rubric_json so the answer-key editor and the legacy
-    scoring fallback keep working; the per-box map lives in the behavioural key.
-
-    REAL-PAGE CAPTURE (preferred) form: when the model named a ``source_url``, we
-    persist it plus a ``capture_config_json`` (viewport / wait_ms / dismiss),
-    ``omit_spec_json``, ``coverage_expected`` and ``label_application`` so the
-    detect cron drives a live DOM capture; the dense/single ``images`` brief is
-    ALSO persisted (image_brief_json + any boxes) as the synthetic FALLBACK the
-    hybrid path renders when capture is unavailable or fails.
-
-    SINGLE-BOX (legacy) form: a lone region + a single-string ideal_labels answer
-    key, unchanged (no boxes, no behavioural key, detection runs post-approve)."""
     vals = {}
     _apply_capture_directives(specs, vals)
     briefs = []
@@ -1575,7 +1379,6 @@ def _image_label_draft_fields(specs):
 
 
 def _build_image_draft_fields(env, qtype, item, usage_ctx=None, ab_dims=None):
-    """Build the answer-key + image-brief fields for one image draft (no rendering here)."""
     specs = item.get("image_specs") or {}
     vals = {}
     briefs = []
@@ -1634,16 +1437,6 @@ def _build_image_draft_fields(env, qtype, item, usage_ctx=None, ab_dims=None):
 
 
 def render_draft_images(env, briefs, usage_ctx=None, only_slot=None):
-    """Render briefs -> ``[{slot,label,data}]``; per-brief failures are skipped.
-
-    On-demand Model 2 step, never run from the generate-questions request.
-    ``only_slot`` (when set) renders just that slot.
-
-    MONEY SAFETY: when a 429 aborts the loop, the slots already rendered in this
-    call are NOT thrown away — they are attached to the raised VertexQuotaError
-    as ``.partial`` so the caller can persist them and re-render only what's
-    still missing, never re-paying for a picture that already came back.
-    """
     images = []
     for brief in (briefs or []):
         if not isinstance(brief, dict):
@@ -1663,8 +1456,7 @@ def render_draft_images(env, briefs, usage_ctx=None, only_slot=None):
                 "data": "data:%s;base64,%s" % (mime, b64),
             })
         except VertexQuotaError as exc:
-            # Keep the paid slots: hand them back on the exception so the caller
-            # can save progress and only retry the missing slots next tick.
+            # Money safety: hand back the already-paid slots to re-render only the rest.
             exc.partial = images
             raise
         except Exception as exc:
@@ -1701,26 +1493,13 @@ VERIFY_FLAW_SCHEMA = {
 
 
 def _verify_model(env):
-    """Vision/doc-capable model for flaw verification: reuses the detection model
-    (a multimodal model that can READ an image), never the image-only render
-    model. Overridable via etp_assessment_pro.verify_model."""
+    """Must READ an image: a vision model, never the image-only render model."""
     return _param(env, "etp_assessment_pro.verify_model") \
         or _detection_model(env)
 
 
 def verify_planted_flaws(env, image, planted_flaws, *, model=None,
                          usage_ctx=None):
-    """One multimodal Gemini call checking whether each planted flaw is VISIBLE
-    in the rendered image.
-
-    ``image`` is raw bytes OR a base64 string (PNG); ``planted_flaws`` is the
-    flaw list for ONE side. Returns
-    ``{"verdicts": [{"flaw","present","note"}], "all_present": bool}`` with one
-    verdict per planted flaw (order preserved; a flaw the model omits is treated
-    as NOT present — the correctness-safe default so an unrendered flaw never
-    silently passes). Parses defensively. Raises VertexQuotaError on 429 so the
-    caller can self-heal; other Vertex failures propagate so the caller degrades
-    gracefully."""
     flaws = [str(f).strip() for f in (planted_flaws or []) if str(f).strip()]
     if not flaws:
         return {"verdicts": [], "all_present": True}
@@ -1761,7 +1540,6 @@ def verify_planted_flaws(env, image, planted_flaws, *, model=None,
 
 
 def _data_url_to_b64(data):
-    """Strip a possible ``data:<mime>;base64,`` prefix, returning bare base64."""
     s = data or ""
     if s.startswith("data:") and "base64," in s:
         return s.split("base64,", 1)[1]
@@ -1770,18 +1548,6 @@ def _data_url_to_b64(data):
 
 def verify_and_regenerate_ab_images(env, briefs, images, planted, *,
                                     usage_ctx=None, max_regen=_VERIFY_MAX_REGEN):
-    """VERIFY->REGENERATE loop for a rendered image_ab pair (Phase 3).
-
-    For each side ('a','b') that carries planted flaws, verify they are visible
-    in that side's rendered image; if any is ABSENT, RE-RENDER just that slot
-    (reusing its brief + the literal render directive via ``render_draft_images``)
-    up to ``max_regen`` times, re-verifying after each. Returns
-    ``(images, record)``: ``images`` is the (possibly re-rendered) list in the
-    original slot order; ``record`` documents every side plus ``all_confirmed``
-    and ``needs_review``. VertexQuotaError propagates (caller re-queues). A
-    NON-quota verify failure (creds absent, refusal) marks that side
-    ``unavailable`` and leaves its image untouched — verification degrades,
-    generation is never broken."""
     by_slot = {img["slot"]: img for img in (images or [])
                if isinstance(img, dict) and img.get("slot")}
     sides = {}
@@ -1808,7 +1574,7 @@ def verify_and_regenerate_ab_images(env, briefs, images, planted, *,
                     env, b64, flaws, usage_ctx=usage_ctx)
             except VertexQuotaError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - degrade, never break gen
+            except Exception as exc:  # noqa: BLE001
                 _logger.warning(
                     "etp_assessment flaw verify unavailable (slot %s): %s",
                     slot, repr(exc)[:160])
@@ -1848,10 +1614,6 @@ def verify_and_regenerate_ab_images(env, briefs, images, planted, *,
 
 
 def _answer_resolves(ca, options, single):
-    """True if ``ca`` resolves against ``options`` as a string or 0-based index.
-
-    ``single`` requires exactly one value (mcq); else a non-empty subset (msq).
-    """
     n = len(options)
     opt_strs = [str(o) for o in options]
 
@@ -1876,9 +1638,6 @@ def _answer_resolves(ca, options, single):
 
 
 def _resolved_correct_count(ca, options):
-    """How many DISTINCT options ``ca`` marks correct (string match or 0-based
-    index). Used to reject an msq that marks every option correct — a
-    non-discriminating question."""
     n = len(options)
     opt_strs = [str(o) for o in options]
     idxs = set()
@@ -1899,15 +1658,11 @@ def _resolved_correct_count(ca, options):
 
 
 def _is_decisive_ab_winner(winner):
-    """True when an image_ab dimension verdict decides a side (Response A/B),
-    as opposed to a tie (Both Good / Both Bad). Used to reject a flaw-free A/B
-    where every dimension is a tie (no discriminating ground truth)."""
     w = str(winner or "").strip().lower()
     return w in ("response a", "response b", "a", "b")
 
 
 def _validate_question_item(it, qtype, ab_dims=None):
-    """Return contract violations for one generated item (empty == valid), so malformed items are skipped."""
     errs = []
     if not (it.get("prompt") or it.get("name") or "").strip():
         errs.append("no prompt/name")
@@ -1926,7 +1681,6 @@ def _validate_question_item(it, qtype, ab_dims=None):
         elif not _answer_resolves(ca, opts, single=False):
             errs.append("msq correct_answer must be a non-empty subset of options")
         elif _resolved_correct_count(ca, opts) >= len(opts):
-            # EVERY option marked correct = no discrimination (a non-question).
             errs.append("msq correct_answer marks ALL options correct "
                         "(needs at least one wrong option)")
     elif qtype == "subjective_rubric":
@@ -1936,8 +1690,6 @@ def _validate_question_item(it, qtype, ab_dims=None):
             errs.append("subjective_rubric needs rubric "
                         "{checklist,constraints,pass_condition}")
         else:
-            # Keys present is not enough: an empty checklist or blank
-            # pass_condition gives the judge nothing to anchor on (P1).
             checklist = r.get("checklist")
             has_checklist = bool(checklist) if isinstance(
                 checklist, (list, str)) else bool(checklist)
@@ -1970,10 +1722,6 @@ def _validate_question_item(it, qtype, ab_dims=None):
                                     % (label, winner, sorted(allowed)))
             if not (specs.get("official_reasoning") or "").strip():
                 errs.append("image_ab needs official_reasoning")
-            # A flaw-free A/B whose EVERY dimension is a tie (both-good/both-bad)
-            # has no discriminating ground truth — the 75%-objective verdict path
-            # can't grade it. Require at least one decisive (A or B) verdict when
-            # there is no planted flaw plan (P1).
             decisive = [
                 w for w in (specs.get("dimensions") or {}).values()
                 if _is_decisive_ab_winner(w)]
@@ -2002,15 +1750,9 @@ def _validate_question_item(it, qtype, ab_dims=None):
             errs.append("video_prompt needs answer_key with ideal_prompt")
     elif qtype == "image_label":
         specs = it.get("image_specs") or {}
-        # source_url (real-page DOM capture) is the MANDATORY primary form; a
-        # repairable application name counts as a url, since it yields one.
         has_url = bool(str(specs.get("source_url") or "").strip()
                        or _repair_image_label_source_url(specs))
         if not has_url:
-            # No source_url and none derivable: only accepted as the SYNTHETIC
-            # FALLBACK, which must be COMPLETE on its own (a brief PLUS an answer
-            # key/boxes) — an incomplete synthetic-only image_label is rejected
-            # so the contract's mandatory-source_url rule keeps its teeth.
             imgs = specs.get("images") or []
             has_brief = isinstance(imgs, list) and any(
                 isinstance(i, dict) and i.get("prompt") for i in imgs)
@@ -2034,22 +1776,14 @@ def _validate_question_item(it, qtype, ab_dims=None):
 
 
 def _generation_model(env):
-    """The document-capable multimodal model used to read a SOP and author
-    questions directly; falls back to a document-capable default (NOT the image
-    model, which cannot parse a PDF's document structure)."""
+    """Must be document-capable: the image model cannot parse a PDF's structure."""
     return _param(env, "etp_assessment_pro.generation_model") \
         or GENERATION_DEFAULT_MODEL
 
 
 def _scoring_model(env):
-    """The TEXT model used by the subjective judge. MUST be a text/multimodal
-    reasoning model, never the image model: the judge reads the golden answer +
-    worker text and returns structured JSON. Resolution order:
-    ``scoring_model`` config -> ``generation_model`` config -> the text default.
-    The bare ``vertex_model`` default (VERTEX_DEFAULT_MODEL) is deliberately NOT
-    consulted here because it is the image model on this deployment, which would
-    silently route grading through gemini-3-pro-image (wrong + expensive + image
-    quota bound)."""
+    """NEVER fall back to vertex_model: it is the image model on this deployment,
+    and grading through it is wrong, expensive and image-quota-bound."""
     return _param(env, "etp_assessment_pro.scoring_model") \
         or _param(env, "etp_assessment_pro.generation_model") \
         or GENERATION_DEFAULT_MODEL
@@ -2064,11 +1798,8 @@ _SOP_MIME_BY_EXT = {
 
 
 def _inline_doc_part(name, data, default_mime="application/pdf"):
-    """Build ONE Gemini inlineData part (base64) from a filename + Binary value,
-    using the shared mime map and the %PDF header guard. A Binary field returns
-    base64 bytes, which is exactly Gemini's inlineData. Returns None when empty.
-    Unknown extensions map to ``default_mime`` (pdf for SOP, text/plain for the
-    best-effort sample path so docx/unknown files never trip the PDF guard)."""
+    """An Odoo Binary field already holds base64, which is exactly Gemini's
+    inlineData — do not re-encode."""
     import base64
     if not data:
         return None
@@ -2092,11 +1823,8 @@ _SOP_TEXT_EXTS = frozenset({"docx", "txt", "md", "markdown", "csv",
 
 
 def _sop_doc_parts(resources):
-    """Document parts for the SOP files. PDF and images go NATIVE (inline base64)
-    so the model reads real layout/pixels. docx and text formats cannot be sent
-    as Gemini inlineData (docx would trip the %PDF guard), so they are extracted
-    to text via the resource's own _extract_text and sent as a text part — this
-    is what makes a .docx SOP work end to end, not just .pdf."""
+    """docx/text cannot be sent to Gemini as inlineData; they must be extracted to
+    a text part."""
     parts = []
     for res in resources.sorted("sequence"):
         ext = (res.name or "").rsplit(".", 1)[-1].lower() if "." in (res.name or "") else ""
@@ -2118,9 +1846,23 @@ def _sop_doc_parts(resources):
 
 
 def _sample_doc_parts(prompt_record):
-    """Native inline part(s) for the optional Sample Questions upload so images
-    inside the sample are read too. docx/unknown extensions fall back to
-    text/plain (best-effort); pdf/images/txt/md keep working via the mime map."""
+    """Sample-question files, newest storage first.
+
+    Sample questions ride the same resource pipeline as the SOP and reference files
+    (category "sample"), so they show up under Resources like everything else. The
+    sample_questions_file fallback stays for records saved before that switch,
+    whose bytes still live on the old field.
+    """
+    parts = []
+    for res in getattr(prompt_record, "resource_ids", []) or []:
+        if res.category != "sample":
+            continue
+        part = _inline_doc_part(res.name or "", res.file, default_mime="text/plain")
+        if part:
+            parts.append(part)
+    if parts:
+        return parts
+
     data = getattr(prompt_record, "sample_questions_file", None)
     if not data:
         return []
@@ -2147,16 +1889,9 @@ _ENVELOPE_REMINDER = (
 
 
 def _facet_vocabulary_note(env):
-    """Build the controlled-vocabulary instruction from the LIVE tag table so the
-    model REUSES an existing facet value when one fits, instead of coining a
-    synonym that would make two runs of the same SOP look unrelated. The
-    vocabulary is data (existing tags), not a hardcoded map: a genuinely novel
-    concept is still allowed a NEW kebab-case value, which then joins the list
-    for the next SOP. Returns '' when the tag table is empty (cold start), so the
-    first extractions simply seed the vocabulary."""
     try:
         vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
-    except Exception:  # noqa: BLE001 - vocabulary is an optimization, never fatal
+    except Exception:  # noqa: BLE001
         return ""
     if not vocab:
         return ""
@@ -2175,11 +1910,6 @@ def _facet_vocabulary_note(env):
 
 
 def _forced_type_directive(force_type, count, ab_dims=None):
-    """An EXCLUSIVE directive that pins every generated item to one question_type
-    (with that type's required shape), used when the admin forces a type. An image
-    type carries its full image_specs contract from _image_question_directive, so
-    a run forced to image_ab emits the flaw_plan the platform materializes into a
-    ground-truth answer key rather than the legacy a/b-prompt shape."""
     n = count or 5
     if force_type in _IMAGE_OR_VIDEO_TYPES:
         return (f"Generate EXACTLY {n} question(s). EVERY item's question_type MUST "
@@ -2195,9 +1925,6 @@ def _forced_type_directive(force_type, count, ab_dims=None):
 
 
 def _extract_solutions(raw):
-    """Pull the top-level "solutions" array from a {metadata, questions, solutions}
-    generation response. Returns [] for the legacy bare-array shape or when the
-    key is absent/unparseable, so callers can zip defensively by index."""
     try:
         text = (raw or "").strip()
         text = re.sub(r"^```(?:json)?", "", text).strip()
@@ -2211,7 +1938,6 @@ def _extract_solutions(raw):
             return []
         sols = obj.get("solutions")
         if isinstance(sols, dict):
-            # keyed by q-id/position -> order by sorted key for stable zip
             return [sols[k] for k in sorted(sols.keys())]
         if isinstance(sols, list):
             return sols
@@ -2221,18 +1947,8 @@ def _extract_solutions(raw):
 
 
 def _attach_solutions(items, sols, prompt_id):
-    """Attach each solution dict to its question as ``it["_solution"]`` WITHOUT
-    ever mis-keying it onto the wrong question (P0). Strategy, in order:
-
-    1. REFERENCE MATCH — if solutions carry a "question_ref"/"name"/"id" that
-       matches a question's name (case/space-insensitive), pair by that. This
-       survives any reordering or a dropped question.
-    2. POSITIONAL 1:1 — only when every solution lacks a usable ref AND the two
-       arrays are the SAME length, pair by index (the documented same-order
-       contract).
-    3. SKIP — on a length mismatch with no refs, attach NOTHING and log, so a
-       question is graded against NO key rather than the WRONG key.
-    """
+    """Match by reference, else positionally ONLY on an exact 1:1 — never guess:
+    a mis-keyed solution grades a worker against another question's answer key."""
     if not (items and sols):
         return
 
@@ -2259,8 +1975,6 @@ def _attach_solutions(items, sols, prompt_id):
             unref.append(sol)
 
     if matched:
-        # reference matching worked for at least some; do NOT positionally guess
-        # the remainder (that is exactly where mis-keying creeps in).
         if unref:
             _logger.warning(
                 "etp_assessment (SOP prompt %s): %d solution(s) had no matching "
@@ -2268,7 +1982,6 @@ def _attach_solutions(items, sols, prompt_id):
                 "over guessing).", prompt_id, len(unref))
         return
 
-    # No references at all -> positional, but ONLY on an exact 1:1 length match.
     if len(sols) == len(items):
         for it, sol in zip(items, sols):
             if isinstance(sol, dict):
@@ -2283,12 +1996,6 @@ def _attach_solutions(items, sols, prompt_id):
 
 
 def _capture_sop_metadata(env, prompt_record, raw):
-    """Persist the FULL research schema-1.5 project profile when the generation
-    response is the {metadata, questions} object, and reconcile the faceted
-    ``mapping`` into ``tag_ids`` so research's mapping drives our existing
-    weighted-Jaccard ranking (parity with the research process). No-op for the
-    legacy bare-array shape, so this is safe to call on every run. Best-effort:
-    never raises into generation."""
     try:
         text = (raw or "").strip()
         text = re.sub(r"^```(?:json)?", "", text).strip()
@@ -2309,7 +2016,6 @@ def _capture_sop_metadata(env, prompt_record, raw):
             return json.dumps(v, ensure_ascii=False) if isinstance(v, list) and v else False
 
         vals = {"metadata_json": json.dumps(meta, ensure_ascii=False)}
-        # scalars
         if meta.get("sop_title"):
             vals["sop_title"] = str(meta["sop_title"])[:255]
         if meta.get("summary"):
@@ -2317,7 +2023,6 @@ def _capture_sop_metadata(env, prompt_record, raw):
         tags = meta.get("tags")
         if isinstance(tags, list) and tags:
             vals["plain_tags"] = ", ".join(str(t) for t in tags)[:255]
-        # every list artifact -> its own column (historic project data)
         for meta_key, field_name in (
                 ("mapping", "mapping_json"),
                 ("skills", "skills_json"),
@@ -2333,14 +2038,10 @@ def _capture_sop_metadata(env, prompt_record, raw):
             dumped = _dump_list(meta_key)
             if dumped:
                 vals[field_name] = dumped
-        # question_spec is an object, not a list
         qspec = meta.get("question_spec")
         if isinstance(qspec, dict) and qspec:
             vals["question_spec_json"] = json.dumps(qspec, ensure_ascii=False)
 
-        # RANKING PARITY: reconcile faceted mapping -> tag_ids. Research's mapping
-        # is exactly our prefixed-tag form (facet:value), so feed it straight into
-        # the same tag vocabulary the weighted-Jaccard ranking already reads.
         mapping = meta.get("mapping")
         if isinstance(mapping, list) and mapping:
             tag_model = env["etp.assessment.pro.tag"].sudo()
@@ -2362,9 +2063,6 @@ def _capture_sop_metadata(env, prompt_record, raw):
         _logger.warning("etp_assessment metadata capture skipped: %s",
                         repr(exc)[:160])
 def _text_contracts_note(types):
-    """The answer-key shapes for the TEXT types in an allow-list — the text twin of
-    _image_contracts_note, so a MIXED text+image set gets BOTH halves of its
-    contract. Empty when the allow-list has no text types."""
     wanted = [qt for qt in _QUESTION_TYPE_ORDER
               if qt in _TEXT_TYPE_SPEC and qt in types]
     if not wanted:
@@ -2376,15 +2074,6 @@ def _text_contracts_note(types):
 
 
 def _allowed_types_directive(allowed, count, ab_dims=None):
-    """EXCLUSIVE directive for an allow-list run: every item's question_type must be
-    one of ``allowed`` (an ordered, deduped, already-validated tuple of >=1 codes),
-    with the output contract for EVERY allowed type merged in. A single-element
-    list returns _forced_type_directive's exact PROMPT TEXT (the emitted directive
-    is bit-identical to the old forced run); note the applier still differs — it
-    FILTERS out-of-list items rather than OVERRIDING their type (see
-    _resolve_item_type). A mixed text+image list emits BOTH the text and image
-    contracts and lets the model pick the best type per item; any item whose type
-    is outside the list is dropped downstream by _resolve_item_type."""
     if len(allowed) == 1:
         return _forced_type_directive(allowed[0], count, ab_dims=ab_dims)
     type_list = ", ".join('"%s"' % t for t in allowed)
@@ -2402,25 +2091,12 @@ def _allowed_types_directive(allowed, count, ab_dims=None):
 
 
 def _resolve_item_type(item, allowed):
-    """The question_type to persist for one generated item, or None to DROP it.
-
-    No allow-list -> today's behaviour (unknown/missing type defaults to mcq).
-    With an allow-list the list is a FILTER, not an override: an out-of-list item
-    is DROPPED, never restamped — its payload is shaped for the type the model
-    chose, so restamping either fails _validate_question_item (image types) or,
-    worse, passes with the wrong answer-key shape (an mcq payload stamped msq). A
-    single-type allow-list keeps the old convenience of stamping an item whose
-    type is missing/garbled, since the intent is unambiguous.
-
-    NOTE: this matches the old single-forced behaviour for the common case, but it
-    FILTERS rather than OVERRIDES — an item the model authored as a different but
-    valid type is dropped (not relabelled), which the old forced path would have
-    stamped-then-usually-dropped-as-malformed. Same net persistence, cleaner log."""
+    """Returns None to DROP. Never restamp an out-of-list item: its payload is
+    shaped for the type the model chose, so a restamp can pass validation with the
+    wrong answer-key shape."""
     raw = item.get("question_type")
-    # isinstance guard: a model may return a non-string question_type (e.g. a list
-    # ["mcq"]); `x in <frozenset>` would raise TypeError: unhashable and abort the
-    # WHOLE batch. Treat any non-string as "no usable type" and let the rules below
-    # drop or default it, keeping the batch's other valid items.
+    # A non-string question_type (e.g. ["mcq"]) would raise TypeError: unhashable
+    # in the frozenset test and abort the whole batch.
     qtype = raw if isinstance(raw, str) and raw in _QUESTION_TYPES else None
     if not allowed:
         return qtype or "mcq"
@@ -2431,14 +2107,6 @@ def _resolve_item_type(item, allowed):
 
 def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
                                 allowed_types=()):
-    """SKILL-FREE generation: send the SOP document(s) NATIVELY (with their
-    images/layout) plus an optional sample-question format, and let the best
-    multimodal model author questions directly following the format IN the SOP.
-    When ``allowed_types`` is a non-empty tuple of valid codes, every item is
-    restricted to those types (the model still picks the best fit per item; a
-    single-element tuple reproduces the old forced-type behaviour). Reuses the
-    same parse / validate / draft-creation pipeline, minus the per-skill
-    machinery."""
     doc_parts = _sop_doc_parts(prompt_record.resource_ids)
     sample_parts = _sample_doc_parts(prompt_record)
     has_sample = bool(sample_parts or sample_text)
@@ -2449,15 +2117,10 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
     system_prompt = _get_question_prompt(env)
     model = _generation_model(env)
     allowed = tuple(dict.fromkeys(allowed_types or ()))
-    # A valid entry must be a known code string. Non-strings (e.g. None/False from a
-    # blank Selection) count as unknown so the gate still fails CLOSED with a clear
-    # ValueError — repr() keeps sorted()/join() from choking on a None entry.
     unknown = [t for t in allowed
                if not (isinstance(t, str) and t in _QUESTION_TYPES)]
     if unknown:
-        # Fail CLOSED: an unknown code means constants and the DB disagree (a type
-        # retired without a migration). The cron writes this to sop_gen_error and
-        # the form surfaces it — far better than silently dropping the allow-list.
+        # repr(): sorted()/join() would choke on a non-string entry.
         raise ValueError(
             "Unknown question type(s) in the generation allow-list: %s"
             % ", ".join(sorted(map(repr, unknown))))
@@ -2508,22 +2171,8 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.5, response_json=True,
             usage_ctx={"operation": "generate_questions",
                        "prompt_id": prompt_record.id, "note": note})
-        # Research schema 1.5 returns ONE object {metadata, questions}; capture
-        # the grounded metadata block (evidence, mapping, tags, skills,
-        # required_elements, question_spec) when present, then hand the questions
-        # list to the existing parser. Legacy bare-array output is unaffected:
-        # _extract_json_array + _unwrap_json_list already yield the same list.
         _capture_sop_metadata(env, prompt_record, raw)
         items = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
-        # Research schema 1.5 also returns a top-level "solutions" array, one
-        # entry per question. Attach each solution to its question. PREFER an
-        # explicit reference (a solution's "question_ref"/"name"/"id" matching a
-        # question's name) so the answer key can NEVER land on the wrong question;
-        # fall back to positional zip ONLY when the two arrays are the same length
-        # (a safe 1:1). On a length mismatch with no usable refs we SKIP the zip
-        # entirely and log, rather than silently mis-key golden answers onto the
-        # wrong questions (P0: a mis-keyed solution grades a worker against another
-        # question's answer).
         sols = _extract_solutions(raw)
         if sols:
             _attach_solutions(items, sols, prompt_record.id)
@@ -2534,9 +2183,6 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
     except ValueError:
         items = []
     if not items:
-        # even salvage recovered nothing (badly truncated/garbled JSON); re-roll
-        # ONCE with an explicit terse-output directive so the whole array fits
-        # under the token ceiling, instead of hard-failing the whole generation
         _logger.warning(
             "SOP generation for prompt %s produced no parseable items; retrying "
             "once with a terse-output directive.", prompt_record.id)
@@ -2578,15 +2224,11 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "question_prompt": prompt_text or name,
             "question_type": qtype,
             "difficulty": difficulty,
-            # Candidate-facing description: use the model's when given, else leave
-            # blank (it's optional). Never silently duplicate the prompt.
             "description": (it.get("description") or "").strip() or False,
         }
         ce = it.get("covers_elements")
         if isinstance(ce, list) and ce:
             vals["covers_elements_json"] = json.dumps(ce, ensure_ascii=False)
-        # Research schema 1.5 solution (golden answer + rationale) zipped on by
-        # _run: store as historic ground truth + the subjective judge's key.
         sol = it.get("_solution")
         if isinstance(sol, dict):
             ans = sol.get("answers")
@@ -2600,10 +2242,6 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
                 usage_ctx={"operation": "generate_image",
                            "prompt_id": prompt_record.id,
                            "note": prompt_record.name or "SOP"})
-            # image_ab: override the golden solution VERDICTS with the ones
-            # derived from the authoritative construction_keys (slot-aligned,
-            # swap-corrected), so the stored answer key always matches the
-            # rendered images. Keep the model's justification/rationale prose.
             derived = img_fields.pop("_derived_ab_solution", None)
             if isinstance(derived, dict) and derived:
                 model_ans = it.get("_solution") or {}
@@ -2671,13 +2309,6 @@ _TAG_SYSTEM_PROMPT = (
 
 
 def extract_tags_from_sop(env, prompt_record):
-    """Extract 4-8 short, prefixed, non-redundant semantic tags characterizing
-    the SOP's task. Sends the SOP document(s) NATIVELY to the multimodal model
-    and injects the EXISTING tag vocabulary so the model reuses a tag verbatim
-    when one fits instead of drifting to a near-duplicate. Returns
-    ``(list_of_tag_strings, raw_json_text)``; never raises on an empty parse
-    (returns ``([], raw)``) so a barren SOP just yields no tags. Canonicalization
-    happens in etp.assessment.pro.tag._get_or_create."""
     doc_parts = _sop_doc_parts(prompt_record.resource_ids)
     notes = (prompt_record.source_text or "").strip()
     if not doc_parts and not notes:

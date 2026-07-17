@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="project_tracker.TrackerDaily">
+        <div class="o_kensei2_daily">
+
+            <!-- Header -->
+            <div class="o_kd_topbar">
+                <div class="o_kd_titles">
+                    <span class="o_kd_title"><i class="fa fa-calendar-check-o me-2"/>Daily Tracker</span>
+                    <span class="o_kd_subtitle">Completions per person per day</span>
+                </div>
+                <div class="o_kd_top_actions">
+                    <button class="o_kd_btn o_kd_btn_ghost" t-on-click="() => this._load()" t-att-disabled="state.loading">
+                        <i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/><span>Refresh</span>
+                    </button>
+                    <button class="o_kd_btn o_kd_btn_primary" t-on-click="onExport">
+                        <i class="fa fa-download me-1"/>Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary cards -->
+            <div class="o_kd_cards">
+                <div class="o_kd_card">
+                    <div class="o_kd_card_icon o_kd_ic_blue"><i class="fa fa-users"/></div>
+                    <div class="o_kd_card_body">
+                        <div class="o_kd_card_value"><t t-esc="state.summary.total_employees || 0"/></div>
+                        <div class="o_kd_card_label">Total Employees</div>
+                    </div>
+                </div>
+                <div class="o_kd_card">
+                    <div class="o_kd_card_icon o_kd_ic_green"><i class="fa fa-check-circle"/></div>
+                    <div class="o_kd_card_body">
+                        <div class="o_kd_card_value"><t t-esc="state.summary.total_completed || 0"/></div>
+                        <div class="o_kd_card_label">Total Tasks Completed</div>
+                    </div>
+                </div>
+                <div class="o_kd_card">
+                    <div class="o_kd_card_icon o_kd_ic_amber"><i class="fa fa-line-chart"/></div>
+                    <div class="o_kd_card_body">
+                        <div class="o_kd_card_value"><t t-esc="state.summary.avg_completion || 0"/></div>
+                        <div class="o_kd_card_label">Avg / Employee</div>
+                    </div>
+                </div>
+                <div class="o_kd_card">
+                    <div class="o_kd_card_icon o_kd_ic_purple"><i class="fa fa-calendar"/></div>
+                    <div class="o_kd_card_body">
+                        <div class="o_kd_card_value o_kd_range"><t t-esc="state.summary.date_from"/> → <t t-esc="state.summary.date_to"/></div>
+                        <div class="o_kd_card_label">Selected Range</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filter panel -->
+            <div class="o_kd_filters">
+                <div class="o_kd_filter">
+                    <label>From</label>
+                    <input type="date" t-att-value="state.filters.date_from" t-on-change="(ev) => this.onFilterInput('date_from', ev)"/>
+                </div>
+                <div class="o_kd_filter">
+                    <label>To</label>
+                    <input type="date" t-att-value="state.filters.date_to" t-on-change="(ev) => this.onFilterInput('date_to', ev)"/>
+                </div>
+                <div class="o_kd_filter">
+                    <label>Employee</label>
+                    <input type="text" placeholder="Name or email…" t-att-value="state.filters.employee" t-on-input="(ev) => this.onFilterInput('employee', ev)"/>
+                </div>
+                <div class="o_kd_filter">
+                    <label>PL</label>
+                    <select t-on-change="(ev) => this.onFilterInput('pl_id', ev)">
+                        <option value="">All</option>
+                        <t t-foreach="state.opts.pls" t-as="p" t-key="p.id">
+                            <option t-att-value="p.id" t-att-selected="state.filters.pl_id == p.id"><t t-esc="p.name"/></option>
+                        </t>
+                    </select>
+                </div>
+                <div class="o_kd_filter">
+                    <label>Team Lead / Manager</label>
+                    <select t-on-change="(ev) => this.onFilterInput('team_lead_id', ev)">
+                        <option value="">All</option>
+                        <t t-foreach="state.opts.team_leads" t-as="p" t-key="p.id">
+                            <option t-att-value="p.id" t-att-selected="state.filters.team_lead_id == p.id"><t t-esc="p.name"/></option>
+                        </t>
+                    </select>
+                </div>
+                <!-- A cell counts COMPLETED STAGES, and the two stages are different
+                     work: without this, "3" could be three authoring passes, three
+                     Pass @ K runs, or any mix, with no way to tell. -->
+                <div class="o_kd_filter">
+                    <label>Stage</label>
+                    <select t-on-change="(ev) => this.onFilterInput('stage', ev)">
+                        <option value="">All Stages</option>
+                        <option value="1" t-att-selected="state.filters.stage == '1'">Stage 1 — Baseline</option>
+                        <option value="2" t-att-selected="state.filters.stage == '2'">Stage 2 — Pass @ K</option>
+                    </select>
+                </div>
+                <div class="o_kd_filter">
+                    <label>Task Status</label>
+                    <select t-on-change="(ev) => this.onFilterInput('status', ev)">
+                        <option value="">All</option>
+                        <t t-foreach="state.opts.statuses" t-as="s" t-key="s.value">
+                            <option t-att-value="s.value" t-att-selected="state.filters.status == s.value"><t t-esc="s.label"/></option>
+                        </t>
+                    </select>
+                </div>
+                <div class="o_kd_filter">
+                    <label>Project</label>
+                    <select t-on-change="(ev) => this.onFilterInput('project', ev)">
+                        <option value="">All</option>
+                        <t t-foreach="state.opts.projects" t-as="pr" t-key="pr">
+                            <option t-att-value="pr" t-att-selected="state.filters.project == pr"><t t-esc="pr"/></option>
+                        </t>
+                    </select>
+                </div>
+                <div class="o_kd_filter_actions">
+                    <button class="o_kd_btn o_kd_btn_primary" t-on-click="onApply"><i class="fa fa-filter me-1"/>Apply</button>
+                    <button class="o_kd_btn o_kd_btn_ghost" t-on-click="onReset"><i class="fa fa-undo me-1"/>Reset</button>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="o_kd_table_wrap">
+                <t t-if="state.loading">
+                    <div class="o_kd_loading"><i class="fa fa-spinner fa-spin me-2"/>Loading…</div>
+                </t>
+                <table class="o_kd_table" t-else="">
+                    <thead>
+                        <tr>
+                            <th scope="col" aria-sort="none" class="o_kd_sticky o_kd_col_name o_kd_sortable" t-on-click="() => this.onSort('name')">
+                                Employee Name <i class="fa" t-att-class="sortIcon('name')" aria-hidden="true"/>
+                            </th>
+                            <th scope="col" aria-sort="none" class="o_kd_sticky o_kd_col_pl o_kd_sortable" t-on-click="() => this.onSort('pl')">
+                                PL <i class="fa" t-att-class="sortIcon('pl')" aria-hidden="true"/>
+                            </th>
+                            <t t-foreach="state.dates" t-as="d" t-key="d.key">
+                                <th scope="col" t-attf-class="o_kd_date {{ d.weekend ? 'o_kd_weekend' : '' }}">
+                                    <div class="o_kd_date_d"><t t-esc="d.label"/></div>
+                                    <div class="o_kd_date_dow"><t t-esc="d.dow"/></div>
+                                </th>
+                            </t>
+                            <th scope="col" aria-sort="none" class="o_kd_total_head o_kd_sortable" t-on-click="() => this.onSort('total')">
+                                Total <i class="fa" t-att-class="sortIcon('total')" aria-hidden="true"/>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-if="state.rows.length === 0">
+                            <tr><td class="o_kd_empty" t-att-colspan="state.dates.length + 3"><i class="fa fa-inbox me-1"/>No data for the selected filters.</td></tr>
+                        </t>
+                        <t t-foreach="state.rows" t-as="row" t-key="row.email or row.name">
+                            <tr>
+                                <td class="o_kd_sticky o_kd_col_name"><t t-esc="row.name"/></td>
+                                <td class="o_kd_sticky o_kd_col_pl"><t t-esc="row.pl"/></td>
+                                <t t-foreach="state.dates" t-as="d" t-key="d.key">
+                                    <td t-att-class="cellClass(row, d)"><t t-esc="row.cells[d.key] || 0"/></td>
+                                </t>
+                                <td class="o_kd_total_cell"><t t-esc="row.total"/></td>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="o_kd_pager" t-if="state.totalRows > 0">
+                <span class="o_kd_pager_info">
+                    <t t-esc="(state.page - 1) * state.pageSize + 1"/>–<t t-esc="Math.min(state.page * state.pageSize, state.totalRows)"/> of <t t-esc="state.totalRows"/>
+                </span>
+                <button class="o_kd_btn o_kd_btn_ghost" t-on-click="onPrevPage" t-att-disabled="state.page &lt;= 1" aria-label="Previous page"><i class="fa fa-chevron-left" aria-hidden="true"/></button>
+                <span class="o_kd_pager_page">Page <t t-esc="state.page"/> / <t t-esc="totalPages"/></span>
+                <button class="o_kd_btn o_kd_btn_ghost" t-on-click="onNextPage" t-att-disabled="state.page >= totalPages" aria-label="Next page"><i class="fa fa-chevron-right" aria-hidden="true"/></button>
+            </div>
+
+        </div>
+    </t>
+</templates>

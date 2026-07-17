@@ -88,8 +88,14 @@ class TestVideoPromptPhase3Submit(_VideoPhase3Base):
         self.assertEqual(ops["output"]["op_name"], "op/out")
 
     def test_config_gate_no_creds_no_submit_stays_pending(self):
+        # Must PATCH the gate, not rely on the ambient DB having no creds: this
+        # test used to pass only on an unconfigured database and failed the moment
+        # real Vertex creds existed (i.e. on stage/prod, or any configured dev DB),
+        # because video_generation_available() reads ir.config_parameter.
         draft = self._draft()
-        with self._no_real_commit():
+        with self._no_real_commit(), \
+                patch.object(vertex, "video_generation_available",
+                             return_value=False):
             self.Draft._cron_poll_video_ops()
         draft.invalidate_recordset()
         self.assertEqual(draft.video_state, "pending")

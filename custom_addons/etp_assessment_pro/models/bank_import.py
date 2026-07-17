@@ -22,10 +22,7 @@ class EtpAssessmentBankImport(models.AbstractModel):
 
     @api.model
     def import_bank_native(self, payload):
-        """Import the LOSSLESS native export (``question.action_export_native_json``)
-        and rebuild each question IDENTICALLY — answer key (is_correct),
-        official_reasoning, rubric and images. The round-trip partner of
-        ``question._export_native``."""
+        """Lossless round-trip partner of ``question._export_native`` — must stay in sync with it."""
         if isinstance(payload, str):
             try:
                 payload = json.loads(payload)

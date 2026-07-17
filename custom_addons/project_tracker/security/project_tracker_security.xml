@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- ===== Record Rules: Tracker Allocation =====
+
+             THE ACCESS MODEL — three tiers, and nothing else:
+
+               Admin    sees every allocation in the organisation, including rows
+                        with no PL/QL assigned (nobody else can see those).
+               PL / QL  sees only their OWN TEAM: the allocations where they are
+                        the assigned PL or the assigned QL.
+               Tasker   sees only the allocations assigned to them.
+
+             The per-record assigned_pl_id / assigned_ql_id fields are what make
+             "team" meaningful — a task carries the lead who owns it. This is the
+             same domain controllers/tracker.py already uses for the Dashboard;
+             the rules now agree with it, so the list view, form, search, export
+             and RPC can no longer show a lead more than the dashboard does.
+
+             Rules OR together, so a lead who is also assigned a task as a tasker
+             still sees it (tasker rule OR lead rule).
+
+             READ THIS BEFORE ADDING AN ACL ROW FOR THIS MODEL.
+
+             A record rule binds to a group. Odoo skips every rule whose groups do
+             not intersect the user's groups, then ANDs the global rules with the
+             OR of the surviving group rules (ir_rule.py::_compute_domain). If a
+             user is in NO group carrying a rule for this model, the rule set is
+             empty and the domain collapses to TRUE — i.e. UNRESTRICTED.
+
+             So an ACL row is not a grant of "some" access; without a matching
+             rule it is a grant of access to EVERY row. Every group that appears
+             in ir.model.access.csv for project.tracker.allocation must therefore
+             also appear in a rule below — and so must every group that IMPLIES
+             one of them, or it inherits the wrong tier.
+        -->
+
+        <!-- ===== Kensei2 ladder ===== -->
+
+        <!-- Tasker: only the allocations assigned to them.
+             Deliberately NOT OR'd with ('create_uid','=',user.id): visibility is
+             assignment, not authorship. -->
+        <record id="project_tracker_allocation_rule_tasker" model="ir.rule">
+            <field name="name">Tracker Allocation: Tasker sees own</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('project_tracker.group_project_tracker_tasker'))]"/>
+            <field name="domain_force">[('tasker_user_id', '=', user.id)]</field>
+        </record>
+
+        <!-- Quality Lead: THEIR TEAM only — the tasks they are the assigned QL of.
+             This used to be [(1,'=',1)] (every allocation, org-wide). That was a
+             shortcut around a real bug — QL implies Tasker, so without a rule of
+             its own a QL inherited "own rows only" and could not review anybody's
+             work — but the correct fix is the team domain, not global access. -->
+        <record id="project_tracker_allocation_rule_ql" model="ir.rule">
+            <field name="name">Tracker Allocation: QL sees own team</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('project_tracker.group_project_tracker_ql'))]"/>
+            <field name="domain_force">['|', ('assigned_pl_id', '=', user.id), ('assigned_ql_id', '=', user.id)]</field>
+        </record>
+
+        <!-- Project Lead: THEIR TEAM only. Same reasoning as the QL rule. -->
+        <record id="project_tracker_allocation_rule_pl" model="ir.rule">
+            <field name="name">Tracker Allocation: PL sees own team</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('project_tracker.group_project_tracker_pl'))]"/>
+            <field name="domain_force">['|', ('assigned_pl_id', '=', user.id), ('assigned_ql_id', '=', user.id)]</field>
+        </record>
+
+        <!-- Admin: the whole organisation, and the ONLY role that can see an
+             allocation with no PL/QL assigned.
+
+             This rule is load-bearing and must not be removed. group_project_tracker_admin
+             implies group_project_tracker_pl, so WITHOUT a rule of its own an Admin would
+             simply inherit the PL rule and be scoped to their own team — i.e.
+             scoping the PL rule silently scopes Admin too. Rules OR together, so
+             this [(1,'=',1)] is what restores org-wide reach. -->
+        <record id="project_tracker_allocation_rule_admin" model="ir.rule">
+            <field name="name">Tracker Allocation: Kensei2 Admin sees all</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('project_tracker.group_project_tracker_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- Odoo sysadmin. Declared explicitly rather than left to fall through:
+             base.group_system holds an ACL row for this model, and an ACL with no
+             matching rule is UNRESTRICTED BY ACCIDENT. Same outcome, but stated. -->
+        <record id="project_tracker_allocation_rule_system" model="ir.rule">
+            <field name="name">Tracker Allocation: System Admin sees all</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- ===== ETP ladder =====
+
+             ir.model.access.csv grants this model to etp_user_roles.group_tasker,
+             group_hr_admin and group_it_admin. None of those implies any kensei2.*
+             group (etp_user_roles/security/groups.xml: they imply only
+             base.group_user), so until 19.0.1.10.0 NO rule bound to them and every
+             ETP role — the whole chain up to CFO, which implies group_tasker — had
+             UNRESTRICTED read/write/create on every tasker's allocation.
+
+             The ETP ladder is mapped onto the SAME three tiers, matching the role
+             ladder project.tracker.team.member._compute_role already uses:
+
+               admin tier   it_admin, hr_admin, cto  (cfo implies cto)
+               lead  tier   quality_lead, project_lead  (tpm implies project_lead;
+                                                         delivery_manager implies
+                                                         quality_lead)
+               tasker tier  tasker
+        -->
+
+        <record id="project_tracker_allocation_rule_etp_tasker" model="ir.rule">
+            <field name="name">Tracker Allocation: ETP Tasker sees own</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+            <field name="domain_force">[('tasker_user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="project_tracker_allocation_rule_etp_ql" model="ir.rule">
+            <field name="name">Tracker Allocation: ETP Quality Lead sees own team</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+            <field name="domain_force">['|', ('assigned_pl_id', '=', user.id), ('assigned_ql_id', '=', user.id)]</field>
+        </record>
+
+        <record id="project_tracker_allocation_rule_etp_pl" model="ir.rule">
+            <field name="name">Tracker Allocation: ETP Project Lead sees own team</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+            <field name="domain_force">['|', ('assigned_pl_id', '=', user.id), ('assigned_ql_id', '=', user.id)]</field>
+        </record>
+
+        <!-- Quality Reviewer: scoped like a lead. group_quality_reviewer implies
+             only group_tasker, so without this it would inherit "own rows only"
+             and a reviewer could not see the work they exist to review. There is
+             no assigned_qr_id field, so a QR is reached through assigned_ql_id —
+             i.e. a QR sees the tasks whose QL they are. -->
+        <record id="project_tracker_allocation_rule_etp_qr" model="ir.rule">
+            <field name="name">Tracker Allocation: ETP Quality Reviewer sees own team</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_reviewer'))]"/>
+            <field name="domain_force">['|', ('assigned_pl_id', '=', user.id), ('assigned_ql_id', '=', user.id)]</field>
+        </record>
+
+        <!-- Admin tier of the ETP ladder — org-wide, including unassigned rows.
+             CFO implies CTO, so it is covered by the CTO rule. -->
+        <record id="project_tracker_allocation_rule_etp_cto" model="ir.rule">
+            <field name="name">Tracker Allocation: ETP CTO sees all</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_cto'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="project_tracker_allocation_rule_etp_hr_admin" model="ir.rule">
+            <field name="name">Tracker Allocation: ETP HR Admin sees all</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_hr_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="project_tracker_allocation_rule_etp_it_admin" model="ir.rule">
+            <field name="name">Tracker Allocation: ETP IT Admin sees all</field>
+            <field name="model_id" ref="model_project_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_it_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+    </data>
+</odoo>

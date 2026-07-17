@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!--
+        t-inherit-mode="primary" CLONES web.BinaryField into a new template rather
+        than patching it, so every other binary field in the database is untouched.
+    -->
+    <t t-name="etp_assessment_pro.EtpUploadButton"
+       t-inherit="web.BinaryField" t-inherit-mode="primary">
+
+        <!-- empty state: a small outline button instead of a full btn-primary slab -->
+        <xpath expr="//label[hasclass('o_select_file_button')]" position="replace">
+            <label class="o_select_file_button o_etp_upload_btn btn btn-sm btn-primary"
+                   t-att-title="props.iconOnly ? props.label : false"
+                   t-att-aria-label="props.iconOnly ? props.label : false">
+                <FileUploader
+                    acceptedFileExtensions="props.acceptedFileExtensions"
+                    allowedMIMETypes="props.allowedMIMETypes"
+                    onUploaded.bind="update"
+                >
+                    <t t-set-slot="toggler">
+                        <i t-attf-class="fa {{ props.iconOnly ? 'fa-plus' : 'fa-upload me-1' }}"
+                           aria-hidden="true"/>
+                        <t t-if="!props.iconOnly" t-esc="props.label"/>
+                    </t>
+                </FileUploader>
+            </label>
+        </xpath>
+
+        <!--
+            filled state: filename + a single clear button. The filename is only a
+            download link once the record is saved and clean, matching the guard
+            stock uses on its own download button.
+        -->
+        <xpath expr="//div[hasclass('d-inline-flex')]" position="replace">
+            <div class="o_etp_file_inline d-inline-flex align-items-center gap-2">
+                <a t-if="props.record.resId and !props.record.dirty"
+                   class="o_etp_file_name text-truncate" href="#"
+                   t-att-title="fileName"
+                   t-on-click.prevent="onFileDownload"
+                   t-esc="fileName"/>
+                <span t-else="" class="o_etp_file_name text-truncate"
+                      t-att-title="fileName" t-esc="fileName"/>
+                <button class="btn btn-link p-0 o_clear_file_button o_etp_chip_del"
+                        data-tooltip="Remove" aria-label="Remove"
+                        t-on-click="() => this.update({})">
+                    <i class="fa fa-times" aria-hidden="true"/>
+                </button>
+            </div>
+        </xpath>
+    </t>
+
+</templates>

@@ -80,21 +80,20 @@
 
                     <!-- Step 1: the mandatory SOP upload, front and centre -->
                     <field name="has_sop_resource" invisible="1"/>
-                    <div class="alert alert-info d-flex align-items-center gap-2 py-2 px-3 mb-3"
-                         role="alert" invisible="resource_ids">
-                        <i class="fa fa-arrow-down" title="Upload the SOP below"/>
-                        <span><strong>Step 1</strong> — upload the SOP below, then click <strong>Generate Questions</strong>.</span>
-                    </div>
-                    <div class="o_etp_sop_upload p-3 mb-3">
-                        <group>
-                            <field name="upload_sop_file"
-                                   widget="binary"
+                    <div class="o_etp_sop_upload p-2 mb-3">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <label for="upload_sop_file" string="SOP document (required)"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="upload_sop_file" nolabel="1"
+                                   widget="etp_upload_button"
                                    filename="upload_sop_filename"
-                                   string="SOP document (required)"
                                    required="not has_sop_resource"
                                    help="Required: the SOP document questions are generated from."/>
                             <field name="upload_sop_filename" invisible="1"/>
-                        </group>
+                            <field name="resource_ids" nolabel="1"
+                                   widget="etp_file_chips"
+                                   options="{'category': 'sop'}"/>
+                        </div>
                     </div>
 
                     <!-- Status: what the system reports (dimmed, secondary) -->
@@ -132,15 +131,27 @@
                     <!-- Generation controls: every knob for the run, in one card -->
                     <div class="o_etp_panel">
                         <separator string="Generation controls"/>
-                        <group>
-                            <field name="sop_question_count" widget="integer"/>
-                            <field name="sample_questions_file"
-                                   widget="binary"
-                                   filename="sample_questions_filename"
-                                   string="Sample questions (optional)"
-                                   help="Upload a sample-questions file (PDF/DOCX/MD/image) so generated questions match its format — optional."/>
-                            <field name="sample_questions_filename" invisible="1"/>
-                        </group>
+                        <div class="d-flex align-items-center gap-3 flex-wrap mb-2 mt-1">
+                            <label for="question_count_mode" string="Questions to generate"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="question_count_mode" nolabel="1"
+                                   widget="radio" options="{'horizontal': True}"/>
+                            <field name="sop_question_count" nolabel="1" widget="integer"
+                                   invisible="question_count_mode != 'fixed'"
+                                   class="o_etp_count_input"/>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                            <label for="upload_sample_file" string="Sample questions (optional)"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="upload_sample_file" nolabel="1"
+                                   widget="etp_upload_button"
+                                   filename="upload_sample_filename"
+                                   help="Upload a sample-questions file (PDF/DOCX/MD/image) so generated questions match its format - optional."/>
+                            <field name="upload_sample_filename" invisible="1"/>
+                            <field name="resource_ids" nolabel="1"
+                                   widget="etp_file_chips"
+                                   options="{'category': 'sample'}"/>
+                        </div>
                         <div class="d-flex align-items-center justify-content-between mb-1 mt-3">
                             <span class="fw-semibold">Allowed question types</span>
                             <span class="d-inline-flex align-items-center gap-1 small text-muted">
@@ -148,7 +159,9 @@
                                 <label for="select_all_types" string="Select all" class="mb-0 fw-normal"/>
                             </span>
                         </div>
-                        <div class="o_etp_control mb-1">
+                        <div class="o_etp_control mb-1 o_etp_qtypes">
+                            <field name="types_all_selected" invisible="1"/>
+                            <span class="o_etp_qtypes_full" invisible="not types_all_selected"/>
                             <field name="allowed_question_type_ids" nolabel="1"
                                    widget="many2many_tags"
                                    options="{'no_create': True, 'no_create_edit': True}"
@@ -166,7 +179,20 @@
                                    placeholder="Optional extra instructions for the generator…"/>
                         </div>
                         <div class="text-muted small mt-1">
-                            Appended to the source material the model reads — e.g. "focus on edge-case moderation calls; keep language plain, avoid legalese."
+                            Appended to the source material the model reads - e.g. "focus on edge-case moderation calls; keep language plain, avoid legalese."
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap mb-2 mt-3">
+                            <label for="upload_reference_file" string="Reference files (optional)"
+                                   class="o_etp_flabel fw-semibold mb-0"/>
+                            <field name="upload_reference_file" nolabel="1"
+                                   widget="etp_upload_button"
+                                   options="{'icon_only': true, 'label': 'Add a reference file'}"
+                                   filename="upload_reference_filename"
+                                   help="Supporting documents the generator reads alongside the SOP and your notes."/>
+                            <field name="upload_reference_filename" invisible="1"/>
+                            <field name="resource_ids" nolabel="1"
+                                   widget="etp_file_chips"
+                                   options="{'category': 'reference'}"/>
                         </div>
                     </div>
 
@@ -185,25 +211,26 @@
                     <notebook>
                         <page string="Resources">
                             <div class="alert alert-info" role="alert">
-                                Add any extra reference files here — the required <strong>SOP</strong> is uploaded above.
-                                Accepted formats: .docx, .txt, .md, .csv, .html.
+                                Every file attached to this generator. Upload from the form above.
+                                Text is extracted from .docx, .txt, .md, .csv, .html, .json and .xml;
+                                .pdf and images are read directly by the model instead.
                             </div>
-                            <field name="resource_ids">
-                                <list>
-                                    <field name="sequence" widget="handle"/>
+                            <field name="resource_ids" readonly="1">
+                                <list create="false" delete="false" edit="false">
                                     <field name="category"/>
                                     <field name="name"/>
                                     <field name="file" filename="name"/>
                                     <field name="char_count"/>
+                                    <field name="status"/>
                                     <field name="extraction_error"/>
                                 </list>
                                 <form>
                                     <sheet>
                                         <group>
-                                            <field name="name"/>
-                                            <field name="sequence"/>
-                                            <field name="file" filename="name"/>
+                                            <field name="name" readonly="1"/>
+                                            <field name="file" filename="name" readonly="1"/>
                                             <field name="char_count" readonly="1"/>
+                                            <field name="status" readonly="1"/>
                                             <field name="extraction_error" readonly="1"/>
                                         </group>
                                         <field name="extracted_text" readonly="1"/>
@@ -323,7 +350,7 @@
                                             This item or its answer key
                                             <strong>references the source material</strong>
                                             (SOP / guidelines / a Section). The candidate never
-                                            sees the source — the question must be self-contained.
+                                            sees the source - the question must be self-contained.
                                             Regenerate, or rewrite so the deciding facts live in
                                             the scenario itself.
                                         </div>
@@ -333,7 +360,7 @@
                                              invisible="not has_revealing_option">
                                             An option name embeds its rationale
                                             ("…, <strong>because</strong> …"). Option names are
-                                            shown to the candidate — keep them to the bare choice
+                                            shown to the candidate - keep them to the bare choice
                                             (e.g. <strong>Image B</strong>) and move the "why" to the
                                             hidden <strong>Answer Rationale</strong>. Regenerate or
                                             edit the option text before approving.
@@ -342,7 +369,7 @@
                                              invisible="question_type not in ('mcq','msq','image_ab')">
                                             Each row is one scoring <strong>dimension</strong>; the
                                             <strong>Correct</strong> toggle marks the answer key. Used
-                                            <strong>only for scoring</strong> — candidates see the options
+                                            <strong>only for scoring</strong> - candidates see the options
                                             to choose from but never which one is correct.
                                         </div>
                                         <field name="dimensions_preview" widget="html"
@@ -366,7 +393,7 @@
                                                 </field>
                                             </form>
                                         </field>
-                                        <group string="Answer Key — Rubric"
+                                        <group string="Answer Key - Rubric"
                                                invisible="question_type not in ('subjective_rubric','image_prompt','image_label')">
                                             <field name="ak_ideal_answer"
                                                    invisible="question_type not in ('image_prompt','image_label')"
@@ -390,7 +417,7 @@
                                         </group>
                                         <field name="official_reasoning"
                                                invisible="question_type not in ('mcq','msq','image_ab')"
-                                               placeholder="Hidden answer-key rationale — stored for review/scoring, never shown to the candidate..."/>
+                                               placeholder="Hidden answer-key rationale - stored for review/scoring, never shown to the candidate..."/>
                                         <notebook>
                                             <page string="Advanced (raw JSON)">
                                                 <div class="alert alert-info" role="alert">
@@ -552,7 +579,7 @@
                         This item or its answer key
                         <strong>references the source material</strong>
                         (SOP / guidelines / a Section). The candidate never sees the
-                        source — the question must be self-contained. Regenerate, or
+                        source - the question must be self-contained. Regenerate, or
                         rewrite so the deciding facts live in the scenario itself.
                     </div>
                     <separator string="Answer Key"
@@ -561,7 +588,7 @@
                          invisible="not has_revealing_option">
                         An option name embeds its rationale
                         ("…, <strong>because</strong> …"). Option names are shown to the
-                        candidate — keep them to the bare choice (e.g. <strong>Image B</strong>)
+                        candidate - keep them to the bare choice (e.g. <strong>Image B</strong>)
                         and move the "why" to the hidden <strong>Answer Rationale</strong>.
                         Regenerate or edit the option text before approving.
                     </div>
@@ -569,7 +596,7 @@
                          invisible="question_type not in ('mcq','msq','image_ab')">
                         Each row is one scoring <strong>dimension</strong>; the
                         <strong>Correct</strong> toggle marks the answer key. Used
-                        <strong>only for scoring</strong> — candidates see the options
+                        <strong>only for scoring</strong> - candidates see the options
                         to choose from but never which one is correct.
                     </div>
                     <field name="dimensions_preview" widget="html"
@@ -593,7 +620,7 @@
                             </field>
                         </form>
                     </field>
-                    <group string="Answer Key — Rubric"
+                    <group string="Answer Key - Rubric"
                            invisible="question_type not in ('subjective_rubric','image_prompt','image_label')">
                         <field name="ak_ideal_answer"
                                invisible="question_type not in ('image_prompt','image_label')"
@@ -617,7 +644,7 @@
                     </group>
                     <field name="official_reasoning"
                            invisible="question_type not in ('mcq','msq','image_ab')"
-                           placeholder="Hidden answer-key rationale — stored for review/scoring, never shown to the candidate..."/>
+                           placeholder="Hidden answer-key rationale - stored for review/scoring, never shown to the candidate..."/>
                     <notebook>
                         <page string="Advanced (raw JSON)">
                             <div class="alert alert-info" role="alert">
