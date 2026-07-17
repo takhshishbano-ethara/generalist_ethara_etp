@@ -287,6 +287,9 @@
                             been evaluated.
                         </p>
                         <div class="etp-result-breakdown" t-out="evaluator.result_summary"/>
+                        <a t-attf-href="/pro_assessment/#{evaluator.access_token}/answers" class="btn btn-outline-secondary etp-result-cta">
+                            <i class="fa fa-list-ul"/> Review answers
+                        </a>
                         <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
                             <i class="fa fa-arrow-left"/> Back to My Assessments
                         </a>
@@ -313,6 +316,45 @@
                             <i class="fa fa-arrow-left"/> Back to My Assessments
                         </a>
                     </t>
+                </div>
+            </t>
+        </t>
+    </template>
+
+    <template id="portal_assessment_answers" name="ETP Assessment - Answers Review">
+        <t t-call="etp_assessment_pro.portal_exam_layout">
+            <t t-set="exam_body">
+                <div class="etp-exam-card">
+                    <div class="card-body">
+                        <span class="etp-qeyebrow">Review answers</span>
+                        <h5 class="etp-question-title mb-1" t-out="assessment.name"/>
+                        <p class="text-muted mb-4">Your submitted answers, with correct / incorrect marking.</p>
+                        <t t-foreach="review_rows" t-as="row">
+                            <div class="border rounded-3 p-3 p-md-4 mb-3">
+                                <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                    <div class="fw-semibold lh-base"><t t-out="row['index']"/>. <t t-out="row['prompt'] or row['name']"/></div>
+                                    <span t-attf-class="badge rounded-pill #{row['badge']}" style="flex:0 0 auto"><t t-out="row['verdict']"/><t t-if="row['score_pct'] is not None"> · <t t-out="row['score_pct']"/>%</t></span>
+                                </div>
+                                <t t-if="row['chosen']">
+                                    <p class="mb-1"><strong>Your answer: </strong><t t-out="', '.join(row['chosen'])"/></p>
+                                </t>
+                                <t t-if="row['justification']">
+                                    <div class="fw-semibold small text-muted mt-2 mb-1">Your response</div>
+                                    <pre class="mb-2 p-3 bg-light border rounded-3" style="white-space:pre-wrap;font-size:.9rem" t-out="row['justification']"/>
+                                </t>
+                                <t t-if="not row['chosen'] and not row['justification']">
+                                    <p class="mb-1 text-muted fst-italic">No answer submitted.</p>
+                                </t>
+                                <t t-if="row['correct']">
+                                    <p class="mb-0 text-success"><strong>Correct answer: </strong><t t-out="', '.join(row['correct'])"/></p>
+                                </t>
+                            </div>
+                        </t>
+                        <div class="d-flex gap-2 mt-4">
+                            <a t-att-href="back_url" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"/>Back to result</a>
+                            <a href="/my/pro_assessments" class="btn btn-primary">My Assessments</a>
+                        </div>
+                    </div>
                 </div>
             </t>
         </t>
