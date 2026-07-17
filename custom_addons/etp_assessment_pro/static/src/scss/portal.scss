@@ -1670,7 +1670,7 @@
             gap: 30px;
             align-items: start;
         }
-        .etp-image-col { align-self: start; }
+        .etp-image-col { align-self: start; position: sticky; top: 16px; }
         /* stack the A/B (or labelled) images vertically within the left column
            regardless of their col-md-* classes, so each renders large */
         .etp-image-layout .etp-image-panel > [class*="col-"] {
@@ -1857,6 +1857,12 @@
     /* ===================================================================
        IMAGE-LABEL — per-box numbered label inputs
        =================================================================== */
+    .etp-label-list {
+        max-height: 60vh;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 6px;
+    }
     .etp-label-row {
         display: grid;
         grid-template-columns: minmax(130px, 210px) 1fr;

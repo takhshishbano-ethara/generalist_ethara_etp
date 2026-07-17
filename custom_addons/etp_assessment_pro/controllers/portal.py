@@ -119,7 +119,7 @@ class EtpAssessmentPortal(http.Controller):
         if block:
             return block
         assessment = evaluator.assessment_id
-        if evaluator.is_locked:
+        if evaluator.is_locked or evaluator.state == "submitted":
             return request.render(
                 "etp_assessment_pro.portal_assessment_complete",
                 {"assessment": assessment, "evaluator": evaluator})
@@ -750,7 +750,7 @@ class EtpAssessmentPortal(http.Controller):
             evaluator.applicant_id.partner_name, assessment.name, reason,
             new_count)
         cap = assessment.max_violations or 0
-        if assessment.violation_action == "auto_submit" and cap and new_count >= cap:
+        if assessment.violation_action == "auto_submit" and (not cap or new_count >= cap):
             self._auto_submit_remaining_single(evaluator)
 
     def _auto_submit_remaining_single(self, evaluator):
