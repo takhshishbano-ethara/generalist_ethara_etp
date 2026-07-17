@@ -402,19 +402,20 @@ class TestEnqueueScoring(_Base):
         self.assertEqual(r.llm_state, "not_needed")
 
     def test_cron_llm_auto_score_drains_pending(self):
+        """llm_auto_score ON: submitting auto-queues, the cron drains it.
+
+        Submission itself sets scoring_requested (see Evaluator.write) so no
+        admin has to click 'Run Subjective Evaluation'. The Vertex call still
+        happens in the cron, never in the submit request.
+        """
         a, ev, q, r = self._ctx(llm_auto=True)
         r.write({"state": "submitted", "llm_state": "pending"})
         ev.write({"state": "submitted"})
+        ev.invalidate_recordset()
+        self.assertTrue(
+            ev.scoring_requested,
+            "submitting with llm_auto_score ON must auto-queue grading")
         fake = json.dumps([{"id": r.id, "score": 0.95, "feedback": "ok"}])
-        # The grader only touches candidates an admin has REQUESTED. Without the
-        # flag the cron must leave them pending (no scoring during/after the exam).
-        with patch.object(vertex_svc, "_call_vertex", return_value=fake), \
-                patch.object(self.env.cr, "commit"):
-            self.Assessment._cron_llm_auto_score()
-        r.invalidate_recordset()
-        self.assertEqual(r.llm_state, "pending")
-        # Admin clicks 'Run Subjective Evaluation' -> cron drains it next batch.
-        ev.write({"scoring_requested": True})
         with patch.object(vertex_svc, "_call_vertex", return_value=fake), \
                 patch.object(self.env.cr, "commit"):
             self.Assessment._cron_llm_auto_score()
@@ -423,6 +424,24 @@ class TestEnqueueScoring(_Base):
         self.assertEqual(r.llm_state, "scored")
         self.assertEqual(r.llm_score, 1)
         self.assertEqual(ev.llm_state, "scored")
+
+    def test_submit_does_not_queue_when_llm_auto_score_off(self):
+        """llm_auto_score OFF is the kill switch on Vertex spend: submitting
+        must NOT queue, and the cron must leave the answer pending until an
+        admin explicitly requests it."""
+        a, ev, q, r = self._ctx(llm_auto=False)
+        r.write({"state": "submitted", "llm_state": "pending"})
+        ev.write({"state": "submitted"})
+        ev.invalidate_recordset()
+        self.assertFalse(
+            ev.scoring_requested,
+            "llm_auto_score OFF must not auto-queue grading")
+        fake = json.dumps([{"id": r.id, "score": 0.95, "feedback": "ok"}])
+        with patch.object(vertex_svc, "_call_vertex", return_value=fake), \
+                patch.object(self.env.cr, "commit"):
+            self.Assessment._cron_llm_auto_score()
+        r.invalidate_recordset()
+        self.assertEqual(r.llm_state, "pending")
 
 
 class TestRecordRules(_Base):

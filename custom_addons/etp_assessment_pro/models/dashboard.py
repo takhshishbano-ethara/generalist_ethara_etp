@@ -42,6 +42,9 @@ class EtpAssessmentDashboard(models.TransientModel):
     assessment_breakdown_html = fields.Html(
         string="Assessment Performance", sanitize=False, readonly=True
     )
+    leaderboard_html = fields.Html(
+        string="Candidate Leaderboard", sanitize=False, readonly=True
+    )
     recent_submissions_html = fields.Html(
         string="Recent Submissions", sanitize=False, readonly=True
     )
@@ -117,6 +120,7 @@ class EtpAssessmentDashboard(models.TransientModel):
                 ),
                 "chart_score_dist_html": self._build_chart_score_dist(Ev),
                 "assessment_breakdown_html": self._build_assessment_breakdown(Ev),
+                "leaderboard_html": self._build_leaderboard(Ev),
                 "recent_submissions_html": self._build_recent_submissions(Ev),
             }
         )
@@ -343,6 +347,82 @@ class EtpAssessmentDashboard(models.TransientModel):
                 total=row["total"],
                 subm=submitted,
                 rate=round(pass_rate, 1),
+                avg=round(avg, 1),
+            )
+        return Markup('<div class="etp-brk">{}{}</div>').format(head, body)
+
+    @api.model
+    def _build_leaderboard(self, Ev):
+        """Global, cross-assessment candidate leaderboard. Groups every SUBMITTED
+        evaluator by applicant_id and aggregates on the DB (grouped reads only —
+        never a scan over raw evaluators), then ranks by average score. Pure
+        aggregation of already-stored fields; makes NO LLM call."""
+        data = {}
+        # attempts (submitted) + avg score per candidate, one grouped read each
+        for applicant, count in Ev._read_group(
+            [("state", "=", "submitted")], ["applicant_id"], ["__count"]
+        ):
+            if applicant:
+                data[applicant.id] = {
+                    "rec": applicant, "attempts": count,
+                    "passed": 0, "avg": 0.0,
+                }
+        for applicant, avg in Ev._read_group(
+            [("state", "=", "submitted")], ["applicant_id"],
+            ["score_percent:avg"]
+        ):
+            if applicant and applicant.id in data:
+                data[applicant.id]["avg"] = avg or 0.0
+        for applicant, count in Ev._read_group(
+            [("state", "=", "submitted"), ("result", "=", "pass")],
+            ["applicant_id"], ["__count"]
+        ):
+            if applicant and applicant.id in data:
+                data[applicant.id]["passed"] = count
+
+        rows = sorted(
+            data.values(),
+            key=lambda r: (r["avg"], r["passed"], r["attempts"]),
+            reverse=True)[:10]
+        if not rows:
+            return Markup(
+                '<div class="etp-brk-empty">No submitted candidates yet</div>'
+            )
+
+        head = Markup(
+            '<div class="etp-brk-head">'
+            '<span class="etp-brk-c-num">#</span>'
+            '<span class="etp-brk-c-name">Candidate</span>'
+            '<span class="etp-brk-c-num">Taken</span>'
+            '<span class="etp-brk-c-num">Passed</span>'
+            '<span class="etp-brk-c-bar">Avg Score</span>'
+            "</div>"
+        )
+        body = Markup("")
+        for idx, row in enumerate(rows, start=1):
+            avg = max(0.0, min(100.0, row["avg"]))
+            medal = {1: "\U0001F947", 2: "\U0001F948", 3: "\U0001F949"}.get(
+                idx, str(idx))
+            body += Markup(
+                '<a class="etp-brk-row" '
+                'href="/web#id={aid}&amp;model=hr.applicant&amp;view_type=form">'
+                '<span class="etp-brk-num etp-brk-rank">{medal}</span>'
+                '<span class="etp-brk-name">{name}</span>'
+                '<span class="etp-brk-num">{taken}</span>'
+                '<span class="etp-brk-num">{passed}</span>'
+                '<span class="etp-brk-bar">'
+                '<span class="etp-brk-bar-track">'
+                '<span class="etp-brk-bar-fill" style="width:{avg}%"></span>'
+                "</span>"
+                '<span class="etp-brk-bar-pct">{avg}%</span>'
+                "</span>"
+                "</a>"
+            ).format(
+                aid=row["rec"].id,
+                medal=medal,
+                name=escape(row["rec"].display_name or "Unknown"),
+                taken=row["attempts"],
+                passed=row["passed"],
                 avg=round(avg, 1),
             )
         return Markup('<div class="etp-brk">{}{}</div>').format(head, body)

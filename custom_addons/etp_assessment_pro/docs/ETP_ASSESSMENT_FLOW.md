@@ -3,13 +3,15 @@
 | | |
 |---|---|
 | **Module path** | `custom_addons/etp_assessment_pro/` (in the `ethara-etp` repo) |
-| **Manifest version** | `19.0.1.64.0` (`__manifest__.py:3`) |
-| **Generated** | 2026-07-13 |
+| **Manifest version** | `19.0.1.120.0` (`__manifest__.py:3`) |
+| **Generated** | 2026-07-13 · **last updated** 2026-07-17 |
 | **Status** | Rewritten against current source (line-for-line). Every `file:line` below is relative to the module root `custom_addons/etp_assessment_pro/`. |
 
 > **Single source of truth** for this module's features and flows. The module was heavily refactored; the prior doc described a removed architecture (skills, categories, master dimensions, multi-day plans). This revision documents only the CURRENT code. See the delta block immediately below for what changed away from the old model.
 
-## Architecture (current, v19.0.1.64.0)
+> **What changed since v64 (this update, v120):** a 4th media type — **`video_prompt`** (async Veo generation) — was added; the legacy **`subjective_justification`** type was removed (migration `19.0.1.89.0`); the subjective judge prompt advanced and **the rendered media is now attached to the scoring call** (`scoring.py:1130` `user_parts`) so image_ab/image_label are no longer graded blind; tags gained a growth-readable **`display`** alias + a manual **Tags** admin UI with a **Merge** action; the admin dashboard gained a **global candidate Leaderboard**; the candidate portal gained a **"My Performance"** analytics block; the **LLM Budget** dashboard now splits **input / output / thinking** tokens and tokens-by-operation; candidate submit can **auto-queue** subjective grading (per-assessment `llm_auto_score`, default OFF); proctoring violations post via `navigator.sendBeacon` and "Review & Submit" is a real POST (both fix silent answer loss). Migrations now run through `19.0.1.118.0` (18 total), and an 8th cron `ir_cron_poll_video_ops` drains async video jobs.
+
+## Architecture (current, v19.0.1.120.0)
 
 The module is now a **single-sitting, SOP-direct, tag-aware** assessment platform. What changed away from the prior doc's architecture:
 
@@ -59,13 +61,13 @@ Recommended order for a tester: skim §2–§4 for orientation, read the relevan
 
 ## 2. Scope & boundaries
 
-**In scope — what `etp_assessment_pro` is:** a self-contained Odoo 19 module implementing the full **single-sitting** assessment lifecycle: an AI-assisted question-bank generation workspace (SOP upload → native multimodal generation → draft review → approve), semantic SOP tagging + similarity, per-assessment candidate provisioning, a website-portal exam runner with client-side proctoring, objective (code) scoring + subjective (LLM) scoring with an immutable-raw / live-threshold model, results release, CSV/JSON export, and two analytics dashboards.
+**In scope — what `etp_assessment_pro` is:** a self-contained Odoo 19 module implementing the full **single-sitting** assessment lifecycle: an AI-assisted question-bank generation workspace (SOP upload → native multimodal generation of MCQ/MSQ/subjective/image/**video** questions → draft review → approve), semantic SOP tagging + similarity, per-assessment candidate provisioning, a website-portal exam runner with client-side proctoring, objective (code) scoring + subjective (media-aware LLM) scoring with an immutable-raw / live-threshold model, results release, CSV/JSON export, and analytics surfaces (admin dashboard + candidate "My Performance" + LLM Budget).
 
 **Candidate channel — the Odoo WEBSITE PORTAL.** Candidates take the exam through this module's own QWeb portal (`/my/pro_assessments`, `/pro_assessment/<token>`), authenticated as `base.group_portal` users (or email-matched internal users) linked to `hr.applicant` via `candidate_user_id`. This module is **not** the Flutter app and **not** any REST extension — those are separate channels out of scope here.
 
 **External dependencies (runtime):**
 
-- **Vertex AI (Gemini)** — serves generation, tag extraction, image render, image detection, and subjective scoring. Two configured models: a document/generation model (`GENERATION_DEFAULT_MODEL = "gemini-3.1-pro-preview"`, `constants.py:101`) used for SOP reading, and an image model (`VERTEX_DEFAULT_MODEL = "gemini-3-pro-image"`, `constants.py:96`). Generation **never** falls back to the image model (a PDF is opaque to it → "document has no pages"; `services/vertex.py:950`). All heavy calls run off the web request via cron drainers.
+- **Vertex AI (Gemini + Veo)** — serves generation, tag extraction, image render, image detection, subjective scoring, and **async video generation**. Configured models: a document/generation model (`GENERATION_DEFAULT_MODEL = "gemini-3.1-pro-preview"`, `constants.py:101`) used for SOP reading, an image model (`VERTEX_DEFAULT_MODEL = "gemini-3-pro-image"`, `constants.py:96`), and a **video model** (`VIDEO_DEFAULT_MODEL = "veo-3.1-generate-001"`, `constants.py:98`) used for `video_prompt` reference clips via a long-running submit/poll operation. Generation **never** falls back to the image model (a PDF is opaque to it → "document has no pages"; `services/vertex.py:950`). All heavy calls run off the web request via cron drainers.
 - **S3** (boto3) — optional server-side storage/proxy for question images; empty bucket config disables it and the portal serves stored binaries.
 - **PostgreSQL** — Odoo's datastore; the module relies on `pg_advisory_lock` / `pg_advisory_xact_lock` for cron mutual exclusion and commits before slow calls (managed-Postgres idle-in-transaction reaper safety).
 
@@ -109,7 +111,7 @@ Recommended order for a tester: skim §2–§4 for orientation, read the relevan
 
 ## 4. Data model map
 
-19 own models (`_name`) + 2 inherits. All defining `file:line` verified. Registration order: `models/__init__.py`.
+21 own models (`_name`) + 2 inherits. All defining `file:line` verified. Registration order: `models/__init__.py`.
 
 | Model (`_name`) | File:line | Kind | Purpose |
 |---|---|---|---|
@@ -121,6 +123,8 @@ Recommended order for a tester: skim §2–§4 for orientation, read the relevan
 | `etp.assessment.pro.question.dimension` | `models/question_dimension.py:6` | Model | Per-question dimension/axis (self-contained) |
 | `etp.assessment.pro.question.dimension.option` | `models/question_dimension.py:38` | Model | Per-question option line (`is_correct` = answer key) |
 | `etp.assessment.pro.question.image` | `models/question_image.py:21` | Model | Image for image questions (Binary/S3; annotation + detections) |
+| `etp.assessment.pro.question.video` | `models/question_video.py` | Model | Clip for `video_prompt` questions (slot a/b/single; Binary/URL; async Veo render) |
+| `etp.assessment.pro.question.type` | `models/question_type.py` | Model | Controlled **question-type vocabulary** (M2M allow-list per generator; replaced the old stored allow-list string in migration `19.0.1.103.0`) |
 | `etp.assessment.pro.prompt` | `models/prompt.py:23` | Model | **Generator** — SOP resources → drafts + tags |
 | `etp.assessment.pro.prompt.question` | `models/prompt.py:606` | Model | Draft question (reviewer-facing, → bank on approve) |
 | `etp.assessment.pro.prompt.question.dimension` | `models/prompt_question_dimension.py:8` | Model | Draft answer axis (editable) |
@@ -172,6 +176,7 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 6. **Similarity** — `_similar_prompts` (`prompt.py:405`) ranks OTHER generators by **weighted-Jaccard** tag overlap (prefix weights `constants.py:15`: task 3, domain 2, skill 2, modality 1, output-format 1; default 1). `similar_count` (`prompt.py:471`) and *View Similar* (`action_view_similar`, `prompt.py:551`) gate on shared-weight ≥ `TAG_SIMILAR_MIN_SCORE_DEFAULT` (2.0, `constants.py:27`). The form shows tag pills + a "Similar Projects" alignment-% panel (`similar_html`, `prompt.py:495`).
 7. **Review drafts** — each `prompt.question` (`prompt.py:606`, `state` draft/approved/denied) shows leak guards `has_revealing_option` (`prompt.py:757`) and `has_source_reference` (`prompt.py:772`), an answer-key preview, and editable friendly rubric fields (`ak_ideal_answer`, `ak_checklist`, `ak_constraints`, `ak_pass_condition`, …) that inverse into `rubric_json` (`prompt.py:910`). Draft dimensions are self-contained (`answer_dimension_ids` → `prompt.question.dimension(.option)`).
 8. **Image drafts render (async)** — image drafts carry `image_brief_json` + `image_state='pending'`; cron `ir_cron_render_pending_images` → `_cron_render_pending_images` (`prompt.py:1329`, limit 2, session lock `827194`) renders **all-or-nothing** via `vertex.render_draft_images` (`vertex.py:819`). `action_apply_uploaded_image` (`prompt.py:1374`) swaps in an admin-supplied picture.
+8b. **Video drafts render (async, Veo)** — `video_prompt` drafts carry `video_brief_json` + `video_state` pending→generating→ready/failed (`prompt.py:1089-1114`). Cron `ir_cron_poll_video_ops` → `_cron_poll_video_ops` (`prompt.py:2487`) first **submits** the brief to Veo as a long-running operation (`_submit_video_ops` → `vertex.submit_video_op`, `prompt.py:2303`, `vertex.py:606`), stores the operation name, then on later ticks **polls** it (`_poll_video_ops`, `prompt.py:2339`) until the clip is ready and persists it as an `etp.assessment.pro.question.video` row. Video is a two-phase async job (submit then poll) precisely because Veo generation runs far longer than a single request; a paid clip is persisted so a re-poll is free. `action_apply_uploaded_video` swaps in an admin-supplied clip (`question.py:70-79`).
 9. **Approve → bank** — *Approve* (`action_approve`, `prompt.py:944`; guards image drafts have a picture) creates the published `etp.assessment.pro.question` with `generator_id = prompt.id`, materializes a **private per-question** dimension set (`_materialize_dimensions`, `prompt.py:1137`) and image rows (`_materialize_images` → `image_ingest.ingest` → S3, `prompt.py:1184`). *Deny* (`action_deny`) drops the draft.
 10. **(Alt) Bulk import/export** — native round-trip via `bank.import.import_bank_native` (`bank_import.py:24`) and the question model's `action_export_native_json` / `action_export_json` / `action_export_csv` (`question.py:309/334/341`).
 
@@ -185,21 +190,22 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 
 ### 5.3 Candidate exam-taking (portal)
 
-1. **Hub / home** — the portal `home` override (`candidate_portal.py:177`) redirects a candidate to *My Assessments* (`/my/pro_assessments`, `candidate_portal.py:106`), which buckets their evaluators into available / in-progress / upcoming / completed, each card linking to the tokenized exam URL. Applicant resolution falls back candidate-link → partner → `login == email_from` so an internal-user candidate resolves (`_resolve_applicant`, `candidate_portal.py:15`). A backend "My Assessments" menu (`ir.actions.act_url`, `groups="base.group_user"`, `menus.xml:54`) gives internal users an entry point.
+1. **Hub / home** — the portal `home` override (`candidate_portal.py:177`) redirects a candidate to *My Assessments* (`/my/pro_assessments`, `candidate_portal.py:106`), which buckets their evaluators into available / in-progress / upcoming / completed, each card linking to the tokenized exam URL. Applicant resolution falls back candidate-link → partner → `login == email_from` so an internal-user candidate resolves (`_resolve_applicant`, `candidate_portal.py:15`). A backend "My Assessments" menu (`ir.actions.act_url`, `groups="base.group_user"`) gives internal users an entry point. **A "My Performance" analytics block** (`_candidate_kpis`, `candidate_portal.py:148`) sits above the buckets — pass-rate + average-score rings, best/passed/completed/awaiting KPI cards, and a per-assessment score breakdown — computed purely from the candidate's already-loaded cards and gated on `results_released` (so nothing shows before an admin releases). Mirrors the admin dashboard's look, scoped to the one candidate.
 2. **Landing & guards** — `/pro_assessment/<token>` (`portal.py:109`): token→evaluator (`_get_evaluator_from_token`), public→login redirect, `_candidate_guard` (`portal.py:80`; blocks link-sharing, managers may preview), then routing: locked/submitted → complete page; `state != in_progress` → `portal_assessment_closed`; not started → `portal_instructions`; time expired → auto-submit + complete; else serve the current question.
 3. **Begin** — `/pro_assessment/<token>/begin` POST (`portal.py:147`, `csrf=True`) requires the real candidate (`_is_real_candidate`), stamps `started_at`, flips `state='in_progress'` (which drives the stored `deadline_datetime`, `assessment.py:1094`).
 4. **Answer** — `_serve_question` (`portal.py:360`) renders `portal_question_page` with per-type inputs: mcq radios, msq native `name`d checkboxes (read via `getlist()`), subjective textarea, image_ab verdict radios + optional justification, image_prompt textarea, and **image_label per-box inputs** (`label_<n>` fields). Box count comes from the image's `detections_json`, else the answer-key `ideal_labels` length (`_image_label_context` + `_ideal_labels_count`, `portal.py:420/34`). Images stream via the token-scoped proxy `/pro_assessment/qimage/<token>/<image_id>` (`portal.py:257`).
 5. **Save & advance** — each *Save & Next* posts `/submit` (`portal.py:167`, `csrf=True`) → `_record_response` (`portal.py:511`): rejects a `question_id` not in `question_order` (score-inflation guard), validates option ids against the question's own options (drops tampered/stale), collects image_label answers as JSON into `justification`, **upserts** one response per (question, evaluator) idempotently (savepoint + `IntegrityError` re-fetch), calls `action_submit()` (or `_enqueue_subjective_scoring` when editing a submitted answer). `_next_index` (`portal.py:345`) computes the next `?q=`.
 6. **Navigate back** — Prev posts the same `/submit` with `nav=prev`; revisited questions pre-fill via `_existing_response` and overwrite in place.
-7. **Review & submit** — *Review* (`/review`, `portal.py:195`) → `portal_review_page`; `/finish` POST (`portal.py:224`, `csrf=True`) bounces to `/review?incomplete=1` when questions are unanswered and the deadline has not passed (warning banner), else `_auto_submit_remaining_single` (`portal.py:652`) fills `[Auto-submitted]` placeholders, locks the evaluator (`state='submitted'`, `is_locked=True`), and flips the assessment to `done` when all are submitted.
-8. **Proctoring** — inline JS reads the 8 rule booleans (`_rules_json`, `portal.py:16`), enforces tab-switch/copy-paste/right-click/devtools/screenshot/fullscreen/webcam/watermark client-side, and POSTs `/violation` (`portal.py:241`, `csrf=True`). `_record_violation_single` (`portal.py:631`) atomically increments `violation_count`; at `max_violations` with `violation_action='auto_submit'` the attempt auto-submits.
+7. **Review & submit** — *Review & Submit* is now a **form POST** with `nav=review` (`_next_index` returns `None` → review page **after** saving the current answer, `portal.py:517`), fixing a prior data-loss bug where it was an `<a href>` GET inside the form that silently discarded the just-typed answer on navigation. `/finish` POST (`portal.py:224`, `csrf=True`) bounces to `/review?incomplete=1` when questions are unanswered and the deadline has not passed (warning banner), else `_auto_submit_remaining_single` (`portal.py:652`) fills `[Auto-submitted]` placeholders, locks the evaluator (`state='submitted'`, `is_locked=True`), and flips the assessment to `done` when all are submitted.
+8. **Proctoring** — inline JS reads the 8 rule booleans (`_rules_json`, `portal.py:16`), enforces tab-switch/copy-paste/right-click/devtools/screenshot/fullscreen/webcam/watermark client-side, and reports a violation via **`navigator.sendBeacon`** to `/violation` (`portal.py:241`, `csrf=True`) — a synchronous form POST from inside `visibilitychange`/unload was routinely dropped by the browser when the tab backgrounded, so violations never reached the server; the beacon survives backgrounding (a hidden-form POST remains as fallback). No blind page reload is fired (it destroyed in-progress answers); a non-destructive notice shows instead, and enforcement is entirely server-side. `_record_violation_single` (`portal.py:631`) atomically increments `violation_count`; at `max_violations` with `violation_action='auto_submit'` the attempt auto-submits and every later POST is `is_locked`-guarded. The devtools heuristic is normalized by `devicePixelRatio` so a low-vision candidate who zooms is not auto-submitted for cheating.
 9. **Deadline / resilience** — `is_time_expired` (`assessment.py:1104`) is checked on landing/submit + a client timer; cron `ir_cron_mark_missed` does **not** exist any more (single-sitting) — a closed-tab session past deadline is rescued on the candidate's next hit or left for the admin. A live timer + real-time progress bar render from `deadline_iso` + answered/total.
 
 ### 5.4 Scoring & results
 
 1. **Objective (inline, code)** — on `action_submit` (`assessment.py:1415`), `_compute_score` (`assessment.py:1386`) grades mcq/msq **all-or-nothing, equal marks** (1 only when the chosen option set equals the correct set for every objective dimension).
 2. **Subjective enqueue (never inline)** — `_enqueue_subjective_scoring` (`assessment.py:1446`) sets each needs-LLM response to `pending` (or `not_needed`/`scored` for verdict-only image_ab), and — only when `llm_auto_score` is on — flags the evaluator `scoring_requested`. Nothing calls Vertex on the candidate's request path.
-3. **Batched LLM scoring** — admin *Run Subjective Evaluation* (`action_llm_score_all`, `assessment.py:502`) or per-candidate queue (`action_queue_llm_score`, `assessment.py:1012`) sets `scoring_requested`; cron `ir_cron_llm_auto_score` → `_cron_llm_auto_score` (`assessment.py:545`, ≤20 evaluators/tick, session advisory lock `827193` with `pg_advisory_unlock_all()` at entry) calls `scoring.score_evaluator` (`scoring.py:440`): all of a candidate's needs-LLM answers go in **ONE Vertex call** (sub-batched only past `scoring_batch_size`; a retried item is re-sent alone). Verdict-only image_ab short-circuits with no call.
+3. **Batched LLM scoring** — admin *Run Subjective Evaluation* (`action_llm_score_all`, `assessment.py:502`) or per-candidate queue (`action_queue_llm_score`, `assessment.py:1012`) sets `scoring_requested`; cron `ir_cron_llm_auto_score` → `_cron_llm_auto_score` (`assessment.py:545`, ≤20 evaluators/tick, session advisory lock `827193` with `pg_advisory_unlock_all()` at entry) calls `scoring.score_evaluator` (`scoring.py`): all of a candidate's needs-LLM answers go in **ONE Vertex call** (sub-batched only past `scoring_batch_size`; a retried item is re-sent alone). Verdict-only image_ab short-circuits with no call. **The rendered media the candidate saw is attached to that call** — `_score_submission` passes `user_parts=[text]+media_parts` (`scoring.py:1130`), where `_media_parts_for` (`scoring.py:596`) inlines the A/B images (or the annotated image_label overlay) as base64 parts and the prompt indexes where each item's images sit; items with no renderable media are named so the judge stamps `media_unseen` instead of hallucinating a view. Before this fix every image_ab / image_label justification was graded blind on its text alone.
+   - **Candidate-driven auto-queue:** when an assessment has `llm_auto_score` ON (per-assessment toggle, **default OFF** while the Vertex testing budget is frozen), a candidate's submit auto-sets `scoring_requested` in the evaluator `write()` override (`assessment.py:763`) so the cron picks it up with no admin click — the Vertex call still happens in the cron, never on the request path.
 4. **Immutable raw + live threshold** — `_store_scored` (`scoring.py:395`) writes ONLY the immutable `llm_raw_100` plus the v6 audit trail (`llm_gate`, `llm_reasoning`, `llm_reference_answer`, `llm_result_json`, …). It does **not** write pass/fail: the grader's own v6 `passed` verdict is retained inside `llm_result_json` for audit but is **ignored** for the decision. `_compute_subjective_marks` (`assessment.py:1325`) derives the earned mark + `llm_passed` LIVE from `llm_raw_100` vs the assessment's `subjective_threshold`, so changing the threshold re-decides pass/fail with no re-scoring. `_store_error` (`scoring.py:418`) retries under the attempt cap (`failed`) then surfaces a terminal `error` (never a silent 0).
 5. **image_ab blend** — `_compute_ab_scores` (`assessment.py:1306`): verdict% is objective (`_image_ab_mcq_pct`, `assessment.py:1274`); final% is verdict-only when justification is off, else `ceil(0.75·verdict% + 0.25·justification%)` (`AB_VERDICT_WEIGHT`/`AB_JUSTIFICATION_WEIGHT`, `constants.py:8-9`). A Vertex call is used only when justification is required AND written (`_image_ab_uses_llm`, `assessment.py:1291`).
 6. **Roll-up** — response → evaluator `_compute_progress` (objective) + `_compute_llm_progress` (subjective) → `_compute_result` (`assessment.py:879`): equal-marks %, denominator = assigned `total_questions`, pass/fail vs `pass_threshold` (= clamped `subjective_threshold`). `_compute_subjective_rollup` (`assessment.py:896`) sets evaluator `llm_state` (incl. off-enum `error`); `scoring_error_flag` (`assessment.py:707`) renders a red "!" for terminally-errored candidates. *Reset & Re-score Errored* = `action_reset_errored_scoring` (`assessment.py:1031`).
@@ -209,17 +215,18 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 
 ### 5.5 Automated & scheduled flows
 
-**Seven `ir.cron` records** (`data/cron.xml`), all `state=code`, all active, all **1-minute** interval:
+**Eight `ir.cron` records** (`data/cron.xml`), all `state=code`, all active, all **1-minute** interval:
 
 | Cron id | Method (`file:line`) | Model | Advisory lock | What it does |
 |---|---|---|---|---|
-| `ir_cron_llm_auto_score` | `_cron_llm_auto_score` (`assessment.py:545`) | `etp.assessment.pro` | session `827193` (+`unlock_all` at entry) | Grades ≤20 submitted + `scoring_requested` evaluators (one Vertex call each) |
+| `ir_cron_llm_auto_score` | `_cron_llm_auto_score` (`assessment.py:545`) | `etp.assessment.pro` | session `827193` (+`unlock_all` at entry) | Grades ≤20 submitted + `scoring_requested` evaluators (one Vertex call each). Candidate submit auto-flags `scoring_requested` when the assessment's `llm_auto_score` is ON (default OFF) |
 | `ir_cron_recompute_subjective_results` | `_cron_recompute_subjective_results` (`assessment.py:219`) | `etp.assessment.pro` | — | Recomputes pass/fail for `threshold_recompute_pending` assessments in committed batches |
-| `ir_cron_send_pending_invitations` | `_cron_send_pending_invitations` (`assessment.py:957`) | `etp.assessment.pro.evaluator` | — (per-candidate savepoint+commit) | Sends ≤25 `queued` invitations; flags failures |
-| `ir_cron_render_pending_images` | `_cron_render_pending_images` (`prompt.py:1329`) | `etp.assessment.pro.prompt.question` | session `827194` | Renders ≤2 `image_state=pending` drafts (all-or-nothing) |
-| `ir_cron_detect_image_labels` | `_cron_detect_image_labels` (`question_image.py:214`) | `etp.assessment.pro.question.image` | session `827195` | Detects + numbered-box-annotates ≤2 image_label `single` images |
-| `ir_cron_generate_from_sop` | `_cron_generate_from_sop` (`prompt.py:248`) | `etp.assessment.pro.prompt` | session `827201` | Drains ≤2 `queued/generating` SOP generators (native multimodal generation) |
-| `ir_cron_extract_tags` | `_cron_extract_tags` (`prompt.py:328`) | `etp.assessment.pro.prompt` | session `827202` | Drains ≤2 `queued/generating` generators for semantic-tag extraction |
+| `ir_cron_send_pending_invitations` | `_cron_send_pending_invitations` (`assessment.py`) | `etp.assessment.pro.evaluator` | — (per-candidate savepoint+commit) | Sends ≤25 `queued` invitations; flags failures |
+| `ir_cron_render_pending_images` | `_cron_render_pending_images` (`prompt.py`) | `etp.assessment.pro.prompt.question` | session `827194` | Renders ≤2 `image_state=pending` drafts (all-or-nothing) |
+| `ir_cron_detect_image_labels` | `_cron_detect_image_labels` (`question_image.py`) | `etp.assessment.pro.question.image` | session `827195` | Detects + numbered-box-annotates ≤2 image_label `single` images |
+| `ir_cron_generate_from_sop` | `_cron_generate_from_sop` (`prompt.py`) | `etp.assessment.pro.prompt` | session `827201` | Drains ≤2 `queued/generating` SOP generators (native multimodal generation) |
+| `ir_cron_extract_tags` | `_cron_extract_tags` (`prompt.py`) | `etp.assessment.pro.prompt` | session `827202` | Drains ≤2 `queued/generating` generators for semantic-tag extraction (manual-only trigger since `19.0.1.98.0`) |
+| `ir_cron_poll_video_ops` | `_cron_poll_video_ops` (`prompt.py:2487`) | `etp.assessment.pro.prompt` | — | Submits + polls async **Veo** video jobs for `video_prompt` drafts (`_submit_video_ops`/`_poll_video_ops`, `prompt.py:2303/2339`); a long-running operation is submitted, then polled to completion and the clip persisted |
 
 **Email:** one template, `mail_template_single_invitation` (`data/mail_template.xml:3`), sent `force_send=False` (queued to the mail cron); no-email candidates get a durable cancelled `mail.mail` audit row with the link in `failure_reason` (`assessment.py:930`).
 
@@ -291,7 +298,7 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 | `action_apply_uploaded_image` | `:1374` |
 | `prompt.resource` extraction (docx/txt/…; PDF+images native, no extraction) | `:1400`, `:1452` |
 | `prompt.question.dimension(.option)` draft answer axis/option | `prompt_question_dimension.py:8`, `:26` |
-| `tag`: prefix/label compute, `@api.constrains` case-insensitive unique, `_canonicalize`, `_get_or_create` | `tag.py:28`, `:40`, `:57`, `:71` |
+| `tag`: prefix/label compute, **`display` readable alias**, `usage_count`, `@api.constrains` case-insensitive unique, `_canonicalize`, `_get_or_create`, `_facet_vocabulary` (frequency-ranked, self-extending), `action_merge_tags` (manual merge → repoint + unlink) | `tag.py:27`, `:33`, `:53`, `:138`, `:158`, `:202` |
 
 ### D. Services (`services/*.py`, signatures only)
 
@@ -330,14 +337,16 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 
 | Feature | file:line |
 |---|---|
-| App root menu → Analytics dashboard (`action_etp_assessment_pro_home_dashboard`) | `menus.xml:4`, `dashboard_views.xml:269` |
-| Menus: Assessments, Questions, Generators, All Responses, Configuration → Settings, My Assessments | `menus.xml:11-64` |
-| `etp.assessment.pro.dashboard` (score rings, CSS charts, Performance breakdown, Recent Submissions, clickable KPI cards) | `dashboard.py:8` |
+| App root menu → Analytics dashboard (`action_etp_assessment_pro_home_dashboard`) | `menus.xml:4`, `dashboard_views.xml` |
+| Menus: Assessments, Questions, Generators, All Responses, Configuration → (Settings, **Tags**, **LLM Budget**), My Assessments | `menus.xml` |
+| `etp.assessment.pro.dashboard` (score rings, CSS charts, Performance breakdown, Recent Submissions, clickable KPI cards, **global candidate Leaderboard** `_build_leaderboard` `dashboard.py:355` — top-10 by avg score across all assessments, medals) | `dashboard.py:8` |
 | Drilldowns: `action_open_assessments/candidates/submitted/passed/failed/pending` | `dashboard.py:136-173` |
+| Candidate "My Performance" portal analytics (`_candidate_kpis`, rings + KPI cards + per-assessment breakdown, release-gated) | `candidate_portal.py:148`, `views/portal_templates.xml` |
 | Per-candidate styled dashboard (`hr.applicant` form: score charts + result donut) | `hr_applicant.py:43`, `views/hr_applicant_views.xml:20` |
-| `etp.assessment.pro.llm.dashboard` "LLM Budget" (cost/tokens by operation/model) + menu | `llm_dashboard.py:14`, `llm_dashboard_views.xml:155`, `llm_usage_views.xml:96` |
-| `etp.assessment.pro.llm.usage` cost ledger | `llm_usage.py:7` |
-| Analytics graph/pivot over evaluator | `analytics_views.xml:10`, `:22` |
+| `etp.assessment.pro.llm.dashboard` "LLM Budget" — cost by operation/model/**project**; **tokens split input/output/thinking** (`thoughts_total`, `chart_tokens_by_operation_html` `llm_dashboard.py:27/37`); video seconds; single consolidated menu | `llm_dashboard.py:14`, `llm_dashboard_views.xml` |
+| `etp.assessment.pro.llm.usage` cost ledger (operations incl. `submit_video_op`, `consolidate_vocab`) | `llm_usage.py:7`, `:12` |
+| **Tags admin UI** — editable list/form + **Merge** action (repoints `prompt.tag_ids` to the survivor, then unlinks losers), `usage_count` popularity, `display` readable-name column | `views/tag_views.xml`, `tag.py:53` |
+| Analytics graph/pivot over evaluator (+ `applicant_id` group-by) | `analytics_views.xml` |
 
 ### G. Security, cron, mail, migrations
 
@@ -350,7 +359,7 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 | `mail_template_single_invitation` | `data/mail_template.xml:3` |
 | **Advisory locks** (`constants.py:32-38`): AUTOSCORE 827193, IMAGE_RENDER 827194, IMAGE_DETECT 827195, SKILL_EXTRACT 827200 (**legacy/unused** — skill flow removed), QUESTION_GEN 827201 (**active** — SOP generation cron), TAG_EXTRACT 827202, VERTEX_BEARER 827300 (xact) | `constants.py` |
 
-**Migrations (8):**
+**Migrations (18):**
 
 | Version | file | Purpose |
 |---|---|---|
@@ -362,13 +371,23 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 | `19.0.1.47.0` | post-migrate | Backfill `evaluator.submitted_at` |
 | `19.0.1.53.0` | pre + post | Add `generator_id` (assessment + question) and backfill it |
 | `19.0.1.54.0` | pre + post | Drop the `category` model + column |
+| `19.0.1.67.0` | post-migrate | Phase 3 image_ab **flaw-injection** data backfill |
+| `19.0.1.79.0` | post-migrate | Gap 2 **dense image_label** generation support |
+| `19.0.1.83.0` | post-migrate | **`video_prompt`** Phase 3 — async Veo generation scaffolding |
+| `19.0.1.89.0` | pre-migrate | **Remove the `subjective_justification` question type** (folded into `subjective_rubric`) |
+| `19.0.1.93.0` | post-migrate | (data cleanup) |
+| `19.0.1.98.0` | post-migrate | Tag extraction becomes **manual-only** (no auto-trigger on generate) |
+| `19.0.1.101.0` | post-migrate | Drop orphaned `ir.cron` rows |
+| `19.0.1.103.0` | post-migrate | Allow-list storage → **Many2many vocabulary** (question-type allow list) |
+| `19.0.1.117.0` | post-migrate | Retire `data/llm_config_parameters.xml` |
+| `19.0.1.118.0` | post-migrate | **Readable-tag rework** — backfill `display` + data-driven drift collapse (string-similarity merge of duplicate tags) |
 
 ### H. Constants & taxonomy (`constants.py`)
 
 | Feature | file:line |
 |---|---|
-| `QUESTION_TYPE_SELECTION` (mcq, msq, subjective_justification, subjective_rubric, image_ab, image_prompt, image_label) | `:40` |
-| `OBJECTIVE_/SUBJECTIVE_/IMAGE_QUESTION_TYPES` sets | `:51-55` |
+| `QUESTION_TYPE_SELECTION` (mcq, msq, subjective_rubric, image_ab, image_prompt, image_label, **video_prompt**) — 7 types; `subjective_justification` was **removed** (migration `19.0.1.89.0`) | `:34` |
+| `OBJECTIVE_/SUBJECTIVE_/IMAGE_/VIDEO_QUESTION_TYPES` sets | `:47-50` |
 | `DETECTION_MODE_SELECTION` object/ui | `:58` |
 | `DEFAULT_SUBJECTIVE_THRESHOLD` 70; `AB_VERDICT_WEIGHT` 0.75 / `AB_JUSTIFICATION_WEIGHT` 0.25 | `:6`, `:8-9` |
 | `TAG_PREFIX_WEIGHTS` + `TAG_SIMILAR_MIN_SCORE_DEFAULT` | `:15`, `:27` |
@@ -448,9 +467,9 @@ Key facts: two candidate collections coexist on the container — `evaluator_ids
 
 - **Generator** — an `etp.assessment.pro.prompt` record: the SOP + resources + tags + drafts workspace that authors questions. Assessments bind questions by `generator_id`.
 - **SOP-direct generation** — sending the SOP document natively (base64 multimodal) to Gemini, which authors draft questions directly (no skill extraction step).
-- **Semantic tag** — a prefixed, canonicalized `etp.assessment.pro.tag` (`task:` / `domain:` / `skill:` / `modality:` / `output-format:`) characterizing a generator's SOP; drives weighted-Jaccard similarity.
+- **Semantic tag** — a prefixed, canonicalized `etp.assessment.pro.tag` (`task:` / `domain:` / `skill:` / `modality:` / `output-format:`) characterizing a generator's SOP; drives weighted-Jaccard similarity. The machine **key** (`name`) is what the ranker reads; a pinned growth-readable **`display`** alias is what non-technical teammates see (one key → one readable name, forever). A manual **Merge** action (repoint refs → unlink) is the human counterpart to the LLM `consolidate_vocabulary` drift-collapse pass.
 - **Evaluator** (row) — `etp.assessment.pro.evaluator`: one candidate's assignment/attempt for one assessment (token, question order, scoring rollup). Distinct from the internal *evaluator group*.
 - **Single sitting** — the only mode: one timed attempt per candidate; no days/day-sessions.
 - **`llm_raw_100`** — the grader's immutable 0–100 quality score; the sole stored subjective truth. Mark and pass/fail are computed live from it vs `subjective_threshold`.
-- **image_ab / image_prompt / image_label** — the three image question types: A/B comparison (verdict axes, optional justification blend), candidate writes the generating prompt (scored vs `ideal_prompt`), and box-detection labelling (Gemini detects → numbered PIL overlay → candidate labels each box, scored per box).
+- **image_ab / image_prompt / image_label / video_prompt** — the four media question types: A/B comparison (verdict axes, optional justification blend), candidate writes the generating prompt (scored vs `ideal_prompt`), box-detection labelling (Gemini detects → numbered PIL overlay → candidate labels each box, scored per box), and **video_prompt** — the candidate writes a prompt that (would) generate a target clip, with the reference clip rendered async via Veo. The subjective judge now **sees the rendered image/annotated overlay** attached to the scoring call (`scoring.py:1130`), not just the candidate's text.
 - **Advisory lock** — a Postgres `pg_advisory_lock` key serializing a cron across workers; keys are registered together in `constants.py:32-38` to prevent collisions.

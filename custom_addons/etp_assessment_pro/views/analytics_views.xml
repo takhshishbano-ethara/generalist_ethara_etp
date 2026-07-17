@@ -51,6 +51,8 @@
                 <separator/>
                 <filter name="g_assessment" string="Assessment"
                         context="{'group_by':'assessment_id'}"/>
+                <filter name="g_candidate" string="Candidate"
+                        context="{'group_by':'applicant_id'}"/>
                 <filter name="g_result" string="Result"
                         context="{'group_by':'result'}"/>
                 <filter name="g_state" string="State"

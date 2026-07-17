@@ -1,6 +1,6 @@
 {
     "name": "ETP Assessment Pro",
-    "version": "19.0.1.119.0",
+    "version": "19.0.1.120.0",
     "summary": "Skill Bank + Question Bank + Assessment lifecycle (LLM-driven, Vertex AI)",
     "author": "Ethara",
     "website": "https://www.ethara.com",
@@ -22,6 +22,7 @@
         "views/dashboard_views.xml",
         "views/llm_dashboard_views.xml",
         "views/my_assessments_views.xml",
+        "views/tag_views.xml",
         "views/portal_templates.xml",
         "data/cron.xml",
         "data/mail_template.xml",

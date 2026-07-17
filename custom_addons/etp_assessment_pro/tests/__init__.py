@@ -26,3 +26,4 @@ from . import test_video_prompt_draft_preview
 from . import test_llm_dashboard_projects
 from . import test_gen_type_allow_list
 from . import test_prompt_form_fixes
+from . import test_scoring_v10_composition

@@ -1530,6 +1530,135 @@
         &.is-done      { border-top-color: var(--etp-success); }
     }
 
+    /* ---- candidate KPI hero: your-own-results summary --------------- */
+    .etp-my-kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 12px;
+        margin: 0 0 26px;
+        padding: 18px 20px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        box-shadow: var(--etp-shadow-xs);
+    }
+    .etp-kpi {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        text-align: center;
+
+        .etp-kpi-num {
+            font-size: 1.75rem;
+            font-weight: 800;
+            line-height: 1.05;
+            color: var(--etp-accent);
+            font-variant-numeric: tabular-nums;
+        }
+        .etp-kpi-label {
+            font-size: 0.74rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--etp-faint);
+        }
+    }
+
+    /* ---- candidate analytics: rings + breakdown (mirrors admin dash) ---- */
+    .etp-my-analytics { margin: 0 0 26px; }
+    .etp-my-hero {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 24px;
+        padding: 20px 24px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        box-shadow: var(--etp-shadow-xs);
+        margin-bottom: 16px;
+    }
+    .etp-my-rings {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+    .etp-my-ring-cap {
+        font-size: 0.74rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--etp-faint);
+    }
+    .etp-my-hero .etp-my-kpis {
+        flex: 1 1 260px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        box-shadow: none;
+        background: transparent;
+    }
+    .etp-my-breakdown {
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        box-shadow: var(--etp-shadow-xs);
+        padding: 8px 16px;
+
+        .etp-brk-head, .etp-brk-row {
+            display: grid;
+            grid-template-columns: 2fr 3fr 1fr;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 4px;
+        }
+        .etp-brk-head {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--etp-faint);
+            border-bottom: 1px solid var(--etp-border);
+        }
+        .etp-brk-row + .etp-brk-row { border-top: 1px solid var(--etp-border); }
+        .etp-brk-name { font-weight: 600; color: var(--etp-text); }
+        .etp-brk-bar { display: flex; align-items: center; gap: 8px; }
+        .etp-brk-bar-track {
+            flex: 1;
+            height: 8px;
+            border-radius: 4px;
+            background: var(--etp-border);
+            overflow: hidden;
+        }
+        .etp-brk-bar-fill {
+            display: block;
+            height: 100%;
+            border-radius: 4px;
+            background: var(--etp-accent);
+        }
+        .etp-brk-bar-pct {
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+            font-size: 0.82rem;
+            min-width: 42px;
+            text-align: right;
+        }
+    }
+    .etp-my-verdict {
+        font-size: 0.74rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 3px 10px;
+        border-radius: 999px;
+        text-align: center;
+
+        &.is-pass { color: var(--etp-success); background: rgba(16,185,129,0.12); }
+        &.is-fail { color: var(--etp-danger, #dc2626); background: rgba(220,38,38,0.12); }
+        &.is-pending { color: var(--etp-faint); background: rgba(100,116,139,0.12); }
+    }
+
     /* ---- card progress bar: in-progress fill + idle 0/total ---------- */
     .etp-acard-progress {
         margin-top: 14px;
@@ -2037,3 +2166,17 @@
 /* Lock background scroll while the zoom lightbox is open. Set on <body> by the
    zoom controller, so it lives outside .o_etp_exam_root. */
 body.etp-zoom-lock { overflow: hidden; }
+
+// Proctoring notice. Replaces the blind 800ms reload that used to fire after
+// EVERY violation and destroy the candidate's in-progress answer; enforcement
+// is server-side, so this only has to inform.
+.etp-violation-note {
+    position: fixed;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1080;
+    max-width: min(90vw, 32rem);
+    margin: 0;
+    box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .18);
+}

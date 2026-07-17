@@ -71,8 +71,20 @@ class TestGenTypeDirective(TransactionCase):
         multi = vertex._allowed_types_directive(("mcq", "image_ab"), 4, ab_dims=ab)
         self.assertNotIn("MAJORITY", multi,
                          "the image-majority nudge must NOT override an allow-list")
-        self.assertIn("MAJORITY", self._capture_directive(allowed_types=()),
-                      "the generic (no allow-list) path keeps the majority nudge")
+        # The generic (no allow-list) path is now TASK-FIRST with NO fixed ratio:
+        # it must not force an image-comparison majority and must ask for BOTH a
+        # real TASK and assessment questions, driven by the SOP's tasks.
+        generic = self._capture_directive(allowed_types=())
+        self.assertNotIn("MUST be the MAJORITY", generic,
+                         "the generic path must no longer force an image-type majority")
+        self.assertNotIn("25%", generic,
+                         "the fixed 25% task ratio must be gone")
+        self.assertIn("TASK-FIRST", generic,
+                      "the generic path must use the task-first directive")
+        self.assertIn("Task: ", generic,
+                      "the generic path must ask for 'Task:' real-task items")
+        self.assertIn("ASSESSMENT QUESTIONS", generic,
+                      "the generic path must also ask for assessment questions")
 
     def test_image_contracts_note_types_none_is_generic_hardcoded_set(self):
         ab = vertex._ab_fallback_dims()

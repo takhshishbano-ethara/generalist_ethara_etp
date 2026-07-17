@@ -77,23 +77,17 @@
     </record>
 
     <record id="action_etp_assessment_pro_llm_usage" model="ir.actions.act_window">
-        <field name="name">LLM Usage / Budget</field>
+        <field name="name">LLM Usage (detail)</field>
         <field name="res_model">etp.assessment.pro.llm.usage</field>
         <field name="view_mode">list,graph,pivot</field>
         <field name="search_view_id" ref="etp_assessment_pro_llm_usage_search"/>
         <field name="context">{'search_default_g_operation': 1}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiley_face">No LLM calls recorded yet.</p>
-            <p>Token usage and estimated cost are logged here for every skill
-               extraction, question generation, image generation, and subjective
-               scoring call.</p>
+            <p>Row-level log of every LLM call (skill extraction, question
+               generation, image generation, subjective scoring) with tokens and
+               estimated cost - the drill-down / export behind the LLM Budget
+               dashboard.</p>
         </field>
     </record>
-
-    <menuitem id="menu_etp_assessment_pro_llm_usage"
-              name="LLM Budget"
-              parent="menu_etp_assessment_pro_config_root"
-              action="action_etp_assessment_pro_llm_usage"
-              groups="etp_assessment_pro.group_assessment_manager"
-              sequence="90"/>
 </odoo>

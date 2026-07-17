@@ -830,6 +830,32 @@ class EtpAssessmentPrompt(models.Model):
         }
 
     def action_normalize_tags(self):
+        """Fix the tag vocabulary AND evolve the shared knowledge base.
+
+        Two stages, so the knowledge base gets BETTER every time a project is
+        added and this is run:
+          1. CONSOLIDATE the whole live vocabulary (LLM clusters true synonyms,
+             merges drift onto one canonical key, and refreshes every readable
+             display) — data-driven, no hardcoded synonym map.
+          2. RE-EXTRACT the selected generators against that cleaned vocabulary,
+             so their tags + knowledge profile snap onto the shared canonical
+             values. Cleaner shared vocabulary -> the NEXT project's extraction
+             converges on it too -> similarity ranking and future assessments
+             keep improving as projects accumulate.
+        """
+        from ..services import vertex
+        # Stage 1: consolidate the shared vocabulary (once, globally).
+        consolidated = {}
+        try:
+            consolidated = vertex.consolidate_vocabulary(self.env)
+        except vertex.VertexQuotaError:
+            consolidated = {"error": "Vertex rate limit (429); tags re-extracted "
+                                     "without a consolidation pass this time."}
+        except Exception:  # noqa: BLE001 - consolidation is best-effort
+            _logger.exception("Vocabulary consolidation failed")
+            consolidated = {"error": "consolidation step failed (see logs)"}
+
+        # Stage 2: re-extract the selected generators onto the cleaned vocabulary.
         targets = self.filtered(
             lambda p: p.resource_ids.filtered(lambda r: r.category == "sop")
             or (p.source_text or "").strip())
@@ -844,18 +870,30 @@ class EtpAssessmentPrompt(models.Model):
                 failed += 1
                 _logger.exception(
                     "Tag normalize failed for generator %s", prompt.id)
-        msg = "Re-extracted tags for %d of %d selected generator(s)." % (
-            done, len(targets))
+
+        parts = []
+        if consolidated.get("merged_groups") or consolidated.get("displays_updated"):
+            parts.append(
+                "Vocabulary tidied: %d duplicate group(s) merged, %d tag(s) "
+                "absorbed, %d readable name(s) refreshed."
+                % (consolidated.get("merged_groups", 0),
+                   consolidated.get("tags_absorbed", 0),
+                   consolidated.get("displays_updated", 0)))
+        elif consolidated.get("error"):
+            parts.append(consolidated["error"])
+        parts.append("Re-extracted tags for %d of %d selected generator(s)."
+                     % (done, len(targets)))
         if failed:
-            msg += " %d failed (see the generator's Tag Extraction error)." % failed
+            parts.append("%d failed (see the generator's Tag Extraction error)."
+                         % failed)
         if skipped:
-            msg += " %d skipped (no SOP document)." % skipped
+            parts.append("%d skipped (no SOP document)." % skipped)
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Tags Normalized",
-                "message": msg,
+                "title": "Tags Normalized & Knowledge Base Refreshed",
+                "message": " ".join(parts),
                 "type": "warning" if failed else "success",
                 "sticky": bool(failed),
             },
@@ -934,6 +972,17 @@ class EtpAssessmentPromptQuestion(models.Model):
              "so detection uses the right prompt.")
     options_json = fields.Text(string="Options (JSON)")
     correct_answer_json = fields.Text(string="Correct Answer (JSON)")
+    # --- Generation-run tracking (UI clarity: "which questions came from which
+    # run I just triggered"). gen_batch is stamped at create time by the SOP
+    # generation cron; role is derived from the "Task:" title prefix so the
+    # real-task replicas are self-labelling in every list. ---
+    gen_batch = fields.Char(
+        string="Generation Run", readonly=True, copy=False, index=True,
+        help="Timestamped id of the generation run that produced this draft, so "
+             "you can see at a glance which batch each question came from.")
+    gen_batch_label = fields.Char(
+        string="Run", compute="_compute_gen_batch_label", store=True,
+        help="Human-friendly label for the generation run (time of the run).")
     solution_json = fields.Text(
         string="Solution / Golden Answer (JSON)", readonly=True, copy=False,
         help="The most correct answer in an ideal worker's voice (research "
@@ -1158,6 +1207,26 @@ class EtpAssessmentPromptQuestion(models.Model):
         for rec in self:
             rec.medium_display = (
                 "Image" if rec.question_type in IMAGE_QUESTION_TYPES else "Text")
+
+    @api.depends("gen_batch", "create_date")
+    def _compute_gen_batch_label(self):
+        """Human label for the generation run. Falls back to the create date so
+        older drafts (no gen_batch) still group sensibly."""
+        for rec in self:
+            if rec.gen_batch:
+                # gen_batch is 'YYYYmmdd-HHMMSS'; render a friendly time
+                raw = rec.gen_batch
+                try:
+                    from datetime import datetime
+                    dt = datetime.strptime(raw[:15], "%Y%m%d-%H%M%S")
+                    rec.gen_batch_label = "Run " + dt.strftime("%b %d, %H:%M")
+                except Exception:  # noqa: BLE001
+                    rec.gen_batch_label = "Run " + raw
+            elif rec.create_date:
+                rec.gen_batch_label = "Run " + rec.create_date.strftime(
+                    "%b %d, %H:%M")
+            else:
+                rec.gen_batch_label = "Run"
 
     @api.depends("question_type", "options_json",
                  "answer_dimension_ids.option_line_ids.name")

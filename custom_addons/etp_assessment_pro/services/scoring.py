@@ -8,7 +8,8 @@ from . import consistency as consistency_svc
 from . import gates as gates_svc
 from ..constants import (
     SCORE_CEILINGS, AB_VERDICT_WEIGHT, AB_JUSTIFICATION_WEIGHT,
-    ab_construction_keys, ab_code_from_label, ab_key_drift)
+    ab_construction_keys, ab_code_from_label, ab_key_drift,
+    gate_flags_integrity)
 
 _logger = logging.getLogger(__name__)
 
@@ -474,17 +475,50 @@ def _store_ab_verdict_only(resp):
     _store_scored(resp, it)
 
 
+def _verified_judge_100(it):
+    """The judge's own arithmetic is not trusted: prefer a score re-derived from
+    its structured verdicts (_recompute_v10), else the number it emitted.
+    Always returns (score_0_100, drift_note).
+
+    Composition lanes (image_ab / image_label) MUST call this BEFORE they blend.
+    Re-deriving after composition throws the composition away — the bug this
+    replaces: _store_scored overwrote the 75/25 blend with the justification-only
+    score, so the A/B verdict (whether the candidate picked the right image)
+    contributed nothing to the stored mark.
+    """
+    recomputed, note = _recompute_v10(it)
+    if recomputed is not None:
+        return recomputed, note
+    return _coerce_100(it.get("score")), None
+
+
+def _mark_recomputed(it, note):
+    """Carry a drift note + its flags onto an item."""
+    if not note:
+        return it
+    it = dict(it)
+    flags = it.get("flags")
+    flags = list(flags) if isinstance(flags, list) else []
+    for flag in ("needs_review", "score_recomputed"):
+        if flag not in flags:
+            flags.append(flag)
+    it["flags"] = flags
+    it["recompute_note"] = note
+    return it
+
+
 def _blend_ab_justification(resp, it):
     verdict_score = _score_ab_verdicts(resp)
-    try:
-        justification_score = float(it.get("score"))
-    except (TypeError, ValueError):
-        justification_score = 0.0
-    justification_score = max(0.0, min(1.0, justification_score))
+    # The judge grades the justification on the 0-100 scale (prompts/scoring.md
+    # "Every score runs 0 to 100"), while the blend math is 0-1. Normalise —
+    # never clamp: min(1.0, 91) silently handed every justification full credit.
+    justification_100, note = _verified_judge_100(it)
+    justification_score = max(0.0, min(1.0, justification_100 / 100.0))
     blend = (AB_VERDICT_WEIGHT * verdict_score
              + AB_JUSTIFICATION_WEIGHT * justification_score)
-    it = dict(it)
+    it = _mark_recomputed(dict(it), note)
     it["score"] = blend
+    it["composed_raw_100"] = blend * 100.0
     it["ab_scores"] = _ab_scores_audit(verdict_score, justification_score, blend)
     reasoning = str(it.get("reasoning") or "")
     it["reasoning"] = (
@@ -507,14 +541,14 @@ def _apply_image_label_coverage(resp, it):
         return it
     attempted = _label_attempted_boxes(resp)
     coverage = attempted / total
-    try:
-        correctness = float(it.get("score"))
-    except (TypeError, ValueError):
-        correctness = 0.0
-    correctness = max(0.0, min(1.0, correctness))
+    # Judge grades correctness 0-100; normalise, never clamp (see
+    # _verified_judge_100 — min(1.0, 87) made every answer a perfect 100).
+    correctness_100, note = _verified_judge_100(it)
+    correctness = max(0.0, min(1.0, correctness_100 / 100.0))
     raw100 = correctness * 100.0
     capped = min(raw100, _COVERAGE_CAP) if coverage < _COVERAGE_FLOOR else raw100
-    it = dict(it)
+    it = _mark_recomputed(dict(it), note)
+    it["composed_raw_100"] = capped
     it["label_scores"] = {
         "coverage": round(coverage, 4),
         "correctness": round(correctness, 4),
@@ -557,6 +591,48 @@ def _attach_verification(item, q):
         verification["injected_flaws"] = injected
     if verification:
         item["verification"] = verification
+
+
+def _media_parts_for(resp):
+    """The rendered media the candidate actually saw, as Gemini inlineData parts.
+
+    prompts/scoring.md ("the rendered media is attached to the call when
+    available") requires this: without it every image_ab / image_label
+    justification is graded BLIND on its text alone, while the judge is asked to
+    reason about images it was never shown. Returns [] when nothing is renderable
+    -- the caller then stamps media_unseen, which the same contract requires.
+
+    A Binary field already holds base64, which is exactly what inlineData wants;
+    never re-encode. Order is deterministic (A then B) so 'Response A' in the
+    prompt always refers to the first image part.
+    """
+    q = resp.question_id
+    qtype = q.question_type or ""
+    if qtype not in ("image_ab", "image_label"):
+        return []
+    if qtype == "image_ab":
+        wanted = ("a", "b")
+    else:
+        wanted = ("single",)
+    by_slot = {}
+    for img in q.image_ids:
+        if img.slot in wanted and img.slot not in by_slot:
+            by_slot[img.slot] = img
+    parts = []
+    for slot in wanted:
+        img = by_slot.get(slot)
+        if not img:
+            continue
+        # image_label grades the numbered boxes, so the judge must see the
+        # SAME annotated overlay the candidate saw, not the clean plate.
+        data = (img.annotated_image or img.image) if qtype == "image_label" \
+            else img.image
+        if not data:
+            continue
+        raw = data.decode() if isinstance(data, bytes) else data
+        parts.append(
+            {"inlineData": {"mimeType": "image/png", "data": raw}})
+    return parts
 
 
 def _build_item(resp):
@@ -834,25 +910,27 @@ def _store_scored(resp, it):
     """Never write pass/fail or the earned mark here: both are derived live from
     llm_raw_100 and the Settings threshold by _compute_subjective_marks, so a
     threshold change re-decides results without re-scoring."""
-    raw100 = _coerce_100(it.get("score"))
-    recomputed, recompute_note = _recompute_v10(it)
-    if recomputed is not None:
-        raw100 = recomputed
-        if recompute_note:
-            it = dict(it)
-            _f = it.get("flags")
-            _f = list(_f) if isinstance(_f, list) else []
-            if "needs_review" not in _f:
-                _f.append("needs_review")
-            if "score_recomputed" not in _f:
-                _f.append("score_recomputed")
-            it["flags"] = _f
-            it["recompute_note"] = recompute_note
+    composed = it.get("composed_raw_100")
+    if composed is not None:
+        # image_ab / image_label already folded the verified judge score into a
+        # composed result (_verified_judge_100 ran before the blend). Re-deriving
+        # here would discard the composition — and with it the A/B verdict.
+        try:
+            raw100 = max(0.0, min(100.0, float(composed)))
+        except (TypeError, ValueError):
+            raw100 = _coerce_100(it.get("score"))
+    else:
+        raw100 = _coerce_100(it.get("score"))
+        recomputed, recompute_note = _recompute_v10(it)
+        if recomputed is not None:
+            raw100 = recomputed
+            it = _mark_recomputed(it, recompute_note)
     raw100, ceilings = _apply_ceilings(raw100, it)
+    # Store the gate exactly as its producer emitted it (see normalize_gate).
     gate = str(it.get("gate") or "none")
     feedback = str(it.get("feedback") or it.get("reasoning") or "")
     flags = it.get("flags")
-    if gate in ("wrong_item", "injection_attempt"):
+    if gate_flags_integrity(gate):
         flags = list(flags) if isinstance(flags, list) else []
         if "integrity_alert" not in flags:
             flags.append("integrity_alert")
@@ -1007,18 +1085,49 @@ def _score_submission(env, responses):
     evaluator_id = ev_ids.pop() if len(ev_ids) == 1 else False
     items = [_build_item(r) for r in gradable]
     system_prompt = _get_scoring_prompt(env)
+    # Attach the rendered media per item, and tell the judge where each item's
+    # images sit in the parts stream. Items whose media is missing are named
+    # explicitly so the judge can stamp media_unseen rather than invent a view.
+    media_parts = []
+    media_index = []
+    unseen = []
+    for resp, item in zip(gradable, items):
+        parts = _media_parts_for(resp)
+        if parts:
+            first = len(media_parts) + 1  # 1-based; part 0 is this text block
+            media_index.append(
+                "item_id %s: %d image(s) attached, parts %d-%d in order"
+                % (item["id"], len(parts), first, first + len(parts) - 1))
+            media_parts.extend(parts)
+        elif (resp.question_id.question_type or "") in ("image_ab",
+                                                        "image_label"):
+            unseen.append(str(item["id"]))
+    media_note = ""
+    if media_index:
+        media_note = ("\n\nATTACHED MEDIA (the images the candidate saw, in "
+                      "order after this text):\n" + "\n".join(media_index))
+    if unseen:
+        media_note += ("\n\nNO MEDIA AVAILABLE for item_id(s): %s. Grade their "
+                       "written answer on its own terms and set the "
+                       "media_unseen flag on those entries; never assume what "
+                       "the image showed." % ", ".join(unseen))
     user_text = (
-        "Grade the submission below under subjective-judge-v6. Each item in the "
-        "items array fuses a question-bank entry with its candidate answer. "
-        "Return the single JSON object with schema_version and results[], one "
-        "result per input item, in input order. Echo each id unchanged as "
-        "item_id (a string).\n\n"
+        "Grade the submission below. Each item in the items array fuses a "
+        "question-bank entry with its candidate answer. Return the single JSON "
+        "object with the three top-level keys judge_model, pass_threshold and "
+        "results, one result per input item, in input order. Echo each id "
+        "unchanged as item_id (a string)."
+        + media_note
+        + "\n\n"
         + json.dumps({"items": items}, ensure_ascii=False)
     )
-    _logger.info("etp_assessment scoring submission: items=%d", len(items))
+    _logger.info(
+        "etp_assessment scoring submission: items=%d media_parts=%d "
+        "media_unseen=%d", len(items), len(media_parts), len(unseen))
     try:
         raw = vertex_svc._call_vertex(
             env, system_prompt, user_text,
+            user_parts=[{"text": user_text}] + media_parts,
             model=vertex_svc._scoring_model(env),
             max_tokens=min(vertex_svc._MAX_OUTPUT_TOKENS_CEILING,
                            4000 + 2500 * len(items)),

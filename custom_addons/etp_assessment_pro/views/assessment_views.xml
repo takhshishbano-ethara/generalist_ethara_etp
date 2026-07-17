@@ -45,7 +45,10 @@
                             invisible="state == 'draft'"/>
                     <button name="action_release_all_results" string="Release Results"
                             type="object" icon="fa-unlock"
-                            invisible="state == 'draft' or results_release != 'manual'"/>
+                            invisible="releasable_count == 0 or results_release != 'manual'"/>
+                    <field name="submitted_count" invisible="1"/>
+                    <field name="releasable_count" invisible="1"/>
+                    <field name="awaiting_scoring_count" invisible="1"/>
                     <button name="action_cancel" string="Cancel" type="object"
                             confirm="Cancel this assessment? Invited candidates will no longer be able to take it."
                             invisible="state in ('done', 'cancelled')"/>

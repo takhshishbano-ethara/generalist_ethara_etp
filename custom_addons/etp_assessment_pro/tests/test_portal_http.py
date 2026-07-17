@@ -528,3 +528,46 @@ class TestPortalHttp(HttpCase, _Base):
         expected = {payload["mcq"][0].id, payload["msq"][0].id,
                     payload["subj"].id}
         self.assertEqual(order, expected)
+
+    # ---- exam data loss: Review & Submit must SAVE, not just navigate ----
+
+    def test_review_nav_saves_the_current_answer(self):
+        """'Review & Submit' used to be a plain <a href> GET sitting INSIDE the
+        response form, so clicking it navigated away and silently discarded the
+        answer the candidate had just typed -- while the instructions page
+        promised "Your answers are saved automatically". It posts nav=review now.
+        """
+        ev, (q_mcq, dim_mcq, master_mcq), login, pwd, _app = \
+            self._launched_single()
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+
+        resp = self.url_open(
+            "/pro_assessment/%s/submit" % token,
+            data={"question_id": str(q_mcq.id),
+                  "nav": "review",
+                  "dimension_%d" % dim_mcq.id: str(master_mcq[0].id)})
+        self.assertIn(resp.status_code, (200, 303))
+        # The answer must be persisted...
+        r = self.Response.search([
+            ("assessment_evaluator_id", "=", ev.id),
+            ("question_id", "=", q_mcq.id)])
+        self.assertEqual(
+            len(r), 1, "nav=review must SAVE the answer before reviewing")
+        self.assertEqual(r.state, "submitted")
+        # ...and we must land on the review page, not the next question.
+        self.assertIn("/review", resp.url)
+
+    def test_review_control_is_a_submit_not_a_link(self):
+        """Guard the regression at its source: any <a href> to the review URL
+        inside the response form loses the in-progress answer."""
+        ev, _q, login, pwd, _app = self._launched_single(name="ReviewBtn")
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        html = self.url_open("/pro_assessment/%s?q=1" % token).text
+        self.assertIn('id="etp-review-btn"', html)
+        self.assertNotIn(
+            '<a href="/pro_assessment/%s/review"' % token, html,
+            "Review & Submit must be a submit button, never a GET link")

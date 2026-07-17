@@ -20,6 +20,7 @@ class EtpLlmUsage(models.Model):
             ("generate_video", "Generate Video"),
             ("submit_video_op", "Submit Video (Veo)"),
             ("score_subjective", "Score Subjective"),
+            ("consolidate_vocab", "Consolidate Vocabulary"),
             ("other", "Other"),
         ],
         string="Operation", required=True, default="other", index=True)

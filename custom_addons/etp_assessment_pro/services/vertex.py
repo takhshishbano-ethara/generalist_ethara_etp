@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
 
 from ..constants import (
     QUESTION_TYPE_CODES as _QUESTION_TYPES,
@@ -33,6 +34,15 @@ from ..constants import (
 _logger = logging.getLogger(__name__)
 
 _IMAGE_OR_VIDEO_TYPES = frozenset(_IMAGE_TYPES | _VIDEO_TYPES)
+
+# Internal-taxonomy label the generator sometimes prepends to a question title
+# (e.g. "Rule Application: ...", "Skill Probe: ..."). Stripped at draft-build so
+# titles stay plain and candidate-facing. Keeps the "Task:" prefix (meaningful).
+_JARGON_NAME_PREFIX_RE = re.compile(
+    r"^\s*(?:rule\s+application|skill\s+probe|skill\s+check|fact\s+recall|"
+    r"knowledge\s+check|assessment\s+question|assessment|concept\s+check|"
+    r"rule\s+check|probe)\s*[:\-\u2013\u2014]\s*",
+    re.IGNORECASE)
 
 INLINE_QUESTION_PROMPT = (
     "You are an expert assessment author. Generate questions for the given "
@@ -1896,7 +1906,8 @@ def _facet_vocabulary_note(env):
     if not vocab:
         return ""
     lines = "; ".join(
-        "%s: [%s]" % (facet, ", ".join(vals))
+        "%s: [%s]" % (facet, ", ".join(
+            v["value"] if isinstance(v, dict) else str(v) for v in vals))
         for facet, vals in vocab.items() if vals)
     return (
         " MAPPING VOCABULARY (important for cross-project matching): the platform "
@@ -2116,6 +2127,9 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "No SOP document or notes to generate from — upload a SOP file first.")
     system_prompt = _get_question_prompt(env)
     model = _generation_model(env)
+    # Stamp every draft from this call with one run id so the UI can group and
+    # label "the batch I just triggered".
+    gen_batch = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     allowed = tuple(dict.fromkeys(allowed_types or ()))
     unknown = [t for t in allowed
                if not (isinstance(t, str) and t in _QUESTION_TYPES)]
@@ -2132,22 +2146,35 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             + vocab_note)
     else:
         directive = (
-        "The attached document is a SOP that contains the test content, any "
-        "images, AND the required question format. Author assessment questions "
-        "that FOLLOW THE FORMAT shown in the SOP"
-        + (" and in the attached SAMPLE QUESTIONS" if has_sample else "")
-        + ". "
-        + (f"Generate approximately {count} question(s). " if count else "")
+        "The attached document is the project SOP. FIRST recover EVERY distinct "
+        "task the SOP defines (each task = its stimulus + the action the worker "
+        "performs + the grading axes). THEN produce TWO kinds of items with NO "
+        "fixed ratio between them — generate as many of each as the SOP content "
+        "actually warrants:\n"
+        "  (1) TASKS — faithful reproductions of what the worker literally does on "
+        "the production platform. Author one TASK item for EACH distinct task the "
+        "SOP defines (and more than one when a task has clearly different stimulus "
+        "variants). Use the same stimulus, action and grading axes as the SOP. "
+        "PREFIX each TASK item's name with 'Task: '.\n"
+        "  (2) ASSESSMENT QUESTIONS — items that probe the specific skills, "
+        "decision rules, thresholds and common mistakes the SOP stresses. Cover "
+        "every rule/skill the SOP emphasises; use text types for genuinely "
+        "text-based rules."
+        + (" Follow the format shown in the attached SAMPLE QUESTIONS."
+           if has_sample else "")
+        + " "
+        + (f"Generate approximately {count} item(s) in total across BOTH kinds. "
+           if count else "Generate as many items as the SOP warrants across both "
+           "kinds. ")
         + "Each item's question_type must be one of " + QUESTION_TYPE_PROMPT_LIST
-        + ". QUESTION-TYPE POLICY (mandatory): if the SOP is about visual or image "
-          "evaluation (judging, comparing, ranking, rating, or generating images), "
-          "then image_ab, image_prompt and image_label MUST be the MAJORITY of the "
-          "questions you "
-          "author (at least half) — the candidate must be tested on ACTUAL images, "
-          "not on prose that describes them. Do NOT replace an image question with "
-          "an mcq/msq/subjective item that merely describes or refers to images. "
-          "Use text types only for the genuinely text-based parts of the SOP "
-          "(definitions, rules, procedures needing no visual judgment). "
+        + ". TASK-FIRST TYPE CHOICE (mandatory): choose each item's question_type "
+          "to REPRODUCE the relevant task — the type is driven by the task, NOT by "
+          "a modality quota. There is NO requirement that image-comparison types "
+          "be a majority; use image_ab ONLY when the task really is A/B "
+          "comparison, defect_point_annotation for single-image defect marking, "
+          "image_label for UI functionality labelling, and so on. Do NOT pad with "
+          "filler: every item must earn its place as either a real TASK or a "
+          "genuine skill/rule probe. "
         + _ENVELOPE_REMINDER
         + _image_contracts_note(ab_dims)
         + _SELF_CONTAINED_RULE
@@ -2196,6 +2223,10 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
     dropped_out_of_scope = 0
     for it in items:
         name = (it.get("name") or it.get("title") or "").strip()
+        # Strip internal-taxonomy prefixes the generator sometimes prepends to a
+        # title (e.g. "Rule Application: Where to click", "Skill Probe: ...").
+        # These read as jargon to a candidate/admin; keep the plain question.
+        name = _JARGON_NAME_PREFIX_RE.sub("", name).strip()
         prompt_text = (it.get("prompt") or "").strip()
         if not name and not prompt_text:
             continue
@@ -2225,6 +2256,7 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "question_type": qtype,
             "difficulty": difficulty,
             "description": (it.get("description") or "").strip() or False,
+            "gen_batch": gen_batch,
         }
         ce = it.get("covers_elements")
         if isinstance(ce, list) and ce:
@@ -2278,71 +2310,261 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
     return draft_ids
 
 
-_TAG_SYSTEM_PROMPT = (
-    "You are a taxonomy expert. Read the attached SOP and output ONLY a JSON "
-    "array of 4-8 SHORT, DISTINCTIVE, NON-REDUNDANT semantic tags that "
-    "characterize the ASSESSMENT TASK the SOP defines. Rules: (1) every tag is "
-    "lowercase kebab-case with exactly one prefix from domain:/task:/skill:/"
-    "modality:/output-format: (e.g. \"task:pairwise-comparison\", "
-    "\"domain:image-evaluation\", \"skill:prompt-deconstruction\", "
-    "\"modality:image\", \"output-format:bounding-box\"). (2) Keep the set "
-    "SMALL and DISTINCTIVE — tags that would apply to almost ANY SOP (generic "
-    "filler like task:evaluation, skill:reading, domain:assessment) are "
-    "FORBIDDEN. (3) NO duplicates and no two tags meaning the same thing. "
-    "(4) Prefer a specific label over a vague one. (5) CROSS-PROJECT "
-    "CONSISTENCY IS CRITICAL: when an EXISTING TAG VOCABULARY is provided below, "
-    "you MUST reuse the existing value for any facet whose meaning matches — a UI "
-    "screenshot is modality:image (NOT modality:ui-screenshot or "
-    "modality:application-screenshot); labelling/annotating is task:annotation "
-    "(NOT task:image-annotation or task:labeling); a labels output is "
-    "output-format:labels (NOT output-format:text-labels). Coin a NEW value "
-    "ONLY for a concept the vocabulary genuinely lacks. Two runs on the same SOP "
-    "must produce the SAME tags. Output nothing but the JSON array.\n\n"
-    "Example — an image A/B comparison SOP -> "
-    '["domain:image-evaluation","task:pairwise-comparison",'
-    '"skill:prompt-deconstruction","skill:defect-detection","modality:image"]. '
-    "Example — a bounding-box UI labelling SOP -> "
-    '["domain:ui-ux","task:annotation",'
-    '"skill:ui-element-identification","skill:functional-description",'
-    '"modality:image","output-format:labels"].'
-)
+_TAG_SYSTEM_PROMPT_FALLBACK = (
+    "You are an expert taxonomist and instructional analyst for a data-annotation "
+    "/ AI-evaluation platform. Read ONE project SOP and return ONLY one JSON "
+    "object with two keys: \"knowledge_profile\" and \"tags\". knowledge_profile "
+    "carries {summary, canonical_task:{key,display,one_sentence}, subject_inputs, "
+    "worker_output, what_the_worker_does[], key_skills[{key,display,weight,why}], "
+    "decision_rules[], common_mistakes[], evidence[{claim,quote}]}. tags is 5-8 "
+    "objects {facet, key:\"<facet>:<value>\", display} with EXACTLY one task and "
+    "one domain tag, 2-4 skill, 0-1 modality, 0-1 output-format. Keys are "
+    "lowercase kebab machine values; displays are 2-5 plain Title-Case words a "
+    "non-technical teammate reads (task display starts with a verb). Reuse an "
+    "existing key AND its display verbatim when it means the same thing; prefer "
+    "the highest-usage existing value; never coin a near-duplicate. Return ONLY "
+    "the JSON object.")
+
+
+def _get_tag_prompt(env):
+    p = (env["ir.config_parameter"].sudo().get_param(
+        "etp_assessment_pro.tag_prompt", "") or "").strip()
+    if p:
+        return p
+    bundled = _load_bundled_prompt("tags.md")
+    return bundled.strip() if bundled.strip() else _TAG_SYSTEM_PROMPT_FALLBACK
+
+
+def _render_vocabulary_block(env):
+    """Frequency-ranked existing vocabulary, so runs CONVERGE on popular values
+    instead of minting near-duplicates (drift fix). Data-driven from live tags;
+    no hardcoded synonym map."""
+    vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
+    if not vocab:
+        return "(none yet - this is an early project; coin clean values.)"
+    lines = []
+    for facet in ("task", "domain", "skill", "modality", "output-format"):
+        items = vocab.get(facet)
+        if not items:
+            continue
+        lines.append("%s:" % facet)
+        for it in items:
+            lines.append('  - %-28s "%s"  (used %sx)'
+                         % (it["value"], it["display"], it["count"]))
+    return "\n".join(lines)
+
+
+def _capture_knowledge_profile(env, prompt_record, obj):
+    """Persist the knowledge_profile object onto the prompt's existing metadata
+    fields (no inert blob surfaced to end users; every artifact a queryable
+    field). Mirrors _capture_sop_metadata's field mapping."""
+    kp = obj.get("knowledge_profile") if isinstance(obj, dict) else None
+    if not isinstance(kp, dict):
+        return {}
+    vals = {"metadata_json": json.dumps(kp, ensure_ascii=False)}
+    ct = kp.get("canonical_task") or {}
+    if kp.get("summary"):
+        vals["sop_summary"] = str(kp["summary"])
+    if isinstance(ct, dict) and ct.get("display"):
+        vals["sop_title"] = str(ct.get("display"))[:255]
+    for src, field_name in (
+            ("key_skills", "skills_json"),
+            ("evidence", "evidence_json"),
+            ("decision_rules", "quality_criteria_json"),
+            ("common_mistakes", "failure_modes_json"),
+            ("what_the_worker_does", "sop_examples_json")):
+        v = kp.get(src)
+        if isinstance(v, list) and v:
+            vals[field_name] = json.dumps(v, ensure_ascii=False)
+    return vals
 
 
 def extract_tags_from_sop(env, prompt_record):
+    """SOP -> (knowledge profile + readable, convergent tags).
+
+    Returns ``(tag_dicts, raw)`` where ``tag_dicts`` is a list of
+    ``{"key","display"}`` the tag model pins one-to-one, and ``raw`` is the
+    model output kept for audit. The knowledge profile is persisted onto the
+    prompt's queryable metadata fields as a side effect."""
     doc_parts = _sop_doc_parts(prompt_record.resource_ids)
     notes = (prompt_record.source_text or "").strip()
     if not doc_parts and not notes:
         raise LLMRefusalError(
             "No SOP document or notes to tag — upload a SOP file first.")
     directive = (
-        "Extract the semantic tags for THIS SOP now, following every rule. "
-        "Return ONLY the JSON array.")
-    vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
-    if vocab:
-        grouped = "\n".join(
-            "  %s: %s" % (facet, ", ".join(vals))
-            for facet, vals in vocab.items() if vals)
-        directive += (
-            "\n\nEXISTING TAG VOCABULARY, grouped by facet (reuse a value from "
-            "this list VERBATIM when it means the same thing for this SOP — e.g. "
-            "do not write modality:ui-screenshot if modality:image already "
-            "covers the idea; only invent a NEW kebab-case value when this SOP "
-            "introduces a concept none of these cover):\n" + grouped)
+        "Analyse THIS SOP now and return ONLY the JSON object "
+        "(knowledge_profile + tags), following every rule. Emit exactly one task "
+        "tag and one domain tag. Ground every evidence quote verbatim in the SOP."
+        "\n\nEXISTING VOCABULARY (reuse an existing key + its display when it "
+        "means the same thing here; when several fit, pick the one with the "
+        "highest usage count; only coin a new value for a genuinely new "
+        "concept):\n" + _render_vocabulary_block(env))
     user_parts = list(doc_parts)
     if notes:
         user_parts.append({"text": "ADDITIONAL NOTES:\n" + notes})
     user_parts.append({"text": directive})
-    raw = _call_vertex(
-        env, _TAG_SYSTEM_PROMPT, user_text="", user_parts=user_parts,
-        model=_generation_model(env), max_tokens=4096, temperature=0.2,
-        response_json=True,
-        usage_ctx={"operation": "extract_tags",
-                   "prompt_id": prompt_record.id,
-                   "note": prompt_record.name or "SOP"})
-    try:
-        parsed = _extract_json_array(raw)
-    except ValueError:
+    # gemini-3.1-pro-preview is a THINKING model: the combined knowledge-profile
+    # + tags object is large and can truncate at a tight cap (empty parts / cut
+    # JSON). Retry once with a doubled budget when the first parse yields no tags.
+    obj = None
+    raw = ""
+    for max_tokens in (8192, 16384):
+        raw = _call_vertex(
+            env, _get_tag_prompt(env), user_text="", user_parts=user_parts,
+            model=_generation_model(env), max_tokens=max_tokens, temperature=0.2,
+            response_json=True,
+            usage_ctx={"operation": "extract_tags",
+                       "prompt_id": prompt_record.id,
+                       "note": prompt_record.name or "SOP"})
+        obj = _parse_tag_object(raw)
+        if isinstance(obj, dict) and obj.get("tags"):
+            break
+    if not isinstance(obj, dict):
         return [], raw
-    names = [str(t).strip() for t in parsed
-             if isinstance(t, (str, int, float)) and str(t).strip()]
-    return names, raw
+    # persist the knowledge profile onto queryable fields
+    try:
+        kp_vals = _capture_knowledge_profile(env, prompt_record, obj)
+        if kp_vals:
+            prompt_record.sudo().write(kp_vals)
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("knowledge-profile capture skipped: %s", repr(exc)[:160])
+    tags = obj.get("tags")
+    tag_dicts = []
+    if isinstance(tags, list):
+        for t in tags:
+            if isinstance(t, dict) and t.get("key"):
+                tag_dicts.append({"key": str(t["key"]).strip(),
+                                  "display": str(t.get("display") or "").strip()})
+            elif isinstance(t, (str, int, float)) and str(t).strip():
+                tag_dicts.append({"key": str(t).strip(), "display": ""})
+    # plain readable summary strip for quick display
+    if tag_dicts:
+        prompt_record.sudo().plain_tags = ", ".join(
+            d["display"] or d["key"] for d in tag_dicts if d)[:255] or False
+    return tag_dicts, raw
+
+
+def _parse_tag_object(raw):
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:json)?", "", text).strip()
+    text = re.sub(r"```$", "", text).strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find("{")
+        if start != -1:
+            try:
+                obj, _end = json.JSONDecoder().raw_decode(text[start:])
+                return obj
+            except Exception:
+                m = re.search(r"\{.*\}", text, re.DOTALL)
+                if m:
+                    try:
+                        return json.loads(m.group(0))
+                    except Exception:
+                        return None
+    return None
+
+
+_VOCAB_CONSOLIDATE_SYSTEM = (
+    "You are a taxonomy curator for a data-annotation assessment platform. You "
+    "are given the CURRENT tag vocabulary, grouped by facet, as "
+    "`value  (used Nx)` lines. Your job: (1) find groups of values within the "
+    "SAME facet that mean the SAME THING (near-duplicates / drift), and (2) give "
+    "EVERY surviving value a short, plain-English, growth-team-readable display "
+    "name. Return ONLY one JSON object:\n"
+    '{ "merges": [ { "facet": "skill", "canonical": "comparative-judgment", '
+    '"absorb": ["comparative-analysis","content-comparison","visual-comparison"] } ], '
+    '"displays": { "skill:comparative-judgment": "Side-by-Side Judgment", '
+    '"task:artifact-annotation": "Spot AI Flaws in Images", ... } }\n'
+    "RULES: canonical = the clearest, most-used value in each duplicate group "
+    "(keep its exact kebab string). absorb = the other values in that group "
+    "(their rows are repointed to canonical). Only merge TRUE synonyms for the "
+    "SAME worker concept — never merge distinct ideas (e.g. keep "
+    "artifact-detection separate from rule-application). Provide a display for "
+    "EVERY value you keep (canonicals + any value not in a merge). Displays are "
+    "2-5 plain Title-Case words, NO facet prefix, NO kebab dashes, no jargon a "
+    "non-technical growth teammate wouldn't know; a task display starts with a "
+    "verb (Compare, Spot, Judge, Describe, Write, Tag, Rate). Do not invent new "
+    "values. Return ONLY the JSON object.")
+
+
+def consolidate_vocabulary(env):
+    """LLM-driven, data-driven vocabulary consolidation (no hardcoded synonym
+    map). Reads the live tag rows, asks the model to (a) cluster true synonyms
+    within each facet and (b) mint readable displays for every survivor, then
+    applies the merges (repoint m2m, archive/delete losers) and pins displays.
+
+    Returns a summary dict {merged_groups, tags_absorbed, displays_updated}."""
+    Tag = env["etp.assessment.pro.tag"].sudo()
+    vocab = Tag._facet_vocabulary(limit_per_facet=200)
+    if not vocab:
+        return {"merged_groups": 0, "tags_absorbed": 0, "displays_updated": 0}
+    lines = []
+    for facet in ("task", "domain", "skill", "modality", "output-format"):
+        items = vocab.get(facet)
+        if not items:
+            continue
+        lines.append("%s:" % facet)
+        for it in items:
+            lines.append("  %s  (used %sx)" % (it["value"], it["count"]))
+    user = "CURRENT VOCABULARY:\n" + "\n".join(lines)
+    raw = _call_vertex(
+        env, _VOCAB_CONSOLIDATE_SYSTEM, user_text=user,
+        model=_generation_model(env), max_tokens=8192, temperature=0.1,
+        response_json=True,
+        usage_ctx={"operation": "consolidate_vocab", "note": "normalize_tags"})
+    plan = _parse_tag_object(raw)
+    if not isinstance(plan, dict):
+        return {"merged_groups": 0, "tags_absorbed": 0, "displays_updated": 0,
+                "error": "consolidation plan did not parse"}
+
+    merged_groups = 0
+    tags_absorbed = 0
+    # 1) apply merges: repoint every absorbed tag's prompts onto the canonical
+    for m in (plan.get("merges") or []):
+        facet = str(m.get("facet") or "").strip()
+        canonical = str(m.get("canonical") or "").strip()
+        absorb = [str(a).strip() for a in (m.get("absorb") or []) if str(a).strip()]
+        if not facet or not canonical or not absorb:
+            continue
+        canon_key = "%s:%s" % (facet, canonical) if ":" not in canonical else canonical
+        canon_tag = Tag.search([("name", "=ilike", canon_key)], limit=1)
+        if not canon_tag:
+            continue
+        group_hit = False
+        for a in absorb:
+            a_key = "%s:%s" % (facet, a) if ":" not in a else a
+            if a_key.lower() == canon_key.lower():
+                continue
+            loser = Tag.search([("name", "=ilike", a_key)], limit=1)
+            if not loser:
+                continue
+            # repoint every prompt referencing loser onto the canonical, dedup
+            prompts = env["etp.assessment.pro.prompt"].sudo().search(
+                [("tag_ids", "in", loser.id)])
+            for p in prompts:
+                p.write({"tag_ids": [(4, canon_tag.id), (3, loser.id)]})
+            loser.unlink()
+            tags_absorbed += 1
+            group_hit = True
+        if group_hit:
+            merged_groups += 1
+
+    # 2) pin readable displays for every survivor
+    displays_updated = 0
+    for key, disp in (plan.get("displays") or {}).items():
+        disp = str(disp or "").strip()
+        if not disp:
+            continue
+        tag = Tag.search([("name", "=ilike", str(key).strip())], limit=1)
+        if tag and tag.display != disp:
+            tag.display = disp
+            displays_updated += 1
+
+    _logger.info(
+        "etp_assessment vocabulary consolidation: %d groups merged, %d tags "
+        "absorbed, %d displays refreshed",
+        merged_groups, tags_absorbed, displays_updated)
+    return {"merged_groups": merged_groups, "tags_absorbed": tags_absorbed,
+            "displays_updated": displays_updated}
