@@ -1,0 +1,13 @@
+// Tasker performance dashboard. Reuses the .o_project_tracker_dashboard base
+// (CSS vars + card/table/topbar styles); only the KPI grid is new.
+.o_project_tracker_tasker_dashboard {
+
+    // KPIs: 10 cards -> tidy 5-wide grid (2 rows), 2-wide on small screens.
+    .o_ktd_cards_kpi {
+        grid-template-columns: repeat(5, 1fr);
+
+        @media (max-width: 900px) {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+}

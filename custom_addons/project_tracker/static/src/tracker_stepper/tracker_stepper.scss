@@ -1,0 +1,71 @@
+.o_kts_stepper {
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    background: var(--o-view-background-color, #fff);
+
+    .o_kts_head {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-bottom: 0.6rem;
+        font-size: 0.95rem;
+
+        .o_kts_stage { font-weight: 700; letter-spacing: 0.02em; }
+        .o_kts_sep { color: #9aa0a6; }
+        .o_kts_now { font-weight: 600; }
+        .o_kts_done_all { color: #10b981; }
+
+        .o_kts_age {
+            margin-left: auto;
+            font-size: 0.82rem;
+            color: #6b7280;
+            white-space: nowrap;
+        }
+        // The aging signal: a task parked in one step for a week turns amber.
+        .o_kts_age_stale {
+            color: #b45309;
+            background: #fef3c7;
+            padding: 0.05rem 0.45rem;
+            border-radius: 999px;
+            font-weight: 600;
+        }
+    }
+
+    // Horizontal on wide screens, wraps to a vertical list when cramped.
+    .o_kts_list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 1.25rem;
+    }
+
+    .o_kts_step {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        min-width: 0;
+
+        .o_kts_icon { margin-top: 0.15rem; font-size: 0.95rem; }
+        .o_kts_body { display: flex; flex-direction: column; line-height: 1.25; }
+        .o_kts_label { font-weight: 600; font-size: 0.9rem; }
+        .o_kts_detail { font-size: 0.78rem; color: #6b7280; max-width: 22rem; }
+    }
+
+    // State colours — same family as the funnel/badges elsewhere in the tracker.
+    .o_kts_done   { .o_kts_icon { color: #10b981; } .o_kts_label { color: #374151; } }
+    .o_kts_current {
+        .o_kts_icon { color: #2563eb; }
+        .o_kts_label { color: #1d4ed8; }
+        .o_kts_detail { color: #1d4ed8; }
+    }
+    .o_kts_failed {
+        .o_kts_icon { color: #ef4444; }
+        .o_kts_label { color: #b91c1c; }
+        .o_kts_detail { color: #b91c1c; }
+    }
+    .o_kts_locked { opacity: 0.5; .o_kts_icon { color: #9ca3af; } }
+}

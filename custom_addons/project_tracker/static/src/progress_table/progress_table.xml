@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="project_tracker.ProgressTable">
+        <div class="o_ktd_table_wrap">
+            <table class="o_ktd_table">
+                <!-- Two banded groups, because the stages are two INDEPENDENT
+                     workflows, not one pipeline. They share stored status values
+                     under different names, so a flat header (one "Manual QC", one
+                     "Baseline") cannot say which stage a number belongs to. -->
+                <thead>
+                    <tr class="o_ktd_group_row">
+                        <th class="o_ktd_col_idx" rowspan="2">#</th>
+                        <th class="o_ktd_col_pl" rowspan="2"><t t-out="props.head"/></th>
+                        <th rowspan="2">Total</th>
+                        <th colspan="5" class="o_ktd_group_s1">STAGE 1 — Baseline</th>
+                        <th colspan="4" class="o_ktd_group_s2">STAGE 2 — Pass @ K</th>
+                        <th rowspan="2">Blocked</th>
+                        <th rowspan="2">Avg Score</th>
+                    </tr>
+                    <tr>
+                        <th class="o_ktd_s1" title="Authoring / Tasker QC">Authoring</th>
+                        <th class="o_ktd_s1" title="Stage 1 — signed off, ready for its Baseline trajectory">Ready</th>
+                        <th class="o_ktd_s1" title="Stage 1 — Baseline trajectory generated">Baseline</th>
+                        <th class="o_ktd_s1" title="Stage 1 Manual QC">Manual QC</th>
+                        <th class="o_ktd_s1" title="Stage 1 finished — waiting to hand off to Stage 2">Next Stage</th>
+                        <th class="o_ktd_s2" title="Stage 2 — ready for its Pass @ K trajectory">P@K Ready</th>
+                        <th class="o_ktd_s2" title="Stage 2 — Pass @ K trajectory generated">Pass @ K</th>
+                        <th class="o_ktd_s2" title="Stage 2 Manual QC">Manual QC</th>
+                        <th class="o_ktd_s2" title="Stage 2 complete — delivered">Deliverable</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-if="total === 0">
+                        <tr>
+                            <td colspan="14" class="o_ktd_empty">
+                                <i class="fa fa-inbox me-1"/>No allocations yet.
+                            </td>
+                        </tr>
+                    </t>
+                    <!-- t-key on row.id alone collides: the server emits id 0 for the
+                         "Unassigned" bucket, and any second id-less row would key the
+                         same, making OWL patch the wrong <tr>. _idx is unique per page. -->
+                    <t t-foreach="pageRows" t-as="row" t-key="row.id + '_' + row._idx">
+                        <tr class="o_ktd_clickable" t-on-click="() => this.rowClick(row)"
+                            tabindex="0" role="button"
+                            t-on-keydown="(ev) => this.rowKeydown(ev, row)">
+                            <td class="o_ktd_col_idx"><t t-out="row._idx"/></td>
+                            <td class="o_ktd_col_pl"><t t-out="row.name"/></td>
+                            <td><t t-out="row.total"/></td>
+                            <!-- stage 1 -->
+                            <td class="o_ktd_s1"><t t-out="row.in_auth"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.ready"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.in_traj"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.s1_qc"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.handed_off"/></td>
+                            <!-- stage 2 -->
+                            <td class="o_ktd_s2"><t t-out="row.pik_ready"/></td>
+                            <td class="o_ktd_s2 o_ktd_cell_pik"><t t-out="row.pass_it_k"/></td>
+                            <td class="o_ktd_s2"><t t-out="row.s2_qc"/></td>
+                            <td class="o_ktd_s2 o_ktd_cell_verified"><t t-out="row.verified"/></td>
+                            <td t-att-class="row.blocked > 0 ? 'o_ktd_cell_blocked' : ''">
+                                <t t-out="row.blocked"/>
+                            </td>
+                            <td><t t-out="fmt(row.avg_score)"/></td>
+                        </tr>
+                    </t>
+                </tbody>
+            </table>
+            <!-- reads `page` (the clamped getter), never state.page — a stale
+                 state.page would otherwise render "5 / 3" after a filter shrinks
+                 the rows, and leave the buttons enabled with nothing to do. -->
+            <div class="o_ktd_pager" t-if="totalPages > 1">
+                <button class="o_ktd_pager_btn" t-att-disabled="page &lt;= 1"
+                        t-on-click="prev" aria-label="Previous page">
+                    <i class="fa fa-chevron-left"/>
+                </button>
+                <span class="o_ktd_pager_info">
+                    <t t-out="page"/> / <t t-out="totalPages"/>
+                    <span class="text-muted"> · <t t-out="total"/></span>
+                </span>
+                <button class="o_ktd_pager_btn" t-att-disabled="page >= totalPages"
+                        t-on-click="next" aria-label="Next page">
+                    <i class="fa fa-chevron-right"/>
+                </button>
+            </div>
+        </div>
+    </t>
+</templates>
