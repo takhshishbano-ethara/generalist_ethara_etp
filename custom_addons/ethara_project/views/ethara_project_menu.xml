@@ -1,14 +1,162 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         Root: mirrors etp_projects layout so the two modules feel identical.
+         etp_projects nests its menus under Odoo's Project app; we cannot do
+         that (ethara_project is standalone, does not depend on `project`),
+         so we build the same 4-group tree under our own root menu with the
+         same labels, sequences, and web icon.
+         ===================================================================== -->
     <menuitem id="menu_ethara_project_root"
               name="Ethara Projects"
-              sequence="20"/>
+              web_icon="ethara_project,static/description/icon.png"
+              sequence="71"/>
 
+    <!-- ==================== Projects (registry) ==================== -->
     <menuitem id="menu_ethara_project_list"
               name="Projects"
               parent="menu_ethara_project_root"
               action="action_ethara_project"
+              sequence="1"/>
+
+    <!-- ==================== AWS Budgets ==================== -->
+    <menuitem id="menu_ethara_project_aws_root"
+              name="AWS Budgets"
+              parent="menu_ethara_project_root"
               sequence="10"/>
+
+    <menuitem id="menu_ethara_project_budget"
+              name="Project Budgets"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_budget"
+              sequence="10"/>
+
+    <menuitem id="menu_ethara_project_phase"
+              name="Phase Budgets"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_phase"
+              sequence="15"/>
+
+    <menuitem id="menu_ethara_project_phase_request"
+              name="Budget Requests"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_phase_request"
+              sequence="18"/>
+
+    <menuitem id="menu_ethara_project_cost_line"
+              name="AWS Cost by Service"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_cost_line"
+              sequence="20"/>
+
+    <menuitem id="menu_ethara_project_budget_topup"
+              name="Top-up Requests"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_budget_topup"
+              sequence="25"/>
+
+    <menuitem id="menu_ethara_project_ai_model"
+              name="AI Models"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_ai_model"
+              sequence="30"/>
+
+    <menuitem id="menu_ethara_project_infra_type"
+              name="Infrastructure Types"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_infra_type"
+              sequence="40"/>
+
+    <menuitem id="menu_ethara_project_subscription"
+              name="Subscriptions"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_subscription"
+              sequence="50"/>
+
+    <menuitem id="menu_ethara_project_phase_topup_reason"
+              name="Top-up Reasons"
+              parent="menu_ethara_project_aws_root"
+              action="action_ethara_project_phase_topup_reason"
+              sequence="60"/>
+
+    <!-- ==================== Budget Health ==================== -->
+    <menuitem id="menu_ethara_project_budget_health_root"
+              name="Budget Health"
+              parent="menu_ethara_project_root"
+              sequence="20"/>
+
+    <menuitem id="menu_ethara_project_budget_health_dashboard"
+              name="Project Budget Health"
+              parent="menu_ethara_project_budget_health_root"
+              action="action_ethara_project_budget_health_dashboard"
+              sequence="10"/>
+
+    <menuitem id="menu_ethara_project_budget_monthly_cost"
+              name="Monthly Rollups"
+              parent="menu_ethara_project_budget_health_root"
+              action="action_ethara_project_budget_monthly_cost"
+              sequence="20"/>
+
+    <!-- ==================== AWS Catalog (admin) ==================== -->
+    <menuitem id="menu_ethara_project_aws"
+              name="AWS Catalog"
+              parent="menu_ethara_project_root"
+              sequence="30"/>
+
+    <menuitem id="menu_ethara_project_aws_credentials"
+              name="Credentials"
+              parent="menu_ethara_project_aws"
+              action="action_ethara_project_aws_credentials"
+              sequence="10"/>
+
+    <menuitem id="menu_ethara_project_aws_pricing_item"
+              name="Pricing Items"
+              parent="menu_ethara_project_aws"
+              action="action_ethara_project_aws_pricing_item"
+              sequence="20"/>
+
+    <menuitem id="menu_ethara_project_aws_pricing_sku"
+              name="Pricing SKUs"
+              parent="menu_ethara_project_aws"
+              action="action_ethara_project_aws_pricing_sku"
+              sequence="30"/>
+
+    <menuitem id="menu_ethara_project_aws_ebs_pricing"
+              name="EBS Pricing"
+              parent="menu_ethara_project_aws"
+              action="action_ethara_project_aws_ebs_pricing"
+              sequence="40"/>
+
+    <menuitem id="menu_ethara_project_aws_pricing_sync_log"
+              name="Pricing Sync Log"
+              parent="menu_ethara_project_aws"
+              action="action_ethara_project_aws_pricing_sync_log"
+              sequence="50"/>
+
+    <!-- ==================== Operations ==================== -->
+    <menuitem id="menu_ethara_project_operations_root"
+              name="Operations"
+              parent="menu_ethara_project_root"
+              sequence="40"/>
+
+    <menuitem id="menu_ethara_project_phase_daily_task"
+              name="Daily Tasks"
+              parent="menu_ethara_project_operations_root"
+              action="action_ethara_project_phase_daily_task"
+              sequence="10"/>
+
+    <menuitem id="menu_ethara_project_fetch_log"
+              name="Cost Fetch History"
+              parent="menu_ethara_project_operations_root"
+              action="action_ethara_project_cost_fetch_log"
+              sequence="20"/>
+
+    <!-- ==================== Settings ==================== -->
+    <menuitem id="menu_ethara_project_settings"
+              name="Settings"
+              parent="menu_ethara_project_root"
+              action="action_ethara_project_settings"
+              sequence="99"/>
 
 </odoo>

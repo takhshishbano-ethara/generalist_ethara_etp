@@ -17,6 +17,12 @@ ROLE_XML_IDS = {
     'rnd': (
         'api_auth_gateway.role_rnd_technical',
     ),
+    'cto': (
+        'api_auth_gateway.role_cto_technical',
+    ),
+    'cfo': (
+        'api_auth_gateway.role_cfo_technical',
+    ),
 }
 
 ROLE_XML_IDS['pl_ql'] = (

@@ -55,7 +55,7 @@ class TestRoleMap(EtharaProjectTestBase):
     def test_valid_role_keys(self):
         self.assertEqual(
             set(VALID_ROLE_KEYS),
-            {'tpm', 'pl', 'qc', 'qr', 'rnd', 'pl_ql'},
+            {'tpm', 'pl', 'qc', 'qr', 'rnd', 'pl_ql', 'cto', 'cfo'},
         )
 
     def test_resolve_tpm_role(self):
@@ -295,3 +295,180 @@ class TestEmployeeRoleDomain(EtharaProjectTestBase):
         self.assertIn(self.rnd_emp, matches)
         self.assertNotIn(self.tpm_emp, matches)
         self.assertNotIn(self.pl_emp, matches)
+
+
+@tagged('post_install', '-at_install', 'ethara_project')
+class TestEtharaProjectLifecycle(EtharaProjectTestBase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.cto_role = cls.env.ref('api_auth_gateway.role_cto_technical')
+        cls.cfo_role = cls.env.ref('api_auth_gateway.role_cfo_technical')
+        cls.cto_emp = cls._make_employee(
+            'CTO Xavier', 'cto.xavier@example.com', cls.cto_role,
+        )
+        cls.cfo_emp = cls._make_employee(
+            'CFO Yara', 'cfo.yara@example.com', cls.cfo_role,
+        )
+        cls.approver_user = cls.Users.create({
+            'name': 'Budget Approver',
+            'login': 'approver@example.com',
+            'email': 'approver@example.com',
+        })
+
+    def _make_project(self, **overrides):
+        vals = {
+            'name': 'Lifecycle Project',
+            'client_name': 'Acme',
+            'assigned_tpm_ids': [(6, 0, [self.tpm_emp.id])],
+            'assigned_pl_ql_ids': [(6, 0, [self.pl_emp.id])],
+            'assigned_rnd_ids': [(6, 0, [self.rnd_emp.id])],
+        }
+        vals.update(overrides)
+        return self.Project.with_context(
+            ethara_skip_welcome_mail=True,
+        ).create(vals)
+
+    def test_welcome_thread_partners_include_cto_cfo(self):
+        p = self._make_project()
+        partners = set(p._ethara_thread_partner_ids())
+        cto_partner = self.cto_emp.user_id.partner_id.id
+        cfo_partner = self.cfo_emp.user_id.partner_id.id
+        tpm_partner = self.tpm_emp.user_id.partner_id.id
+        self.assertIn(cto_partner, partners)
+        self.assertIn(cfo_partner, partners)
+        self.assertIn(tpm_partner, partners)
+
+    def test_create_subscribes_followers(self):
+        p = self.Project.create({
+            'name': 'Follower Project',
+            'client_name': 'Acme',
+            'assigned_tpm_ids': [(6, 0, [self.tpm_emp.id])],
+            'assigned_rnd_ids': [(6, 0, [self.rnd_emp.id])],
+        })
+        followers = set(p.message_follower_ids.mapped('partner_id.id'))
+        self.assertIn(self.cto_emp.user_id.partner_id.id, followers)
+        self.assertIn(self.cfo_emp.user_id.partner_id.id, followers)
+        self.assertIn(self.tpm_emp.user_id.partner_id.id, followers)
+        self.assertIn(self.rnd_emp.user_id.partner_id.id, followers)
+
+    def test_budget_note_lands_on_project_chatter(self):
+        p = self._make_project()
+        before_count = self.env['mail.message'].search_count(
+            [('res_id', '=', p.id), ('model', '=', 'ethara.project')]
+        )
+        budget = self.env['ethara.project.budget'].create({
+            'ethara_project_id': p.id,
+            'project_type': 'rnd',
+            'budget_amount': 10000.0,
+            'approver_user_ids': [(6, 0, [self.approver_user.id])],
+        })
+        after_count = self.env['mail.message'].search_count(
+            [('res_id', '=', p.id), ('model', '=', 'ethara.project')]
+        )
+        self.assertGreater(after_count, before_count,
+            'Budget create should post a note on the project chatter')
+        self.assertTrue(budget.name.startswith('EBGT/'))
+
+    def test_phase_carries_over_remaining(self):
+        p = self._make_project()
+        budget = self.env['ethara.project.budget'].create({
+            'ethara_project_id': p.id,
+            'project_type': 'rnd',
+            'budget_amount': 10000.0,
+            'state': 'approved',
+        })
+        ph1 = self.env['ethara.project.phase'].create({
+            'budget_id': budget.id,
+            'total_tasks': 100,
+            'state': 'in_progress',
+            'start_date': date(2026, 1, 1),
+            'end_date': date(2026, 1, 31),
+        })
+        ph2 = self.env['ethara.project.phase'].create({
+            'budget_id': budget.id,
+            'total_tasks': 100,
+            'start_date': date(2026, 2, 1),
+            'end_date': date(2026, 2, 28),
+        })
+        ph1.approved_amount = 500.0
+        ph1.consumed_cost = 200.0
+        ph1.state = 'in_progress'
+        self.assertEqual(ph1.state, 'in_progress')
+        self.assertTrue(ph1.name.startswith('EPHS/'))
+        self.assertTrue(ph2.name.startswith('EPHS/'))
+
+    def test_daily_task_flips_phase_to_in_progress(self):
+        p = self._make_project()
+        budget = self.env['ethara.project.budget'].create({
+            'ethara_project_id': p.id,
+            'project_type': 'rnd',
+            'budget_amount': 10000.0,
+            'state': 'approved',
+        })
+        phase = self.env['ethara.project.phase'].create({
+            'budget_id': budget.id,
+            'state': 'approved',
+            'total_tasks': 10,
+            'start_date': date(2026, 1, 1),
+            'end_date': date(2026, 12, 31),
+        })
+        self.env['ethara.project.phase.daily.task'].create({
+            'phase_id': phase.id,
+            'entry_date': date(2026, 1, 15),
+            'done_count': 3,
+            'per_task_cost': 5.0,
+            'total_cost': 15.0,
+        })
+        phase.invalidate_recordset()
+        self.assertEqual(phase.state, 'in_progress')
+        self.assertEqual(phase.done_tasks, 3)
+        self.assertEqual(phase.remaining_tasks, 7)
+
+    def test_threshold_alert_flags_start_unset(self):
+        p = self._make_project()
+        budget = self.env['ethara.project.budget'].create({
+            'ethara_project_id': p.id,
+            'project_type': 'rnd',
+            'budget_amount': 10000.0,
+        })
+        phase = self.env['ethara.project.phase'].create({
+            'budget_id': budget.id,
+            'state': 'in_progress',
+            'total_tasks': 10,
+        })
+        self.assertFalse(phase.alert_80_sent)
+        self.assertFalse(phase.alert_100_sent)
+        phase._check_threshold_alerts()
+        self.assertFalse(phase.alert_80_sent,
+            'no consumption -> no 80% alert fired')
+        self.assertFalse(phase.alert_100_sent,
+            'no consumption -> no 100% alert fired')
+
+    def test_topup_create_generates_sequence(self):
+        p = self._make_project()
+        budget = self.env['ethara.project.budget'].create({
+            'ethara_project_id': p.id,
+            'project_type': 'rnd',
+            'budget_amount': 10000.0,
+        })
+        topup = self.env['ethara.project.budget.topup'].create({
+            'budget_id': budget.id,
+            'amount': 500.0,
+            'justification': 'Extra headroom for Q4 tasks',
+        })
+        self.assertTrue(topup.name.startswith('ETUP/'))
+
+    def test_dashboard_data_provider(self):
+        p = self._make_project()
+        self.env['ethara.project.budget'].create({
+            'ethara_project_id': p.id,
+            'project_type': 'rnd',
+            'budget_amount': 5000.0,
+        })
+        data = self.env['ethara.project.budget.dashboard'].get_dashboard_data()
+        self.assertIn('totals', data)
+        self.assertIn('health_counts', data)
+        self.assertIn('budgets', data)
+        self.assertGreaterEqual(data['totals']['budget_count'], 1)

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_project_budget_monthly_cost_list" model="ir.ui.view">
+        <field name="name">ethara.project.budget.monthly.cost.list</field>
+        <field name="model">ethara.project.budget.monthly.cost</field>
+        <field name="arch" type="xml">
+            <list string="Monthly Cost Rollup">
+                <field name="ethara_project_id"/>
+                <field name="budget_id"/>
+                <field name="month_label"/>
+                <field name="basis"/>
+                <field name="monthly_cost" sum="Total"/>
+                <field name="per_day_avg_cost"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_budget_monthly_cost_pivot" model="ir.ui.view">
+        <field name="name">ethara.project.budget.monthly.cost.pivot</field>
+        <field name="model">ethara.project.budget.monthly.cost</field>
+        <field name="arch" type="xml">
+            <pivot string="Monthly Cost Rollup">
+                <field name="ethara_project_id" type="row"/>
+                <field name="budget_id" type="row"/>
+                <field name="period_month" interval="month" type="col"/>
+                <field name="basis" type="col"/>
+                <field name="monthly_cost" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_budget_monthly_cost_graph" model="ir.ui.view">
+        <field name="name">ethara.project.budget.monthly.cost.graph</field>
+        <field name="model">ethara.project.budget.monthly.cost</field>
+        <field name="arch" type="xml">
+            <graph string="Monthly Cost Rollup" type="bar" stacked="1">
+                <field name="period_month" interval="month"/>
+                <field name="basis"/>
+                <field name="monthly_cost" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_ethara_project_budget_monthly_cost_search" model="ir.ui.view">
+        <field name="name">ethara.project.budget.monthly.cost.search</field>
+        <field name="model">ethara.project.budget.monthly.cost</field>
+        <field name="arch" type="xml">
+            <search string="Monthly Cost Rollup">
+                <field name="ethara_project_id"/>
+                <field name="budget_id"/>
+                <field name="month_label"/>
+                <filter name="filter_infra" string="Infrastructure" domain="[('basis', '=', 'infra')]"/>
+                <filter name="filter_sub" string="Subscription" domain="[('basis', '=', 'subscription')]"/>
+                <filter name="filter_consumed" string="Consumed" domain="[('basis', '=', 'consumed')]"/>
+                
+                    <filter name="group_project" string="Project" context="{'group_by': 'ethara_project_id'}"/>
+                    <filter name="group_budget" string="Budget" context="{'group_by': 'budget_id'}"/>
+                    <filter name="group_month" string="Month" context="{'group_by': 'period_month:month'}"/>
+                    <filter name="group_basis" string="Basis" context="{'group_by': 'basis'}"/>
+                
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_project_budget_monthly_cost" model="ir.actions.act_window">
+        <field name="name">Monthly Cost Rollup</field>
+        <field name="res_model">ethara.project.budget.monthly.cost</field>
+        <field name="view_mode">list,pivot,graph,form</field>
+        <field name="search_view_id" ref="view_ethara_project_budget_monthly_cost_search"/>
+    </record>
+
+</odoo>

@@ -13,6 +13,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from ..models.role_map import VALID_ROLE_KEYS, resolve_role_ids
 from ..models.ethara_project import VALID_PROJECT_STATES
 from ..models.hr_employee import WORK_STATUS_ALLOCATED, WORK_STATUS_UNALLOCATED
+from ..services import ai_models_service
 
 _logger = logging.getLogger(__name__)
 
@@ -115,16 +116,45 @@ def _attachment_brief(att):
 
 
 def _serialize_project(project, detail=False):
+    start_date = safe_get_value(project, 'start_date', 'date')
+    end_date = safe_get_value(project, 'end_date', 'date')
+    tpm_count = len(project.assigned_tpm_ids)
+    pl_ql_count = len(project.assigned_pl_ql_ids)
+    rnd_count = len(project.assigned_rnd_ids)
+    total_team_size = tpm_count + pl_ql_count + rnd_count
+    team_role_message = 'TPM: %s, PL/QL: %s, R&D: %s' % (
+        tpm_count, pl_ql_count, rnd_count,
+    )
     data = {
         'id': project.id,
         'name': project.name or '',
+        'project_seq': 'PRJ%05d' % project.id,
         'client_name': project.client_name or '',
         'internal_project_name': project.internal_project_name or '',
         'project_goal': project.project_goal or '',
-        'start_date': safe_get_value(project, 'start_date', 'date'),
-        'end_date': safe_get_value(project, 'end_date', 'date'),
+        'start_date': start_date,
+        'end_date': end_date,
+        'date_start': start_date,
+        'date_end': end_date,
         'state': project.state or '',
+        'status': project.state or '',
+        'category': '',
+        'project_classification': '',
         'attachment_count': project.attachment_count,
+        'done_task_count': 0,
+        'this_week_new_task_count': 0,
+        'total_task_count': 0,
+        'completion_rate': '0.0%',
+        'open_blocker_count': 0,
+        'blocker_by_state': '',
+        'total_team_size': total_team_size,
+        'team_role_message': team_role_message,
+        'task_progress': [
+            {'state': 'in_progress', 'total_count': 0},
+            {'state': 'completed', 'total_count': 0},
+            {'state': 'blocker', 'total_count': 0},
+            {'state': 'returned', 'total_count': 0},
+        ],
     }
     if detail:
         data['assigned_tpm'] = [_emp_full(e) for e in project.assigned_tpm_ids]
@@ -186,6 +216,23 @@ def _build_attachment_vals(attachments_raw):
 
 class EtharaProjectController(http.Controller):
 
+    # -----------------------------------------------------------------------
+    # POST /api/v1/ethara_project/create
+    #
+    # Creates a new ethara.project record.
+    # Required JSON body:
+    #   - name (str)                  Project display name.
+    #   - client_name (str)           External client label.
+    # Optional JSON body:
+    #   - internal_project_name (str)
+    #   - project_goal (str)
+    #   - start_date / end_date (YYYY-MM-DD)
+    #   - assigned_tpm_ids / assigned_pl_ql_ids / assigned_rnd_ids ([int])
+    #     Employees are role-checked against api.role via role_map.
+    #   - attachments [{name, attachment_url | file_base64+file_name}]
+    #
+    # Response envelope: {message, status_code, data:{data:<project detail>}}
+    # -----------------------------------------------------------------------
     @http.route(
         '/api/v1/ethara_project/create',
         methods=['POST'],
@@ -256,6 +303,17 @@ class EtharaProjectController(http.Controller):
                 errors=[str(e)],
             )
 
+    # -----------------------------------------------------------------------
+    # POST /api/v1/ethara_project/update
+    #
+    # Partial update of an ethara.project. Only fields present in the payload
+    # are written. Same role-validation rules as /create for the M2M team
+    # assignments.
+    # Required JSON body:
+    #   - id (int)                    ethara.project id to update.
+    # Optional JSON body: any of the /create optional keys (partial patch).
+    # Response envelope: same as /create.
+    # -----------------------------------------------------------------------
     @http.route(
         '/api/v1/ethara_project/update',
         methods=['POST'],
@@ -330,6 +388,17 @@ class EtharaProjectController(http.Controller):
                 errors=[str(e)],
             )
 
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/list
+    #
+    # Lightweight list of ethara.project records (no line detail).
+    # Query params:
+    #   - search (str)                fuzzy match against name / client_name /
+    #                                 internal_project_name.
+    #   - limit (int, default 50, max 200)
+    #   - offset (int, default 0)
+    # Response: {data:{data:{total, limit, offset, records:[<summary>]}}}
+    # -----------------------------------------------------------------------
     @http.route(
         '/api/v1/ethara_project/list',
         methods=['GET'],
@@ -385,6 +454,14 @@ class EtharaProjectController(http.Controller):
                 errors=[str(e)],
             )
 
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/detail
+    #
+    # Full detail of a single ethara.project including team assignments +
+    # attachments.
+    # Query param: id (int, required).
+    # Response envelope: {data:{data:<project full detail>}}
+    # -----------------------------------------------------------------------
     @http.route(
         '/api/v1/ethara_project/detail',
         methods=['GET'],
@@ -420,6 +497,20 @@ class EtharaProjectController(http.Controller):
                 errors=[str(e)],
             )
 
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/employees_by_role
+    #
+    # Directory of hr.employee filtered by api.role bucket. Used by Flutter
+    # team-assignment pickers on the Ethara Project wizard.
+    # Query params:
+    #   - role (str, required)        One of VALID_ROLE_KEYS (see role_map.py):
+    #                                 tpm | pl | qc | qr | pl_ql | rnd | ...
+    #   - search (str)                fuzzy on name / work_email / job_title.
+    #   - work_status (str)           allocated | unallocated.
+    #   - limit (int, default 100, max 500) / offset (int).
+    # Response: {data:{data:{role, work_status, total, limit, offset,
+    #           records:[<employee full profile>]}}}
+    # -----------------------------------------------------------------------
     @http.route(
         '/api/v1/ethara_project/employees_by_role',
         methods=['GET'],
@@ -522,6 +613,16 @@ class EtharaProjectController(http.Controller):
                 errors=[str(e)],
             )
 
+    # -----------------------------------------------------------------------
+    # POST /api/v1/ethara_project/update_state
+    #
+    # Transitions ethara.project.state.
+    # Required JSON body:
+    #   - id (int)                    project id.
+    #   - state (str)                 one of VALID_PROJECT_STATES:
+    #                                 start | pause | close | complete.
+    # Response envelope: {data:{data:<updated project detail>}}
+    # -----------------------------------------------------------------------
     @http.route(
         '/api/v1/ethara_project/update_state',
         methods=['POST'],
@@ -566,6 +667,94 @@ class EtharaProjectController(http.Controller):
             _logger.exception('ethara_project update_state failed')
             return return_Response(
                 message='Failed to update Ethara project state.',
+                status=400,
+                errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/ai_models/providers
+    #
+    # Returns supported AI Providers (rows in ethara.project.ai.model whose
+    # name matches a known fetcher: openrouter, openai, moonshot, gemini,
+    # bedrock). Flutter uses this to populate the "Provider" picker; then
+    # calls /ai_models/list?provider=<name> to fetch the actual model list
+    # via the provider's own API using the stored api_url + api_key.
+    # Response: {data:{data:[{id, name}]}}
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/ai_models/providers',
+        methods=['GET'],
+        type='http',
+        auth='none',
+        csrf=False,
+        cors='*',
+    )
+    @validate_token
+    def list_ai_providers(self, **kwargs):
+        try:
+            providers = ai_models_service.list_providers(request.env)
+            return return_Response(
+                message='OK',
+                status=200,
+                data={'data': providers},
+            )
+        except ai_models_service.ProviderError as e:
+            return return_Response(
+                message=str(e),
+                status=400,
+                errors=[str(e)],
+            )
+        except Exception as e:
+            _logger.exception('ethara_project ai_models providers failed')
+            return return_Response(
+                message='Failed to list AI providers.',
+                status=400,
+                errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/ai_models/list
+    #
+    # Fetches the live model catalog for a given Provider by calling the
+    # provider's own /models endpoint with the stored api_key.
+    # Query param: provider (str, required) - must match a Provider row name.
+    # Response: {data:{data:{provider, count, models:[{id, name}]}}}
+    # Errors: 400 with ProviderError message when api key missing, provider
+    # unreachable, invalid key (401/403), or rate limited (429).
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/ai_models/list',
+        methods=['GET'],
+        type='http',
+        auth='none',
+        csrf=False,
+        cors='*',
+    )
+    @validate_token
+    def list_ai_models(self, **kwargs):
+        try:
+            provider = (kwargs.get('provider') or '').strip()
+            if not provider:
+                return return_Response(
+                    message="Query param 'provider' is required.",
+                    status=400,
+                )
+            result = ai_models_service.list_models(request.env, provider)
+            return return_Response(
+                message='OK',
+                status=200,
+                data={'data': result},
+            )
+        except ai_models_service.ProviderError as e:
+            return return_Response(
+                message=str(e),
+                status=400,
+                errors=[str(e)],
+            )
+        except Exception as e:
+            _logger.exception('ethara_project ai_models list failed')
+            return return_Response(
+                message='Failed to list AI models.',
                 status=400,
                 errors=[str(e)],
             )

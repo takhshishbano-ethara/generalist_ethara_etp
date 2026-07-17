@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="ir_cron_ethara_project_budget_fetch_costs" model="ir.cron">
+            <field name="name">Ethara Project Budget: Fetch Costs</field>
+            <field name="model_id" ref="model_ethara_project_budget"/>
+            <field name="state">code</field>
+            <field name="code">model.cron_fetch_costs()</field>
+            <field name="interval_number">6</field>
+            <field name="interval_type">hours</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_ethara_project_aws_pricing_sync" model="ir.cron">
+            <field name="name">Ethara Project AWS Pricing: Sync Services</field>
+            <field name="model_id" ref="model_ethara_project_aws_pricing_sync_log"/>
+            <field name="state">code</field>
+            <field name="code">model.action_run_sync_from_cron()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_ethara_project_budget_monthly_rollup" model="ir.cron">
+            <field name="name">Ethara Project Budget: Monthly Cost Rollup</field>
+            <field name="model_id" ref="model_ethara_project_budget_monthly_cost"/>
+            <field name="state">code</field>
+            <field name="code">model.cron_rollup_all()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

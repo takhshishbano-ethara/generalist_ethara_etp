@@ -43,11 +43,6 @@
             <field name="project_type">technical</field>
             <field name="user_type">CFO</field>
         </record>
-        <record id="role_ta_technical" model="api.role">
-            <field name="name">TA</field>
-            <field name="project_type">technical</field>
-            <field name="user_type">TA</field>
-        </record>
         <record id="role_cto_technical" model="api.role">
             <field name="name">CTO</field>
             <field name="project_type">technical</field>
