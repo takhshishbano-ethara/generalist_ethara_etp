@@ -110,6 +110,13 @@ class EtharaProjectBudget(models.Model):
         string='Budget Type',
         tracking=True,
     )
+    # R&D budgets are split into sub-types (mirrors the create flow's
+    # `budget_sub_type`). Only meaningful when project_type == 'rnd'.
+    budget_sub_type = fields.Selection(
+        selection=[('testing', 'Testing'), ('sampling', 'Sampling')],
+        string='R&D Sub-type',
+        tracking=True,
+    )
     active = fields.Boolean(default=True)
     state = fields.Selection(
         selection=BUDGET_STATE_SELECTION,

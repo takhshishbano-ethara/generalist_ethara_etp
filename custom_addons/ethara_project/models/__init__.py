@@ -3,6 +3,7 @@ from . import hr_employee
 from . import ethara_project
 from . import ethara_project_attachment
 from . import ethara_project_ai_model
+from . import ethara_project_infra_provider
 from . import ethara_project_infra_type
 from . import ethara_project_subscription
 from . import ethara_project_aws_credentials

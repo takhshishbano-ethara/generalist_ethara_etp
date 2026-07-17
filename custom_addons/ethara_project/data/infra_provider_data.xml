@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- =====================================================================
+         Seed cloud infrastructure providers. Admins can add / edit / archive
+         more from Ethara Projects → AWS Budgets → Infrastructure Providers.
+         noupdate="1" so runtime edits (rename, archive, new providers) survive
+         a module upgrade.
+         ===================================================================== -->
+    <data noupdate="1">
+
+        <record id="infra_provider_aws" model="ethara.project.infra.provider">
+            <field name="name">AWS</field>
+            <field name="pricing_source">aws_live</field>
+            <field name="sequence">10</field>
+        </record>
+
+        <record id="infra_provider_microsoft" model="ethara.project.infra.provider">
+            <field name="name">Microsoft</field>
+            <field name="pricing_source">manual</field>
+            <field name="sequence">20</field>
+        </record>
+
+        <!-- Starter Microsoft (Azure) services so the manual picker is usable
+             immediately. Manually priced (is_aws_managed = False). Admins can
+             edit / remove these or add more under Infrastructure Types. -->
+        <record id="infra_type_azure_vm" model="ethara.project.infra.type">
+            <field name="name">Azure Virtual Machine</field>
+            <field name="code">azure_vm</field>
+            <field name="provider_id" ref="infra_provider_microsoft"/>
+            <field name="is_aws_managed" eval="False"/>
+            <field name="sequence">10</field>
+        </record>
+
+        <record id="infra_type_azure_blob" model="ethara.project.infra.type">
+            <field name="name">Azure Blob Storage</field>
+            <field name="code">azure_blob</field>
+            <field name="provider_id" ref="infra_provider_microsoft"/>
+            <field name="is_aws_managed" eval="False"/>
+            <field name="sequence">20</field>
+        </record>
+
+        <record id="infra_type_azure_sql" model="ethara.project.infra.type">
+            <field name="name">Azure SQL Database</field>
+            <field name="code">azure_sql</field>
+            <field name="provider_id" ref="infra_provider_microsoft"/>
+            <field name="is_aws_managed" eval="False"/>
+            <field name="sequence">30</field>
+        </record>
+
+    </data>
+</odoo>

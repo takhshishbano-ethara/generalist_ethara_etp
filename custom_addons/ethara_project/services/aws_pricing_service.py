@@ -216,19 +216,26 @@ def _upsert_service(env, service_code, attribute_names):
     Infra = env["ethara.project.infra.type"].sudo()
     prim = primary_attr(attribute_names) or ""
     now = datetime.utcnow()
+    # Keep AWS-synced services linked to the AWS provider so the Provider
+    # column / filter stays correct (seeded via infra_provider_data.xml).
+    aws_provider = env.ref(
+        "ethara_project.infra_provider_aws", raise_if_not_found=False
+    )
+    aws_provider_id = aws_provider.id if aws_provider else False
     existing = Infra.search(
         [("aws_service_code", "=", service_code), ("is_aws_managed", "=", True)],
         limit=1,
     )
     if existing:
-        existing.write(
-            {
-                "primary_attr": prim,
-                "attribute_names": json.dumps(attribute_names or []),
-                "last_synced_at": now,
-                "active": True,
-            }
-        )
+        vals = {
+            "primary_attr": prim,
+            "attribute_names": json.dumps(attribute_names or []),
+            "last_synced_at": now,
+            "active": True,
+        }
+        if aws_provider_id and not existing.provider_id:
+            vals["provider_id"] = aws_provider_id
+        existing.write(vals)
         return existing, False
     return (
         Infra.create(
@@ -242,6 +249,7 @@ def _upsert_service(env, service_code, attribute_names):
                 "sync_enabled": True,
                 "active": True,
                 "last_synced_at": now,
+                "provider_id": aws_provider_id,
             }
         ),
         True,

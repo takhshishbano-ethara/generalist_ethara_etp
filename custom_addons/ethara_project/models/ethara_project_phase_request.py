@@ -22,6 +22,9 @@ REQUEST_STATE_SELECTION = [
 TERMINAL_APPROVED_STATES = ('approved', 'partially_approved')
 
 PL_TPM_ROLE_XMLIDS = ROLE_XML_IDS['pl'] + ROLE_XML_IDS['tpm']
+# Roles allowed to raise (submit) a budget request. PL/TPM plus R&D members;
+# CTO/CFO remain approvers/rejecters only.
+RAISER_ROLE_XMLIDS = ROLE_XML_IDS['pl'] + ROLE_XML_IDS['tpm'] + ROLE_XML_IDS['rnd']
 CTO_ROLE_XMLIDS = ROLE_XML_IDS['cto']
 CFO_ROLE_XMLIDS = ROLE_XML_IDS['cfo']
 
@@ -448,11 +451,11 @@ class EtharaProjectPhaseRequest(models.Model):
         if not self.phase_id:
             raise UserError(_('Request has no phase.'))
         if not (
-            self._is_pl_or_tpm()
+            self._user_has_role(RAISER_ROLE_XMLIDS)
             or self.env.user.has_group('base.group_system')
         ):
             raise UserError(_(
-                'Only users with the PL or TPM role can submit budget '
+                'Only users with the PL, TPM or R&D role can submit budget '
                 'requests for approval.'
             ))
 
