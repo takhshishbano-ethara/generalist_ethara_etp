@@ -137,11 +137,17 @@
       <field name="model">kensei2.persona</field>
       <field name="inherit_id" ref="kensei2.kensei2_persona_form"/>
       <field name="arch" type="xml">
-        <field name="l2_category" position="after">
-          <field name="pt_project_id" options="{'no_create_edit': True}"/>
-          <field name="pt_domain"/>
-          <field name="pt_agent_type"/>
-        </field>
+        <!-- Append inside the sheet rather than anchoring on l1/l2 — those fields
+             may not exist on every deployment's persona form, and a missing
+             anchor makes the whole module fail to install. Every form has a
+             <sheet>, so this is safe everywhere. -->
+        <xpath expr="//sheet" position="inside">
+          <group string="Project Tracker" name="pt_group">
+            <field name="pt_project_id" options="{'no_create_edit': True}"/>
+            <field name="pt_domain"/>
+            <field name="pt_agent_type"/>
+          </group>
+        </xpath>
       </field>
     </record>
 
