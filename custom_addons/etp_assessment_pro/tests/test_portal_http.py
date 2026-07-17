@@ -377,6 +377,7 @@ class TestPortalHttp(HttpCase, _Base):
 
     def test_violation_increments_count(self):
         ev, _payload, login, pwd, _app = self._launched()
+        ev.assessment_id.violation_action = "log_only"
         token = ev.access_token
         self.authenticate(login, pwd)
         self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
@@ -396,6 +397,19 @@ class TestPortalHttp(HttpCase, _Base):
             data={"violation_reason": "copy paste"})
         ev.invalidate_recordset()
         self.assertEqual(ev.violation_count, 2)
+
+    def test_auto_submit_on_first_violation_when_no_cap(self):
+        ev, _payload, login, pwd, _app = self._launched()
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        self.url_open(
+            "/pro_assessment/%s/violation" % token,
+            data={"violation_reason": "tab switch"})
+        ev.invalidate_recordset()
+        self.assertEqual(ev.violation_count, 1)
+        self.assertTrue(ev.is_locked)
+        self.assertEqual(ev.state, "submitted")
 
     # ---- 7. qimage route -------------------------------------------------
 

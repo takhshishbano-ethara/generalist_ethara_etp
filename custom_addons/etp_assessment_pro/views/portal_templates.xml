@@ -266,26 +266,53 @@
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-result-hero etp-result-status">
-                    <span class="etp-result-eyebrow">Assessment complete</span>
-                    <div class="etp-result-icon is-info">
-                        <i class="fa fa-check"/>
-                    </div>
-                    <span class="etp-status-pill is-pending">
-                        <i class="fa fa-paper-plane"/> Submitted
-                    </span>
-                    <h3>Submission received</h3>
-                    <p>
-                        Your assessment <strong t-out="assessment.name"/> has
-                        been submitted. Thank you.
-                    </p>
-                    <p class="etp-result-note">
-                        <i class="fa fa-clock-o"/> Your responses are locked and
-                        awaiting evaluation - you'll be notified once results are
-                        released.
-                    </p>
-                    <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
-                        <i class="fa fa-arrow-left"/> Back to My Assessments
-                    </a>
+                    <t t-if="evaluator.results_released">
+                        <span class="etp-result-eyebrow">Your result</span>
+                        <div t-attf-class="etp-acard-ring is-#{evaluator.result or 'pending'}"
+                             t-attf-style="--etp-ring-pct: #{int(round(evaluator.score_percent or 0))};"
+                             role="img"
+                             t-attf-aria-label="Score #{int(round(evaluator.score_percent or 0))} percent">
+                            <span class="etp-acard-ring-val">
+                                <b t-out="int(round(evaluator.score_percent or 0))"/><small>%</small>
+                            </span>
+                        </div>
+                        <span t-if="evaluator.result in ('pass', 'fail')"
+                              t-attf-class="etp-acard-verdict is-#{evaluator.result}">
+                            <i t-attf-class="fa fa-#{'check-circle' if evaluator.result == 'pass' else 'times-circle'} me-1"/>
+                            <t t-out="evaluator.result.capitalize()"/>
+                        </span>
+                        <h3>Assessment result</h3>
+                        <p>
+                            Your assessment <strong t-out="assessment.name"/> has
+                            been evaluated.
+                        </p>
+                        <div class="etp-result-breakdown" t-out="evaluator.result_summary"/>
+                        <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
+                            <i class="fa fa-arrow-left"/> Back to My Assessments
+                        </a>
+                    </t>
+                    <t t-else="">
+                        <span class="etp-result-eyebrow">Assessment complete</span>
+                        <div class="etp-result-icon is-info">
+                            <i class="fa fa-check"/>
+                        </div>
+                        <span class="etp-status-pill is-pending">
+                            <i class="fa fa-paper-plane"/> Submitted
+                        </span>
+                        <h3>Submission received</h3>
+                        <p>
+                            Your assessment <strong t-out="assessment.name"/> has
+                            been submitted. Thank you.
+                        </p>
+                        <p class="etp-result-note">
+                            <i class="fa fa-clock-o"/> Your responses are locked and
+                            awaiting evaluation — you'll be notified once results are
+                            released.
+                        </p>
+                        <a href="/my/pro_assessments" class="btn btn-primary etp-result-cta">
+                            <i class="fa fa-arrow-left"/> Back to My Assessments
+                        </a>
+                    </t>
                 </div>
             </t>
         </t>
