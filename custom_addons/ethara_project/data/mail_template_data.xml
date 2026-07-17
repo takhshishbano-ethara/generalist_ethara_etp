@@ -717,5 +717,148 @@
             </field>
         </record>
 
+        <record id="mail_template_ethara_project_budget_created" model="mail.template">
+            <field name="name">Ethara Project Budget: Created</field>
+            <field name="model_id" ref="model_ethara_project_budget"/>
+            <field name="subject">[{{ object.ethara_project_id.name or 'Project Budget' }}] Budget Approval Request: {{ object.name }}</field>
+            <field name="email_from">{{ (user.email_formatted or '') }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#EEF2F7;font-family:Georgia,'Times New Roman',serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2F7;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px;max-width:100%;background:#FFFFFF;border:1px solid #CBD5E1;">
+
+        <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
+            </td>
+            <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">Budget Approval Request</td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="padding:20px 36px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;line-height:1.85;">
+            <tr><td width="100" style="color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;font-size:11px;vertical-align:top;">Ref. No.</td><td style="color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr><td style="color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;font-size:11px;vertical-align:top;">Date</td><td style="color:#0F172A;" t-out="object.create_date and object.create_date.strftime('%Y-%m-%d %H:%M') or ''"></td></tr>
+            <tr><td style="color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;font-size:11px;vertical-align:top;">From</td><td style="color:#0F172A;" t-out="user.name or ''"></td></tr>
+            <tr><td style="color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;font-size:11px;vertical-align:top;">To</td><td style="color:#0F172A;">Authorised Approver(s) &#8211; <t t-out="object.ethara_project_id.name or ''"></t></td></tr>
+            <tr><td style="color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;font-size:11px;vertical-align:top;padding-top:6px;">Subject</td><td style="color:#0F172A;font-weight:700;padding-top:6px;">Approval requested for project budget &#8211; <t t-out="object.name or ''"></t></td></tr>
+          </table>
+        </td></tr>
+
+        <tr><td style="padding:28px 36px 8px;font-family:Georgia,'Times New Roman',serif;font-size:14.5px;color:#0F172A;line-height:1.75;">
+          <p style="margin:0 0 14px;">Dear Sir / Madam,</p>
+          <p style="margin:0 0 20px;text-align:justify;">A new project budget has been raised under <strong t-out="object.ethara_project_id.name or ''"></strong> and submitted for your kind review and approval. The budget has been classified as a <strong style="text-transform:capitalize;" t-out="dict(object._fields['project_type'].selection).get(object.project_type, object.project_type or '')"></strong> envelope and provisions for a total of <strong t-out="object.total_tasks or 0"></strong> task(s) across the planned delivery phases. The full composition is set out hereunder for your consideration.</p>
+
+          <t t-if="object.description">
+            <div style="margin:0 0 22px;padding:18px 22px;background:#FFFFFF;border:1px solid #CBD5E1;border-left:4px solid #0F172A;">
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:10px;">Description</div>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:14.5px;color:#0F172A;line-height:1.75;white-space:pre-wrap;" t-out="object.description"></div>
+            </div>
+          </t>
+
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:18px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">Budget Particulars</h3>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+            <tr><td style="padding:7px 0;color:#475569;width:210px;">Budget Reference</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Project</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.ethara_project_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Budget Type</td><td style="padding:7px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['project_type'].selection).get(object.project_type, object.project_type or '')"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Status</td><td style="padding:7px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['state'].selection).get(object.state, object.state or '')"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Total Tasks</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.total_tasks or 0"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Buffer Provision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;"><t t-out="'%.2f' % (object.buffer_pct or 0.0)"/>%</td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Initiated By</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="user.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Initiated On</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.create_date and object.create_date.strftime('%Y-%m-%d %H:%M') or ''"></td></tr>
+            <tr><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;border-top:1.5px solid #0F172A;">Total Budget Envelope</td><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;font-size:16px;border-top:1.5px solid #0F172A;" t-out="'%.2f USD' % (object.budget_amount or 0.0)"></td></tr>
+          </table>
+
+          <t t-if="object.model_line_ids or object.infra_line_ids or object.subscription_line_ids">
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;color:#0F172A;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;margin:26px 0 14px;padding-bottom:8px;border-bottom:2px solid #0F172A;">BUDGET BIFURCATION</h3>
+          </t>
+
+          <t t-if="object.model_line_ids">
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">1. AI Model Allocation</h3>
+            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+              <thead><tr>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Model</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Cost Type</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:right;letter-spacing:0.08em;text-transform:uppercase;">Per Task</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:right;letter-spacing:0.08em;text-transform:uppercase;">Line Total (USD)</th>
+              </tr></thead>
+              <tbody>
+                <tr t-foreach="object.model_line_ids" t-as="mline">
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;" t-out="mline.ai_model_id.name or mline.ai_model_name or ''"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;text-transform:capitalize;" t-out="(mline.cost_type or '').replace('_', ' ')"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;text-align:right;" t-out="'%.4f' % (mline.per_task_cost or 0.0)"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;text-align:right;font-weight:600;" t-out="'%.2f' % ((mline.per_task_cost or 0.0) * (object.total_tasks or 0))"></td>
+                </tr>
+              </tbody>
+            </table>
+          </t>
+
+          <t t-if="object.infra_line_ids">
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">2. Infrastructure Allocation</h3>
+            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+              <thead><tr>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Infrastructure</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Description</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:right;letter-spacing:0.08em;text-transform:uppercase;">Cost (USD)</th>
+              </tr></thead>
+              <tbody>
+                <tr t-foreach="object.infra_line_ids" t-as="iline">
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;" t-out="iline.infra_type_id.name or ''"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;" t-out="iline.description or ''"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;text-align:right;font-weight:600;" t-out="'%.2f' % (iline.budget_amount or 0.0)"></td>
+                </tr>
+              </tbody>
+            </table>
+          </t>
+
+          <t t-if="object.subscription_line_ids">
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">3. Subscription Allocation</h3>
+            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+              <thead><tr>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Subscription</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:right;letter-spacing:0.08em;text-transform:uppercase;">Per Seat</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:right;letter-spacing:0.08em;text-transform:uppercase;">Seats</th>
+                <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:right;letter-spacing:0.08em;text-transform:uppercase;">Line Total (USD)</th>
+              </tr></thead>
+              <tbody>
+                <tr t-foreach="object.subscription_line_ids" t-as="sline">
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;" t-out="sline.subscription_id.name or ''"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;text-align:right;" t-out="'%.2f' % (sline.cost_per_subscription or 0.0)"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;text-align:right;" t-out="sline.subscription_count or 0"></td>
+                  <td style="padding:10px 14px;border-top:1px solid #E2E8F0;color:#0F172A;text-align:right;font-weight:600;" t-out="'%.2f' % (sline.final_amount or 0.0)"></td>
+                </tr>
+              </tbody>
+            </table>
+          </t>
+
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">Action Required</h3>
+          <div style="padding:16px 20px;background:#FFFBEB;border:1px solid #F59E0B;border-left:4px solid #F59E0B;">
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#92400E;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Pending Your Decision</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly log in to the Ethara.AI platform to record your decision (approve or reject) on this project budget at your earliest convenience. Timely action will ensure that the project schedule remains uninterrupted.</div>
+          </div>
+
+          <p style="margin:28px 0 4px;">With kind regards,</p>
+          <p style="margin:0;font-weight:700;" t-out="user.name or ''"></p>
+          <p style="margin:0;color:#475569;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">Project: <t t-out="object.ethara_project_id.name or ''"></t></p>
+
+        </td></tr>
+
+        <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
+          <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">Confidentiality Notice</div>
+          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara.AI Project Operations system &#8211; please do not reply directly to this email.</div>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+
     </data>
 </odoo>

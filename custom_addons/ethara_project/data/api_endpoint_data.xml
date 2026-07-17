@@ -278,5 +278,10 @@
             <field name="note">POST - AWS budget XLSX export (download URL).</field>
         </record>
 
+        <record id="endpoint_api_v2_project_team_member_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/project_team_member_list</field>
+            <field name="note">GET - Team members of an ethara.project (URL-compat alias for legacy task_forge_bridge endpoint). Returns id, name, email, job_title, department, role, active, since etc. Fields ethara does not own return safe defaults.</field>
+        </record>
+
     </data>
 </odoo>
