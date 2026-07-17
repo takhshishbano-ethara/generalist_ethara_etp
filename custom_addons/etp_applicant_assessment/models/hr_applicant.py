@@ -133,9 +133,9 @@ class HrApplicant(models.Model):
         self.sudo().status = "resume_screening_in_progress"
         return super().action_screen_resume()
 
-    def _advance_stage_after_screening(self):
+    def _advance_stage_after_screening(self, allow_regress=False):
         self.ensure_one()
-        super()._advance_stage_after_screening()
+        super()._advance_stage_after_screening(allow_regress=allow_regress)
         rec = self.resume_recommendation
         if rec == "shortlist":
             self.sudo().status = "resume_screening_passed"

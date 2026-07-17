@@ -355,12 +355,22 @@ class HrApplicant(models.Model):
         payload = self._parse_screening_json(result.get('content') or '')
         strengths = payload.get('strengths') or []
         gaps = payload.get('gaps') or []
+        raw_score = (
+            payload.get('matchScore')
+            if payload.get('matchScore') is not None
+            else payload.get('match_score')
+            if payload.get('match_score') is not None
+            else payload.get('score')
+        )
+        raw_summary = payload.get('summary')
+        if isinstance(raw_summary, (dict, list)):
+            raw_summary = json.dumps(raw_summary)
         self.write({
-            'resume_score': self._clamp_score(payload.get('matchScore')),
+            'resume_score': self._clamp_score(raw_score),
             'resume_recommendation': self._normalize_recommendation(
                 payload.get('recommendation'),
             ),
-            'resume_summary': payload.get('summary') or '',
+            'resume_summary': (raw_summary or '').strip(),
             'resume_strengths': '\n'.join(
                 '- %s' % s for s in strengths if s
             ),
@@ -610,13 +620,41 @@ class HrApplicant(models.Model):
                     return json.loads(match.group(0))
                 except Exception:
                     pass
-            return {
-                'summary': text[:500],
-                'recommendation': 'needs_review',
-                'matchScore': 0,
-                'strengths': [],
-                'gaps': [],
-            }
+        salvaged = {
+            'summary': '',
+            'recommendation': 'needs_review',
+            'matchScore': 0,
+            'strengths': [],
+            'gaps': [],
+        }
+        m = re.search(r'"?matchScore"?\s*:\s*(\d+(?:\.\d+)?)', text)
+        if m:
+            try:
+                salvaged['matchScore'] = int(float(m.group(1)))
+            except (TypeError, ValueError):
+                pass
+        m = re.search(
+            r'"?recommendation"?\s*:\s*"?(shortlist|reject|maybe|needs_review)"?',
+            text,
+            re.IGNORECASE,
+        )
+        if m:
+            salvaged['recommendation'] = m.group(1).lower()
+        m = re.search(
+            r'"?summary"?\s*:\s*(.+?)(?=\s*"?(strengths|gaps|matchScore|recommendation)"?\s*:|\}|$)',
+            text,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if m:
+            summary_text = m.group(1).strip().rstrip(',').strip()
+            if summary_text.startswith('"'):
+                summary_text = summary_text[1:]
+            if summary_text.endswith('"'):
+                summary_text = summary_text[:-1]
+            salvaged['summary'] = summary_text.strip()
+        else:
+            salvaged['summary'] = text[:500]
+        return salvaged
 
     @staticmethod
     def _clamp_score(value):
@@ -645,13 +683,23 @@ class HrApplicant(models.Model):
         Stage = self.env['hr.recruitment.stage'].sudo()
         rec = self.resume_recommendation
 
+        has_status = 'status' in self._fields
+
         if rec == 'reject':
+            reject_vals = {}
             if self.pipeline_status != 'rejected':
-                self.sudo().write({'pipeline_status': 'rejected'})
+                reject_vals['pipeline_status'] = 'rejected'
+            if has_status:
+                reject_vals['status'] = 'resume_screening_rejected'
+            if reject_vals:
+                self.sudo().write(reject_vals)
             return
 
         if rec != 'shortlist':
             return
+
+        if has_status:
+            self.sudo().write({'status': 'resume_screening_passed'})
 
         if not allow_regress and self.candidate_user_id:
             conflict = self.env['hr.applicant'].sudo().with_context(

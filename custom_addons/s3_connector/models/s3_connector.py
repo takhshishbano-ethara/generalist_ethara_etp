@@ -55,11 +55,21 @@ class S3Connector(models.Model):
 
     def _get_s3_client(self):
         """Initialize a boto3 S3 client"""
-        try:
-            import certifi
-            verify = certifi.where()
-        except Exception:
-            verify = True
+        ICP = self.env['ir.config_parameter'].sudo()
+        disable_verify = ICP.get_param('s3_connector.disable_ssl_verify', 'False').lower() == 'true'
+        if disable_verify:
+            try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            except Exception:
+                pass
+            verify = False
+        else:
+            try:
+                import certifi
+                verify = certifi.where()
+            except Exception:
+                verify = True
         return boto3.client(
             's3',
             aws_access_key_id=self.aws_access_key_id,
@@ -191,13 +201,73 @@ class S3Connector(models.Model):
         s3 = self._get_s3_client()
         bucket = self.name
 
-        s3.put_object(
-            Bucket=bucket,
-            Key=object_name,
-            Body=file_bytes,
-            ContentType=mimetype,
-            ACL='public-read'
-        )
+        try:
+            s3.put_object(
+                Bucket=bucket,
+                Key=object_name,
+                Body=file_bytes,
+                ContentType=mimetype,
+                ACL='public-read'
+            )
+        except Exception as exc:
+            # Fallback for macOS Python 3.12 TLS handshake bug against AWS S3 (WRONG_SIGNATURE_TYPE) — verify=False can't fix it.
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.info(
+                'S3 put_object via boto3 failed (%s); trying curl fallback for %s/%s',
+                exc, bucket, object_name,
+            )
+            self._put_via_curl(s3, bucket, object_name, file_bytes, mimetype)
         # s3_url = f"https://{bucket}.s3.{self.region_name}.amazonaws.com/{object_name}"
         s3_url = f"{self.cdn_url}/{object_name}"
         return s3_url
+
+    def _put_via_curl(self, s3, bucket, object_name, file_bytes, mimetype):
+        import logging
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+        _logger = logging.getLogger(__name__)
+        curl = shutil.which('curl')
+        if not curl:
+            raise UserError(_('curl not on PATH — cannot upload to S3 via fallback'))
+        presigned_url = s3.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': bucket,
+                'Key': object_name,
+                'ContentType': mimetype,
+                'ACL': 'public-read',
+            },
+            ExpiresIn=300,
+            HttpMethod='PUT',
+        )
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(file_bytes)
+            tmp_path = tf.name
+        try:
+            result = subprocess.run(
+                [
+                    curl, '-sS', '--fail', '--max-time', '60',
+                    '-X', 'PUT',
+                    '-H', f'Content-Type: {mimetype}',
+                    '-H', 'x-amz-acl: public-read',
+                    '--data-binary', f'@{tmp_path}',
+                    presigned_url,
+                ],
+                capture_output=True, timeout=65, check=False,
+            )
+            if result.returncode != 0:
+                raise UserError(_(
+                    'S3 curl PUT failed rc=%s stderr=%s'
+                ) % (
+                    result.returncode,
+                    (result.stderr or b'').decode(errors='replace')[:400],
+                ))
+            _logger.info('S3 curl PUT succeeded for %s/%s', bucket, object_name)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
