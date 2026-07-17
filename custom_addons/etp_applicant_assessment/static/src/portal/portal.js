@@ -288,29 +288,54 @@ document.addEventListener("DOMContentLoaded", async () => {
             for (const [k, v] of Object.entries(presign.fields || {})) form.append(k, v);
             form.append("file", blob, `clip-${Date.now()}.webm`);
             let s3Resp;
+            let directOk = false;
             try {
                 s3Resp = await fetch(presign.url, { method: "POST", body: form });
+                directOk = !!s3Resp.ok;
+                if (!directOk) {
+                    await beaconMediaError("s3-post-failed", `status=${s3Resp.status}`, s3Resp.status);
+                }
             } catch (e) {
                 await beaconMediaError("s3-post-error", String(e && e.message || e));
-                return;
             }
-            if (!s3Resp.ok) {
-                await beaconMediaError("s3-post-failed", `status=${s3Resp.status}`, s3Resp.status);
+            if (directOk) {
+                try {
+                    const r = await postJson("/proctoring/video/commit", {
+                        key: presign.key,
+                        reason,
+                        snapshot_url: snapshotUrl || "",
+                        snapshot_key: snapshotKey || "",
+                        warning_id: warningId || 0,
+                    });
+                    if (r.ok) {
+                        const data = await r.json();
+                        if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
+                        if (data.state === "submitted" || data.state === "scored") forceCompleted();
+                    }
+                } catch (e) {
+                    await beaconMediaError("commit-error", String(e && e.message || e));
+                }
                 return;
             }
             try {
-                const r = await postJson("/proctoring/video/commit", {
-                    key: presign.key,
-                    reason,
-                    snapshot_url: snapshotUrl || "",
-                    snapshot_key: snapshotKey || "",
-                    warning_id: warningId || 0,
+                const fallback = new FormData();
+                fallback.append("file", blob, `clip-${Date.now()}.webm`);
+                fallback.append("reason", reason);
+                if (snapshotUrl) fallback.append("snapshot_url", snapshotUrl);
+                if (snapshotKey) fallback.append("snapshot_key", snapshotKey);
+                if (warningId) fallback.append("warning_id", String(warningId));
+                const fbResp = await fetch(url("/proctoring/video/upload"), {
+                    method: "POST",
+                    body: fallback,
+                    credentials: "same-origin",
                 });
-                if (r.ok) {
-                    const data = await r.json();
-                    if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
-                    if (data.state === "submitted" || data.state === "scored") forceCompleted();
+                if (!fbResp.ok) {
+                    await beaconMediaError("commit-error", `fallback status=${fbResp.status}`, fbResp.status);
+                    return;
                 }
+                const data = await fbResp.json();
+                if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
+                if (data.state === "submitted" || data.state === "scored") forceCompleted();
             } catch (e) {
                 await beaconMediaError("commit-error", String(e && e.message || e));
             }

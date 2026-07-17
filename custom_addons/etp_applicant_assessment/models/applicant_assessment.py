@@ -525,17 +525,53 @@ class EtpApplicantAssessment(models.Model):
             rec.submitted_at = fields.Datetime.now()
             rec.state = "submitted"
             if rec.applicant_id:
-                rec.applicant_id.sudo().status = "assessment_pending_review"
-            has_llm_targets = any(
-                a.question_type in _LLM_QC_TARGET_TYPES and a.is_answered
-                for a in rec.answer_ids
-            )
+                # A stale stage DB missing the new hr.applicant.status
+                # selection values, or a downstream write hook that
+                # raises, would otherwise surface as a 500 on /submit
+                # and lose the candidate's session. Never block the
+                # state transition on the applicant sync.
+                applicant = rec.applicant_id.sudo()
+                try:
+                    applicant.write({"status": "assessment_pending_review"})
+                    applicant.flush_recordset(["status"])
+                    _logger.info(
+                        "action_submit: applicant=%s status set to "
+                        "assessment_pending_review for assessment=%s",
+                        applicant.id, rec.id,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Failed to set applicant status to "
+                        "assessment_pending_review for applicant=%s "
+                        "assessment=%s (current status=%s)",
+                        applicant.id, rec.id, applicant.status,
+                    )
+            try:
+                has_llm_targets = any(
+                    a.question_type in _LLM_QC_TARGET_TYPES and a.is_answered
+                    for a in rec.answer_ids
+                )
+            except Exception:
+                _logger.exception(
+                    "LLM-QC target detection failed for assessment=%s; "
+                    "treating as no LLM targets",
+                    rec.id,
+                )
+                has_llm_targets = False
             if has_llm_targets:
                 rec.llm_qc_state = "pending"
                 need_trigger = True
             else:
                 rec.llm_qc_state = "skipped"
-                rec._finalize_scoring_after_llm_qc()
+                try:
+                    rec._finalize_scoring_after_llm_qc()
+                except Exception:
+                    _logger.exception(
+                        "_finalize_scoring_after_llm_qc failed for "
+                        "assessment=%s; record left in submitted state "
+                        "for manual review",
+                        rec.id,
+                    )
         if need_trigger and cron:
             try:
                 cron.sudo()._trigger()
