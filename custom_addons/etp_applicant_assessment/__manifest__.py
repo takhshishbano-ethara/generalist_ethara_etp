@@ -69,6 +69,7 @@ JSON events and thumbnails and scales linearly with S3 throughput.
         "views/question_bank_views.xml",
         "views/assessment_template_views.xml",
         "views/portal_templates.xml",
+        "views/res_config_settings_views.xml",
         "views/menu_items.xml",
     ],
 }

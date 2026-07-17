@@ -12,5 +12,15 @@
             <field name="active" eval="True"/>
         </record>
 
+        <record id="cron_process_pending_llm_qc" model="ir.cron">
+            <field name="name">Applicant Assessment: Process pending LLM QC</field>
+            <field name="model_id" ref="model_etp_applicant_assessment"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_process_pending_llm_qc()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
     </data>
 </odoo>

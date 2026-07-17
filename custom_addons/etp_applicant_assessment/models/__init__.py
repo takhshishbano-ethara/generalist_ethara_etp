@@ -9,3 +9,4 @@ from . import applicant_assessment_warning
 from . import applicant_assessment_snapshot
 from . import applicant_assessment_section
 from . import question_bank_picker
+from . import res_config_settings

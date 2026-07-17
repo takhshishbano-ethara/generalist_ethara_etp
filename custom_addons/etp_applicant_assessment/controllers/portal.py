@@ -197,7 +197,7 @@ class ApplicantAssessmentPortal(http.Controller):
 
         meta = body.get("meta") or {}
         Warning = request.env["etp.applicant.assessment.warning"].sudo()
-        Warning.create({
+        warning = Warning.create({
             "assessment_id": assessment.id,
             "kind": kind,
             "raw_meta_json": json.dumps(meta)[:4000],
@@ -205,6 +205,7 @@ class ApplicantAssessmentPortal(http.Controller):
         })
         return self._json_response({
             "ok": True,
+            "warning_id": warning.id,
             "warning_count": assessment.warning_count,
             "state": assessment.state,
         })
@@ -285,7 +286,7 @@ class ApplicantAssessmentPortal(http.Controller):
             "attachment_id": attachment_id,
             "captured_at": fields.Datetime.now(),
         })
-        return self._json_response({"ok": True, "url": url})
+        return self._json_response({"ok": True, "url": url, "s3_key": s3_key})
 
     @http.route(
         "/applicant-assessment/<string:token>/proctoring/video/presign",
@@ -297,26 +298,24 @@ class ApplicantAssessmentPortal(http.Controller):
             return self._json_response({"ok": False, "reason": "invalid_state"}, 400)
         env = request.env
         if not s3_service.is_configured(env):
-            return self._json_response({"ok": True, "presign": None})
-        ICP = env["ir.config_parameter"].sudo()
+            return self._json_response({"ok": False, "reason": "s3_not_configured"}, 400)
+
         try:
-            max_bytes = int(ICP.get_param(
-                "etp_applicant_assessment.proctor_max_clip_bytes", "10485760"))
-            expires = int(ICP.get_param(
-                "etp_applicant_assessment.proctor_presign_expires_seconds", "120"))
+            max_bytes = int(s3_service._param(env, "proctor_max_clip_bytes", "10485760"))
         except (TypeError, ValueError):
             max_bytes = 10 * 1024 * 1024
+        try:
+            expires = int(s3_service._param(env, "proctor_presign_expires_seconds", "120"))
+        except (TypeError, ValueError):
             expires = 120
+
         presign = s3_service.generate_presigned_post(
-            env,
-            key_prefix=f"proctoring-video/{assessment.id}",
-            max_bytes=max_bytes,
-            content_type="video/webm",
-            extension="webm",
-            expires=expires,
+            env, f"proctoring-video/{assessment.id}",
+            max_bytes=max_bytes, content_type="video/webm",
+            extension="webm", expires=expires,
         )
         if not presign:
-            return self._json_response({"ok": True, "presign": None})
+            return self._json_response({"ok": False, "reason": "presign_failed"}, 500)
         return self._json_response({"ok": True, "presign": presign})
 
     @http.route(
@@ -325,58 +324,68 @@ class ApplicantAssessmentPortal(http.Controller):
     )
     def proctoring_video_commit(self, token, **kw):
         assessment = self._get_assessment(token)
-        if not assessment or assessment.state != "in_progress":
+        if not assessment or assessment.state not in ("in_progress", "submitted"):
             return self._json_response({"ok": False, "reason": "invalid_state"}, 400)
-        body = self._json_body()
-        key = (body.get("key") or "").strip()
-        reason = (body.get("reason") or "signal")[:40]
-        if reason not in _EVENT_KINDS and reason not in {"signal", "manual"}:
-            reason = "signal"
         env = request.env
-        folder = (
-            env["ir.config_parameter"].sudo()
-            .get_param("etp_applicant_assessment.s3_folder",
-                       "etp_applicant_assessment").rstrip("/")
-        )
-        prefix = f"{folder}/proctoring-video/{assessment.id}/"
-        if not key.startswith(prefix) or len(key) > _MAX_KEY_LEN:
+        body = self._json_body()
+
+        key = (body.get("key") or "")[:_MAX_KEY_LEN]
+        reason = (body.get("reason") or "signal")[:40]
+        snapshot_url = (body.get("snapshot_url") or "")[:1024]
+        snapshot_key = (body.get("snapshot_key") or "")[:_MAX_KEY_LEN]
+        try:
+            warning_id_int = int(body.get("warning_id") or 0)
+        except (TypeError, ValueError):
+            warning_id_int = 0
+
+        folder = s3_service._param(env, "s3_folder", "etp_applicant_assessment") or "etp_applicant_assessment"
+        expected_prefix = f"{folder.rstrip('/')}/proctoring-video/{assessment.id}/"
+        if not key.startswith(expected_prefix) or len(key) > _MAX_KEY_LEN:
             return self._json_response({"ok": False, "reason": "invalid_key"}, 400)
         if not s3_service.head_object(env, key):
-            return self._json_response({"ok": False, "reason": "not_landed"}, 400)
+            return self._json_response({"ok": False, "reason": "not_uploaded"}, 400)
 
-        bucket = env["ir.config_parameter"].sudo().get_param(
-            "etp_applicant_assessment.s3_bucket", "")
-        region = env["ir.config_parameter"].sudo().get_param(
-            "etp_applicant_assessment.s3_region", "us-east-1")
-        cdn = env["ir.config_parameter"].sudo().get_param(
-            "etp_applicant_assessment.s3_cdn_url", "").rstrip("/")
-        clip_url = (
-            f"{cdn}/{key}" if cdn
-            else f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
-        )
-
-        snapshot_url = (body.get("snapshot_url") or "")[:512]
-        snapshot_key = (body.get("snapshot_key") or "")[:_MAX_KEY_LEN]
-        confidence = 0.0
-        try:
-            confidence = float(body.get("confidence") or 0.0)
-        except (TypeError, ValueError):
-            confidence = 0.0
+        cdn = s3_service._param(env, "s3_cdn_url", "") or ""
+        if cdn:
+            clip_url = f"{cdn.rstrip('/')}/{key}"
+        else:
+            bucket = s3_service._param(env, "s3_bucket", "") or ""
+            region = s3_service._param(env, "s3_region", "us-east-1") or "us-east-1"
+            clip_url = f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
 
         Warning = env["etp.applicant.assessment.warning"].sudo()
-        warning_kind = reason if reason in _EVENT_KINDS else "no_face"
-        Warning.create({
+        kind_val = reason if reason in _EVENT_KINDS else "no_face"
+
+        if warning_id_int:
+            existing = Warning.search([
+                ("id", "=", warning_id_int),
+                ("assessment_id", "=", assessment.id),
+            ], limit=1)
+            if existing:
+                update_vals = {"s3_url": clip_url, "s3_key": key}
+                if snapshot_url:
+                    update_vals["snapshot_url"] = snapshot_url
+                if snapshot_key:
+                    update_vals["snapshot_key"] = snapshot_key
+                existing.write(update_vals)
+                return self._json_response({
+                    "ok": True,
+                    "warning_id": existing.id,
+                    "warning_count": assessment.warning_count,
+                    "state": assessment.state,
+                })
+
+        warning = Warning.create({
             "assessment_id": assessment.id,
-            "kind": warning_kind,
+            "kind": kind_val,
             "s3_url": clip_url,
             "s3_key": key,
             "snapshot_url": snapshot_url,
             "snapshot_key": snapshot_key,
-            "detector_confidence": confidence,
-            "raw_meta_json": json.dumps(body.get("meta") or {})[:4000],
         })
         return self._json_response({
             "ok": True,
+            "warning_id": warning.id,
             "warning_count": assessment.warning_count,
             "state": assessment.state,
         })
@@ -387,13 +396,20 @@ class ApplicantAssessmentPortal(http.Controller):
     )
     def proctoring_media_error(self, token, **kw):
         assessment = self._get_assessment(token)
-        if not assessment or assessment.state != "in_progress":
+        if not assessment:
             return self._json_response({"ok": False, "reason": "invalid_state"}, 400)
         body = self._json_body()
-        step = (body.get("step") or "")[:40]
-        message = body.get("message") or ""
-        status_code = body.get("status")
-        assessment.record_media_error(step, status_code=status_code, message=message)
+        step = (body.get("step") or "")[:64]
+        message = (body.get("message") or "")[:200]
+        try:
+            status_code = int(body.get("status") or 0)
+        except (TypeError, ValueError):
+            status_code = 0
+        if step:
+            try:
+                assessment.record_media_error(step, status_code, message)
+            except Exception:
+                _logger.exception("record_media_error failed for %s", assessment.id)
         return self._json_response({"ok": True})
 
     @http.route(
@@ -407,6 +423,10 @@ class ApplicantAssessmentPortal(http.Controller):
         if assessment._check_time_expired():
             return self._json_response({"ok": False, "reason": "expired"}, 400)
 
+        env = request.env
+        if not s3_service.is_configured(env):
+            return self._json_response({"ok": False, "reason": "s3_not_configured"}, 400)
+
         body = self._json_body()
         try:
             qid = int(body.get("question_id") or 0)
@@ -416,26 +436,27 @@ class ApplicantAssessmentPortal(http.Controller):
         if not question or question.question_type != "file_upload":
             return self._json_response({"ok": False, "reason": "unknown_question"}, 400)
 
-        mime = (body.get("mime") or "")[:120]
+        mime = (body.get("mime") or "application/octet-stream")[:120]
         if mime not in _ANSWER_MIME_ALLOWLIST:
             return self._json_response({"ok": False, "reason": "mime_not_allowed"}, 400)
 
-        env = request.env
-        if not s3_service.is_configured(env):
-            return self._json_response({"ok": False, "reason": "s3_not_configured"}, 400)
-
-        folder = s3_service._param(env, "etp_applicant_assessment.s3_folder", "") or ""
-        prefix_parts = [p for p in [folder, "answer-file", str(assessment.id), str(question.id)] if p]
-        key_prefix = "/".join(prefix_parts) + "/"
+        try:
+            size = int(body.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        if size <= 0 or size > _MAX_ANSWER_FILE_BYTES:
+            return self._json_response({"ok": False, "reason": "size_invalid"}, 400)
 
         try:
-            expires = int(s3_service._param(
-                env, "etp_applicant_assessment.answer_presign_expires_seconds", "300"))
+            expires = int(s3_service._param(env, "answer_presign_expires_seconds", "300"))
         except (TypeError, ValueError):
             expires = 300
 
+        ext = (mime.rsplit("/", 1)[-1] or "bin").split("+", 1)[0][:12] or "bin"
         presign = s3_service.generate_presigned_post(
-            env, key_prefix, max_bytes=_MAX_ANSWER_FILE_BYTES, expires=expires,
+            env, f"answer-file/{assessment.id}/{question.id}",
+            max_bytes=_MAX_ANSWER_FILE_BYTES, content_type=mime,
+            extension=ext, expires=expires,
         )
         if not presign:
             return self._json_response({"ok": False, "reason": "presign_failed"}, 500)
@@ -463,9 +484,8 @@ class ApplicantAssessmentPortal(http.Controller):
 
         env = request.env
         key = (body.get("storage_key") or "")[:_MAX_KEY_LEN]
-        folder = s3_service._param(env, "etp_applicant_assessment.s3_folder", "") or ""
-        expected_prefix_parts = [p for p in [folder, "answer-file", str(assessment.id), str(question.id)] if p]
-        expected_prefix = "/".join(expected_prefix_parts) + "/"
+        folder = s3_service._param(env, "s3_folder", "etp_applicant_assessment") or "etp_applicant_assessment"
+        expected_prefix = f"{folder.rstrip('/')}/answer-file/{assessment.id}/{question.id}/"
         if not key.startswith(expected_prefix) or len(key) > _MAX_KEY_LEN:
             return self._json_response({"ok": False, "reason": "invalid_key"}, 400)
         if not s3_service.head_object(env, key):

@@ -18,6 +18,24 @@ _MEDIA_ERROR_STEPS = frozenset({
 })
 _MEDIA_ERROR_CAP = 50
 
+_LLM_QC_TARGET_TYPES = frozenset({
+    "text", "long_text", "fill_blank", "numeric", "code",
+    "file_upload", "url", "matching", "ordering", "rating",
+    "date", "consent",
+})
+_LLM_QC_ANSWER_TRUNCATE = 4000
+_LLM_QC_MAX_ATTEMPTS = 3
+_LLM_QC_DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+_LLM_QC_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+_LLM_QC_DEFAULT_TIMEOUT = 60
+_LLM_QC_DEFAULT_SEED_PROMPT = (
+    "You are a strict evaluator for candidate assessment answers. "
+    "For each question given, judge how well the candidate's answer "
+    "meets the intent of the question and return a percentage 0-100 "
+    "for how correct/complete the answer is. Use 0 for irrelevant or "
+    "empty answers, 100 for perfect answers."
+)
+
 
 class EtpApplicantAssessment(models.Model):
     _name = "etp.applicant.assessment"
@@ -129,6 +147,23 @@ class EtpApplicantAssessment(models.Model):
     )
 
     portal_url = fields.Char(compute="_compute_portal_url")
+
+    llm_qc_state = fields.Selection(
+        [
+            ("skipped", "Skipped"),
+            ("pending", "Pending"),
+            ("running", "Running"),
+            ("done", "Done"),
+            ("partial", "Partial"),
+            ("failed", "Failed"),
+        ],
+        default="skipped", copy=False, index=True, tracking=True,
+        string="LLM QC State",
+    )
+    llm_qc_error = fields.Text(readonly=True, copy=False, string="LLM QC Error")
+    llm_qc_ran_at = fields.Datetime(readonly=True, copy=False, string="LLM QC Ran At")
+    llm_qc_attempts = fields.Integer(default=0, copy=False, readonly=True)
+    llm_qc_result_email_sent = fields.Boolean(default=False, copy=False, readonly=True)
 
     _sql_constraints = [
         ("access_token_uniq", "unique(access_token)", "Access token must be unique."),
@@ -479,12 +514,33 @@ class EtpApplicantAssessment(models.Model):
         return True
 
     def action_submit(self):
+        cron = self.env.ref(
+            "etp_applicant_assessment.cron_process_pending_llm_qc",
+            raise_if_not_found=False,
+        )
+        need_trigger = False
         for rec in self:
             if rec.state not in ("sent", "in_progress"):
                 continue
             rec.submitted_at = fields.Datetime.now()
             rec.state = "submitted"
-            rec.action_score()
+            if rec.applicant_id:
+                rec.applicant_id.sudo().status = "assessment_pending_review"
+            has_llm_targets = any(
+                a.question_type in _LLM_QC_TARGET_TYPES and a.is_answered
+                for a in rec.answer_ids
+            )
+            if has_llm_targets:
+                rec.llm_qc_state = "pending"
+                need_trigger = True
+            else:
+                rec.llm_qc_state = "skipped"
+                rec._finalize_scoring_after_llm_qc()
+        if need_trigger and cron:
+            try:
+                cron.sudo()._trigger()
+            except Exception:
+                _logger.exception("Failed to trigger LLM QC cron")
         return True
 
     def action_score(self):
@@ -559,4 +615,284 @@ class EtpApplicantAssessment(models.Model):
                 _logger.exception(
                     "Auto-submit failed for stale assessment %s", rec.id
                 )
+        return True
+
+    def _llm_qc_settings(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        get = ICP.get_param
+        try:
+            timeout = int(get("ethara_hrms.llm_timeout", _LLM_QC_DEFAULT_TIMEOUT))
+        except (TypeError, ValueError):
+            timeout = _LLM_QC_DEFAULT_TIMEOUT
+        return {
+            "prompt": get(
+                "etp_applicant_assessment.llm_qc_prompt",
+                _LLM_QC_DEFAULT_SEED_PROMPT,
+            ) or _LLM_QC_DEFAULT_SEED_PROMPT,
+            "base_url": (get("ethara_hrms.llm_base_url", _LLM_QC_DEFAULT_BASE_URL)
+                         or _LLM_QC_DEFAULT_BASE_URL),
+            "key": (get("ethara_hrms.llm_api_key", "") or "").strip(),
+            "model": (get("ethara_hrms.llm_model", _LLM_QC_DEFAULT_MODEL)
+                      or _LLM_QC_DEFAULT_MODEL),
+            "timeout": max(5, timeout),
+        }
+
+    def _serialize_answer_for_llm(self, answer):
+        marks = answer.question_id.marks or 0
+        qtype = answer.question_type
+        payload = {
+            "id": answer.id,
+            "question_type": qtype,
+            "prompt": (answer.question_id.prompt or "")[:2000],
+            "marks": marks,
+        }
+        if qtype in ("text", "long_text", "fill_blank",
+                     "numeric", "code", "url", "date"):
+            payload["candidate_answer"] = (answer.text_answer or "")[
+                :_LLM_QC_ANSWER_TRUNCATE
+            ]
+        elif qtype in ("matching", "ordering", "rating"):
+            payload["candidate_answer"] = [
+                {"id": o.id, "label": o.label}
+                for o in answer.selected_option_ids.sorted("sequence")
+            ]
+        elif qtype == "consent":
+            payload["candidate_answer"] = bool(
+                answer.selected_option_ids or answer.is_answered
+            )
+        elif qtype == "file_upload":
+            payload["candidate_answer"] = [
+                {"name": a.name, "size": a.file_size}
+                for a in answer.answer_attachment_ids
+            ]
+        else:
+            payload["candidate_answer"] = (answer.text_answer or "")[
+                :_LLM_QC_ANSWER_TRUNCATE
+            ]
+        return payload
+
+    def _build_llm_qc_messages(self, seed_prompt, questions_payload):
+        schema_note = (
+            "\n\nRespond ONLY with valid JSON of shape "
+            '{"results": [{"id": <answer_id_int>, "percent": <number 0-100>, '
+            '"reasoning": "<one short sentence>"}]}. '
+            "Do not include any text outside the JSON object. "
+            "Every input id must appear in results exactly once."
+        )
+        return [
+            {"role": "system", "content": seed_prompt + schema_note},
+            {"role": "user", "content": json.dumps(
+                {"questions": questions_payload}, ensure_ascii=False,
+            )},
+        ]
+
+    def _call_llm_qc_api(self, cfg, messages):
+        import requests
+        base = (cfg["base_url"] or _LLM_QC_DEFAULT_BASE_URL).rstrip("/")
+        url = f"{base}/chat/completions"
+        payload = {
+            "model": cfg["model"],
+            "messages": messages,
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        headers = {
+            "Authorization": f"Bearer {cfg['key']}",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(
+            url, headers=headers, json=payload, timeout=cfg["timeout"],
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        choices = body.get("choices") or []
+        if not choices:
+            raise ValueError("LLM response has no choices")
+        content = (choices[0].get("message") or {}).get("content") or ""
+        parsed = json.loads(content)
+        results = parsed.get("results")
+        if not isinstance(results, list):
+            raise ValueError("LLM response missing 'results' list")
+        return results
+
+    def _run_llm_qc(self):
+        self.ensure_one()
+        cfg = self._llm_qc_settings()
+        if not cfg["key"]:
+            self.write({
+                "llm_qc_state": "failed",
+                "llm_qc_error": "LLM QC API key is not configured.",
+                "llm_qc_ran_at": fields.Datetime.now(),
+                "llm_qc_attempts": (self.llm_qc_attempts or 0) + 1,
+            })
+            return False
+
+        targets = self.answer_ids.filtered(
+            lambda a: a.question_type in _LLM_QC_TARGET_TYPES and a.is_answered
+        )
+        if not targets:
+            self.write({
+                "llm_qc_state": "skipped",
+                "llm_qc_ran_at": fields.Datetime.now(),
+            })
+            self._finalize_scoring_after_llm_qc()
+            return True
+
+        self.write({
+            "llm_qc_state": "running",
+            "llm_qc_attempts": (self.llm_qc_attempts or 0) + 1,
+        })
+        # Flush + commit the running flag so other cron runs don't double-fire.
+        self.env.cr.commit()
+
+        questions_payload = [
+            self._serialize_answer_for_llm(a) for a in targets
+        ]
+        messages = self._build_llm_qc_messages(cfg["prompt"], questions_payload)
+
+        try:
+            results = self._call_llm_qc_api(cfg, messages)
+        except Exception as exc:
+            _logger.exception("LLM QC call failed for assessment %s", self.id)
+            self.write({
+                "llm_qc_state": "failed",
+                "llm_qc_error": str(exc)[:2000],
+                "llm_qc_ran_at": fields.Datetime.now(),
+            })
+            return False
+
+        target_by_id = {a.id: a for a in targets}
+        scored_ids = set()
+        now = fields.Datetime.now()
+        for entry in results:
+            try:
+                aid = int(entry.get("id"))
+                pct = float(entry.get("percent"))
+            except (TypeError, ValueError):
+                continue
+            answer = target_by_id.get(aid)
+            if not answer:
+                continue
+            pct = max(0.0, min(100.0, pct))
+            answer.write({
+                "llm_qc_percent": pct,
+                "llm_qc_reasoning": (entry.get("reasoning") or "")[:2000],
+                "llm_qc_set": True,
+                "llm_qc_at": now,
+                "llm_qc_error": False,
+            })
+            scored_ids.add(aid)
+
+        missing = [aid for aid in target_by_id if aid not in scored_ids]
+        state = "done" if not missing else "partial"
+        self.write({
+            "llm_qc_state": state,
+            "llm_qc_error": (
+                f"LLM did not return scores for answer ids: {missing}"
+                if missing else False
+            ),
+            "llm_qc_ran_at": now,
+        })
+        self._finalize_scoring_after_llm_qc()
+        return True
+
+    def _finalize_scoring_after_llm_qc(self):
+        for rec in self:
+            if rec.state != "submitted":
+                continue
+            if rec.has_pending_review:
+                continue
+            rec.state = "scored"
+            applicant = rec.applicant_id
+            if applicant:
+                passed = (
+                    (rec.final_score or 0.0) >= (rec.pass_mark_percent or 0.0)
+                )
+                applicant.sudo().status = (
+                    "assessment_passed" if passed
+                    else "assessment_rejected"
+                )
+            if not rec.llm_qc_result_email_sent:
+                rec._send_llm_qc_result_email()
+        return True
+
+    def _send_llm_qc_result_email(self):
+        template = self.env.ref(
+            "etp_applicant_assessment.mail_template_applicant_assessment_result",
+            raise_if_not_found=False,
+        )
+        if not template:
+            _logger.warning(
+                "Result mail template not found for assessment %s", self.ids,
+            )
+            return
+        for rec in self:
+            recipient = rec.applicant_id.email_from if rec.applicant_id else None
+            if not recipient:
+                _logger.warning(
+                    "Assessment %s has no candidate email; result mail skipped",
+                    rec.id,
+                )
+                continue
+            try:
+                template.send_mail(
+                    rec.id, force_send=True, raise_exception=False,
+                )
+                rec.llm_qc_result_email_sent = True
+            except Exception:
+                _logger.exception(
+                    "Failed to send result email for assessment %s", rec.id,
+                )
+        return True
+
+    def action_rerun_llm_qc(self):
+        self.ensure_one()
+        if self.state not in ("submitted", "scored"):
+            raise UserError(
+                _("Cannot re-run LLM QC in state '%s'.") % self.state
+            )
+        self.write({
+            "llm_qc_state": "pending",
+            "llm_qc_error": False,
+            "llm_qc_result_email_sent": False,
+        })
+        cron = self.env.ref(
+            "etp_applicant_assessment.cron_process_pending_llm_qc",
+            raise_if_not_found=False,
+        )
+        if cron:
+            try:
+                cron.sudo()._trigger()
+            except Exception:
+                _logger.exception("Failed to trigger LLM QC cron")
+        return True
+
+    @api.model
+    def _cron_process_pending_llm_qc(self, limit=20):
+        pending = self.search(
+            [
+                ("state", "=", "submitted"),
+                ("llm_qc_state", "=", "pending"),
+                ("llm_qc_attempts", "<", _LLM_QC_MAX_ATTEMPTS),
+            ],
+            order="id asc",
+            limit=limit,
+        )
+        for rec in pending:
+            try:
+                rec._run_llm_qc()
+            except Exception:
+                _logger.exception(
+                    "Unhandled error running LLM QC for assessment %s", rec.id,
+                )
+                try:
+                    rec.write({
+                        "llm_qc_state": "failed",
+                        "llm_qc_error": "Unhandled error \u2014 see server log.",
+                        "llm_qc_ran_at": fields.Datetime.now(),
+                    })
+                except Exception:
+                    _logger.exception(
+                        "Also failed to mark assessment %s as failed", rec.id,
+                    )
         return True

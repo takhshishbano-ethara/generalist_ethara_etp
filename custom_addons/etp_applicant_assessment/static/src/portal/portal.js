@@ -178,32 +178,44 @@ document.addEventListener("DOMContentLoaded", async () => {
         return resp;
     }
 
-    async function captureEvidence(kind) {
+    async function captureEvidence(kind, warningId) {
         if (!state.recorder) return;
         let snapshotUrl = null;
+        let snapshotKey = null;
         if (Date.now() - state.lastSnapshotAt >= SNAPSHOT_ON_SIGNAL_MIN_GAP_MS) {
             state.lastSnapshotAt = Date.now();
-            snapshotUrl = await captureSnapshot(kind);
+            const snap = await captureSnapshot(kind);
+            if (snap) {
+                snapshotUrl = snap.url || null;
+                snapshotKey = snap.s3_key || null;
+            }
         }
-        captureAndUploadClip(kind, snapshotUrl);
+        captureAndUploadClip(kind, snapshotUrl, snapshotKey, warningId);
     }
 
     async function postEvent(kind, meta) {
-        captureEvidence(kind);
+        let warningId = null;
         try {
             const r = await postJson("/event", { kind, meta: meta || {} });
             if (r.ok) {
                 const data = await r.json();
+                warningId = data.warning_id || null;
                 const count = typeof data.warning_count === "number"
                     ? data.warning_count
                     : state.warningCount;
                 showWarningToast(kind, count, warningCap);
                 if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
-                if (data.state === "submitted" || data.state === "scored") forceCompleted();
-                return;
+                if (data.state === "submitted" || data.state === "scored") {
+                    forceCompleted();
+                    return;
+                }
+            } else {
+                showWarningToast(kind, state.warningCount, warningCap);
             }
-        } catch (e) {}
-        showWarningToast(kind, state.warningCount, warningCap);
+        } catch (e) {
+            showWarningToast(kind, state.warningCount, warningCap);
+        }
+        captureEvidence(kind, warningId);
     }
 
     async function captureSnapshot(reason) {
@@ -237,14 +249,15 @@ document.addEventListener("DOMContentLoaded", async () => {
                 return null;
             }
             const data = await resp.json();
-            return data.url || null;
+            if (!data.url) return null;
+            return { url: data.url, s3_key: data.s3_key || "" };
         } catch (e) {
             await beaconMediaError("snapshot-error", String(e && e.message || e));
             return null;
         }
     }
 
-    async function captureAndUploadClip(reason, snapshotUrl) {
+    async function captureAndUploadClip(reason, snapshotUrl, snapshotKey, warningId) {
         if (!state.recorder) return;
         if (state.clipInFlight) return;
         state.clipInFlight = true;
@@ -290,6 +303,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                     key: presign.key,
                     reason,
                     snapshot_url: snapshotUrl || "",
+                    snapshot_key: snapshotKey || "",
+                    warning_id: warningId || 0,
                 });
                 if (r.ok) {
                     const data = await r.json();
@@ -350,7 +365,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const val = sel && sel.value ? parseInt(sel.value, 10) : null;
             return { question_id: qid, option_ids: val ? [val] : [] };
         }
-        const input = section.querySelector('input[type="text"], input[type="url"], input[type="date"], textarea');
+        const input = section.querySelector('input[type="text"], input[type="url"], input[type="date"], input[type="number"], textarea');
         return { question_id: qid, text_answer: input ? input.value : "" };
     }
 
@@ -434,10 +449,24 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     }
 
+    // Native file dialogs steal focus from the window (fires window.blur /
+    // visibilitychange), which would otherwise trigger a proctor warning
+    // even though the candidate is just picking a file. Suppress those
+    // signals for a short grace window around the file-picker interaction.
+    let filePickerBusyUntil = 0;
+    function markFilePickerBusy(ms) {
+        filePickerBusyUntil = performance.now() + ms;
+    }
+    function filePickerBusy() {
+        return performance.now() < filePickerBusyUntil;
+    }
+
     const sections = root.querySelectorAll(".eaa-question");
     sections.forEach((section) => {
         section.querySelectorAll('input[type="file"][data-role="answer-file"]').forEach((fileInp) => {
+            fileInp.addEventListener("click", () => markFilePickerBusy(30000));
             fileInp.addEventListener("change", () => {
+                markFilePickerBusy(2000);
                 const f = fileInp.files && fileInp.files[0];
                 if (!f) return;
                 uploadAnswerFile(section, f);
@@ -530,7 +559,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
         const sel = section.querySelector("select");
         if (sel && sel.value) return true;
-        const inp = section.querySelector('input[type="text"], input[type="url"], input[type="date"], textarea');
+        const inp = section.querySelector('input[type="text"], input[type="url"], input[type="date"], input[type="number"], textarea');
         return !!(inp && inp.value.trim());
     }
 
@@ -629,10 +658,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (detectWindowSwitch) {
         document.addEventListener("visibilitychange", () => {
-            if (document.hidden) postEvent("tab_switch", { at: new Date().toISOString() });
+            if (document.hidden && !filePickerBusy()) {
+                postEvent("tab_switch", { at: new Date().toISOString() });
+            }
         });
         window.addEventListener("blur", () => {
+            if (filePickerBusy()) return;
             postEvent("window_change", { at: new Date().toISOString() });
+        });
+        window.addEventListener("focus", () => {
+            if (filePickerBusy()) markFilePickerBusy(500);
         });
     }
     window.addEventListener("beforeunload", (e) => {
