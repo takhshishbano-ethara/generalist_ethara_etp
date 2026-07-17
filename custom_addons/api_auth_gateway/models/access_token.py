@@ -178,3 +178,4 @@ class ResPartner(models.Model):
     in_app_notification = fields.Boolean(default=False)
     email_notification = fields.Boolean(default=False)
     push_notification = fields.Boolean(default=False)
+    is_organization_account = fields.Boolean(default=False)
