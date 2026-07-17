@@ -593,7 +593,36 @@ class EtpApplicantAssessment(models.Model):
                     "assessment_passed" if passed
                     else "assessment_rejected"
                 )
+            rec._send_result_email()
         return True
+
+    def _send_result_email(self):
+        template = self.env.ref(
+            "etp_applicant_assessment.mail_template_applicant_assessment_result",
+            raise_if_not_found=False,
+        )
+        if not template:
+            _logger.warning(
+                "Applicant-assessment result template not found for %s",
+                self.ids,
+            )
+            return
+        for rec in self:
+            if rec.state != "scored" or rec.result not in ("pass", "fail"):
+                continue
+            recipient = rec.applicant_id.email_from
+            if not recipient:
+                _logger.warning(
+                    "Applicant %s has no email_from; assessment %s result email skipped",
+                    rec.applicant_id.id, rec.id,
+                )
+                continue
+            try:
+                template.send_mail(rec.id, force_send=True, raise_exception=False)
+            except Exception:
+                _logger.exception(
+                    "Failed to send assessment result email for %s", rec.id
+                )
 
     def action_cancel(self):
         for rec in self:

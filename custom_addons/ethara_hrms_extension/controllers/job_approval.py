@@ -1,9 +1,11 @@
 import html
 import logging
+import re
 from string import Template
 
 from odoo import fields, http
 from odoo.http import request
+from odoo.tools import html_sanitize, is_html_empty
 
 from .job import _serialize_job
 
@@ -119,6 +121,125 @@ def _tags_section(title, tags):
     ) % (html.escape(title), chips)
 
 
+# ---------------------------------------------------------------------------
+# Free-text formatting.
+# The JD description reaches us either as real rich HTML (authored in a
+# WYSIWYG editor) or - the usual case for API-created JDs - as plain text that
+# the Html field wrapped in a single tag, with all the structure living in
+# literal newlines. Browsers collapse those newlines, so the JD reads as one
+# big paragraph. These helpers rebuild proper HTML (paragraphs, bullet and
+# numbered lists, sub-headings, **bold**) from that text.
+# ---------------------------------------------------------------------------
+_TAG_RE = re.compile(r'</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>')
+# Tags that mean the HTML already carries its own layout and can be rendered
+# as authored. A single <p>/<div>/<span> wrapper does NOT count.
+_STRUCTURAL_TAGS = {
+    'br', 'hr', 'li', 'ul', 'ol', 'table', 'tr', 'td', 'th', 'thead',
+    'tbody', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'img',
+}
+_BLOCK_OPEN_RE = re.compile(r'<(?:p|div)\b', re.IGNORECASE)
+_BULLET_LINE_RE = re.compile(r'^[-*•▪◦‣–—]\s+(.+)$')
+_NUMBERED_LINE_RE = re.compile(r'^\(?\d{1,3}[.)]\s+(.+)$')
+_MD_HEADING_RE = re.compile(r'^#{1,6}\s+(.+?)\s*#*$')
+_MD_BOLD_RE = re.compile(r'\*\*([^*\n]+)\*\*')
+
+_P_STYLE = 'margin:0 0 12px 0;'
+_LIST_STYLE = 'margin:0 0 12px 0;padding-left:20px;'
+_LI_STYLE = 'margin:0 0 6px 0;'
+_SUBHEAD_STYLE = 'font-weight:bold;color:#33343f;margin:14px 0 6px 0;'
+
+
+def _inline_html(text):
+    """Escape a text fragment, then apply **bold** emphasis."""
+    return _MD_BOLD_RE.sub(r'<strong>\1</strong>', html.escape(text))
+
+
+def _is_subheading(line):
+    """Short 'Section title:' lines act as sub-headings in plain-text JDs."""
+    return line.endswith(':') and len(line) <= 60
+
+
+def _plain_to_html(text):
+    """Convert plain text to styled HTML.
+
+    Blank lines split paragraphs, single newlines become explicit line
+    breaks, and bullet/numbered/heading lines become real lists and
+    sub-headings. All content is escaped, so the result is safe to inject.
+    """
+    if not text:
+        return ''
+    text = str(text).replace('\r\n', '\n').replace('\r', '\n')
+    blocks = []      # rendered html blocks
+    paragraph = []   # pending paragraph lines
+    items = []       # pending list items
+    list_tag = [None]  # 'ul' | 'ol' (list so the closures can rebind it)
+
+    def flush_paragraph():
+        if paragraph:
+            blocks.append('<p style="%s">%s</p>'
+                          % (_P_STYLE, '<br/>'.join(paragraph)))
+            del paragraph[:]
+
+    def flush_list():
+        if items:
+            lis = ''.join('<li style="%s">%s</li>' % (_LI_STYLE, i)
+                          for i in items)
+            blocks.append('<%s style="%s">%s</%s>'
+                          % (list_tag[0], _LIST_STYLE, lis, list_tag[0]))
+            del items[:]
+        list_tag[0] = None
+
+    for raw_line in text.split('\n'):
+        line = raw_line.strip()
+        if not line:
+            flush_paragraph()
+            flush_list()
+            continue
+        bullet = _BULLET_LINE_RE.match(line)
+        numbered = None if bullet else _NUMBERED_LINE_RE.match(line)
+        if bullet or numbered:
+            flush_paragraph()
+            tag = 'ul' if bullet else 'ol'
+            if list_tag[0] != tag:
+                flush_list()
+                list_tag[0] = tag
+            items.append(_inline_html((bullet or numbered).group(1)))
+            continue
+        heading = _MD_HEADING_RE.match(line)
+        if heading or _is_subheading(line):
+            flush_paragraph()
+            flush_list()
+            blocks.append('<div style="%s">%s</div>'
+                          % (_SUBHEAD_STYLE,
+                             _inline_html(heading.group(1) if heading else line)))
+            continue
+        flush_list()
+        paragraph.append(_inline_html(line))
+    flush_paragraph()
+    flush_list()
+    return ''.join(blocks)
+
+
+def _description_html(raw):
+    """Render the JD description as clean HTML.
+
+    Real rich HTML (several block tags, or structural tags such as lists,
+    headings and explicit line breaks) is sanitized and rendered as authored.
+    Otherwise - plain text wrapped in a single tag by the Html field - the
+    wrapper is dropped and the text is rebuilt into paragraphs and lists
+    from its newlines.
+    """
+    if not raw or is_html_empty(raw):
+        return ''
+    source = str(raw)
+    tags = {t.lower() for t in _TAG_RE.findall(source)}
+    block_count = len(_BLOCK_OPEN_RE.findall(source))
+    if _STRUCTURAL_TAGS.intersection(tags) or block_count > 1:
+        return html_sanitize(source)
+    plain = html.unescape(_TAG_RE.sub(' ', source))
+    return _plain_to_html(plain)
+
+
 class EtharaJobApprovalController(http.Controller):
 
     # ------------------------------------------------------------------
@@ -198,13 +319,13 @@ class EtharaJobApprovalController(http.Controller):
             ])
 
             sections = ''.join([
-                _text_section('Summary', html.escape(data.get('summary') or '') or None),
-                _text_section('Description', data.get('description') or None),
+                _text_section('Summary', _plain_to_html(data.get('summary')) or None),
+                _text_section('Description', _description_html(data.get('description')) or None),
                 _bullet_section('Required Skill Set', data.get('requirements')),
                 _bullet_section('Key Responsibilities', data.get('responsibilities')),
                 _tags_section('Skill Keywords', data.get('skillKeywords')),
                 _text_section('AI Screening Prompt',
-                              html.escape(data.get('screeningPrompt') or '') or None),
+                              _plain_to_html(data.get('screeningPrompt')) or None),
             ])
 
             actions = ''
