@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="rinzler_dashboard.RinzlerShowcase">
+        <div class="rd-showcase">
+            <header class="rd-showcase-header">
+                <span class="rd-tag">LONG-HORIZON COHERENCE &#xB7; RL ENVIRONMENT</span>
+                <h1 class="rd-title">RINZLER</h1>
+                <p class="rd-subtitle">
+                    Simulated AI startup &#xB7; 1-year horizon &#xB7; hidden reward-v3 grading
+                </p>
+                <p class="rd-byline">
+                    by <strong>Ethara AI</strong> &#xB7;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="rd-section rd-description">
+                <p>
+                    Rinzler is a verifiable reinforcement-learning environment for
+                    long-horizon agentic coherence. Each of its 30 Harbor-format tasks
+                    hands a model a written contract and asks it to run a simulated AI
+                    startup as CEO across a full 1-year horizon, driving the
+                    <code>yc-bench</code> CLI against a fully simulated, offline SQLite
+                    world. A hidden reward-v3 verifier the model never sees grades the run
+                    on the business state it produced, funds, prestige, on-time completion,
+                    and adversarial-client detection. The weighted-mean scalar is the reward.
+                </p>
+            </section>
+
+            <section class="rd-section rd-capabilities">
+                <ul class="rd-capabilities-list">
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Verifiable grading: reward from the business state, never a transcript diff</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> 30 tasks across 5 tiers, generated deterministically from <code>(config, seed)</code></li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Non-gameable: hidden answer key + 8 canary tokens per bundle</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Hermetic, offline yc-bench SQLite sim, content-addressed UUIDs</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> reward-v3 = weighted mean of 13 checkers &#x2208; [0, 1], safety-gated</li>
+                </ul>
+            </section>
+
+            <section class="rd-section rd-metrics">
+                <div class="rd-metric-grid">
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">30</span>
+                        <span class="rd-metric-label">Harbor Tasks</span>
+                        <span class="rd-metric-detail">5 tiers &#xB7; UUID-keyed</span>
+                    </div>
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">13</span>
+                        <span class="rd-metric-label">Reward Checkers</span>
+                        <span class="rd-metric-detail">+ continuous scorers</span>
+                    </div>
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">8</span>
+                        <span class="rd-metric-label">Canary Tokens</span>
+                        <span class="rd-metric-detail">per bundle &#xB7; leak tripwire</span>
+                    </div>
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">1yr</span>
+                        <span class="rd-metric-label">Horizon</span>
+                        <span class="rd-metric-detail">offline yc-bench sim</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rd-section rd-phases">
+                <div class="rd-phases-row">
+                    <div class="rd-phase-card">
+                        <div class="rd-phase-number">1</div>
+                        <h3>Parametrize &amp; Emit</h3>
+                        <p>
+                            A <code>(config, seed)</code> pair fixes the world;
+                            <code>harbor build</code> hashes it into a content-addressed UUID
+                            with a bundled answer key and 8 canary tokens.
+                        </p>
+                    </div>
+                    <div class="rd-phase-arrow">&#x2192;</div>
+                    <div class="rd-phase-card">
+                        <div class="rd-phase-number">2</div>
+                        <h3>Agent Operates</h3>
+                        <p>
+                            The agent reads only the contract and drives the
+                            <code>yc-bench</code> CLI over the horizon, accept → assign →
+                            dispatch → <code>sim resume</code>, flagging adversarial clients.
+                        </p>
+                    </div>
+                    <div class="rd-phase-arrow">&#x2192;</div>
+                    <div class="rd-phase-card">
+                        <div class="rd-phase-number">3</div>
+                        <h3>Grade via reward-v3</h3>
+                        <p>
+                            <code>test.sh</code> reports the final DB state, runs the 13
+                            checkers, and writes reward = weighted mean to
+                            <code>reward.txt</code>, the RL signal.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rd-section rd-links">
+                <a class="rd-btn" t-att-href="state.harnessUrl"
+                   target="_blank" rel="noopener">
+                    yc-bench Harness
+                </a>
+                <a class="rd-btn rd-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Rinzler Dataset
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>
