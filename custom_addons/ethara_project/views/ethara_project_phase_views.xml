@@ -143,6 +143,7 @@
                                     <field name="infra_type_id"
                                            options="{'no_create_edit': True}"/>
                                     <field name="description"/>
+                                    <field name="instance_type"/>
                                     <field name="budget_amount"/>
                                     <field name="approved_amount"/>
                                     <field name="per_day_cost" readonly="1"/>
