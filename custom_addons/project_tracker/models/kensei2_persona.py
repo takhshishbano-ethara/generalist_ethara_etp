@@ -21,15 +21,15 @@ class Kensei2Persona(models.Model):
         "project.tracker.project", string="Project", index=True,
         help="Project this persona belongs to. Only this project's allocations "
              "may use it.")
-    # RLHF projects describe a persona by Domain + Agent Type rather than the
-    # SFT L1/L2 taxonomy. Both sets live on the model; the project's type decides
+    # SFT projects describe a persona by Domain + Agent Type rather than the
+    # RLHF L1/L2 taxonomy. Both sets live on the model; the project's type decides
     # which the UI surfaces (see project_tracker_project_views).
     pt_domain = fields.Char(
         string="Domain", index=True,
-        help="RLHF taxonomy — the persona's domain (e.g. coding, math).")
+        help="SFT taxonomy — the persona's domain (e.g. coding, math).")
     pt_agent_type = fields.Char(
         string="Agent Type",
-        help="RLHF taxonomy — the persona's agent type.")
+        help="SFT taxonomy — the persona's agent type (Single Agent or Multiagent).")
     pt_allocation_ids = fields.One2many(
         "project.tracker.allocation", "persona_id", string="Task Allocations")
     pt_allocation_count = fields.Integer(

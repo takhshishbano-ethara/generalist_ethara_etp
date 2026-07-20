@@ -129,8 +129,8 @@
     </record>
 
     <!-- ===================== Persona form: Tracker fields ===================== -->
-    <!-- Add the project link + the RLHF taxonomy (Domain / Agent Type) next to
-         the SFT L1/L2 on the shared kensei2 persona form, so a persona's
+    <!-- Add the project link + the SFT taxonomy (Domain / Agent Type) next to
+         the RLHF L1/L2 on the shared kensei2 persona form, so a persona's
          attributes are editable wherever it is opened. -->
     <record model="ir.ui.view" id="kensei2_persona_form_pt_fields">
       <field name="name">kensei2.persona.form.project.tracker</field>

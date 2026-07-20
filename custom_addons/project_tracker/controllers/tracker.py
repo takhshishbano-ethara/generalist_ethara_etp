@@ -363,19 +363,21 @@ _LIST_STATS = {
 }
 
 
-_PERSONA_SAMPLE_CSV = (
+# SFT projects describe personas by Domain / Agent Type.
+# Agent Type is either Single Agent or Multiagent.
+_PERSONA_SAMPLE_CSV_SFT = (
+    "Persona Name,Domain,Agent Type\n"
+    "Marcus,Math,Single Agent\n"
+    "Sophia,Coding,Multiagent\n"
+    "Leo,Science,\n"
+)
+
+# RLHF projects describe personas by the L1 / L2 taxonomy instead.
+_PERSONA_SAMPLE_CSV_RLHF = (
     "Persona Name,L1,L2\n"
     "Marcus,Finance,Accounts Payable\n"
     "Sophia,Healthcare,Patient Intake\n"
     "Leo,Retail,\n"
-)
-
-# RLHF projects describe personas by Domain / Agent Type instead of L1 / L2.
-_PERSONA_SAMPLE_CSV_RLHF = (
-    "Persona Name,Domain,Agent Type\n"
-    "Marcus,Math,Solver\n"
-    "Sophia,Coding,Reviewer\n"
-    "Leo,Science,\n"
 )
 
 _TEAM_SAMPLE_CSV = (
@@ -392,11 +394,11 @@ class Kensei2TrackerController(http.Controller):
     def persona_sample_csv(self, **kw):
         """Serve a downloadable sample CSV for the persona import.
 
-        ``?type=rlhf`` returns the Domain / Agent Type template; anything else
-        the default SFT L1 / L2 template."""
+        ``?type=rlhf`` returns the RLHF L1 / L2 template; anything else the
+        default SFT Domain / Agent Type template."""
         rlhf = kw.get("type") == "rlhf"
-        body = _PERSONA_SAMPLE_CSV_RLHF if rlhf else _PERSONA_SAMPLE_CSV
-        fname = "persona_sample_rlhf.csv" if rlhf else "persona_sample.csv"
+        body = _PERSONA_SAMPLE_CSV_RLHF if rlhf else _PERSONA_SAMPLE_CSV_SFT
+        fname = "persona_sample_rlhf.csv" if rlhf else "persona_sample_sft.csv"
         return request.make_response(
             body,
             headers=[

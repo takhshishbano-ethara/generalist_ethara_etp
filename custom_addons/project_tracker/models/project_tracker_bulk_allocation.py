@@ -107,7 +107,7 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
         'name': ['persona name', 'persona', 'name'],
         'l1': ['l1', 'l1 category', 'l1category'],
         'l2': ['l2', 'l2 category', 'l2category'],
-        # RLHF taxonomy — parsed alongside L1/L2; a given project's CSV only fills
+        # SFT taxonomy — parsed alongside L1/L2; a given project's CSV only fills
         # the pair that matches its type.
         'domain': ['domain'],
         'agent_type': ['agent type', 'agenttype'],

@@ -22,8 +22,8 @@ class Kensei2TrackerProject(models.Model):
     project_type = fields.Selection(
         [('sft', 'SFT'), ('rlhf', 'RLHF'), ('other', 'Other')],
         string='Type', default='sft', required=True, index=True,
-        help='Drives which persona attributes apply: SFT projects use the '
-             'L1/L2 taxonomy, RLHF projects use Domain / Agent Type.')
+        help='Drives which persona attributes apply: SFT projects use '
+             'Domain / Agent Type, RLHF projects use the L1/L2 taxonomy.')
     description = fields.Text(string='Description')
     active = fields.Boolean(
         default=True,
