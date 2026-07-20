@@ -29,12 +29,26 @@
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="5"/>
 
+    <menuitem id="menu_etp_assessment_pro_pending_approvals"
+              name="Pending Approvals"
+              parent="menu_etp_assessment_pro_root"
+              action="action_etp_assessment_pro_prompt_question_pending"
+              groups="etp_assessment_pro.group_assessment_manager"
+              sequence="10"/>
+
     <menuitem id="menu_etp_assessment_pro_responses"
               name="All Responses"
               parent="menu_etp_assessment_pro_root"
               action="action_etp_assessment_pro_response"
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="40"/>
+
+    <menuitem id="menu_etp_assessment_pro_analytics"
+              name="Analytics"
+              parent="menu_etp_assessment_pro_root"
+              action="action_etp_assessment_pro_dashboard"
+              groups="etp_assessment_pro.group_assessment_manager"
+              sequence="45"/>
 
     <menuitem id="menu_etp_assessment_pro_config_root"
               name="Configuration"

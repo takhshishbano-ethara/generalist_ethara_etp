@@ -58,7 +58,9 @@
                 <filter name="g_state" string="State"
                         context="{'group_by':'state'}"/>
                 <filter name="g_month" string="Started (Month)"
-                        context="{'group_by':'create_date:month'}"/>
+                        context="{'group_by':'started_at:month'}"/>
+                <filter name="g_submitted_month" string="Submitted (Month)"
+                        context="{'group_by':'submitted_at:month'}"/>
             </search>
         </field>
     </record>

@@ -47,7 +47,7 @@ class EtpCandidatePortal(http.Controller):
 
         # Results gating: score_pct / result / results_released are ONLY
         # populated for a released evaluator, so the template can never leak a
-        # score before an admin (or immediate release) flips results_released.
+        # score before an admin flips results_released.
         score_display = ""
         results_released = False
         score_pct = 0
@@ -100,6 +100,9 @@ class EtpCandidatePortal(http.Controller):
             "submitted_on": format_datetime(
                 request.env, ev.submitted_at, dt_format="MMM d, y, h:mm a")
                 if ev.submitted_at else "",
+            "is_violated": ev.is_violated,
+            "violation_count": ev.violation_count or 0,
+            "violation_reason": ev.violation_reason or "",
             "url": "/pro_assessment/%s" % ev.access_token,
         }
 

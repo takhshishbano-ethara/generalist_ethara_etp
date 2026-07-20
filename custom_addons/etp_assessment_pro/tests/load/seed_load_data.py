@@ -215,7 +215,7 @@ def _get_or_create_assessment(env, category, applicants):
             "generator_id": category.id,
             "question_limit": QUESTIONS_TOTAL,
             "duration_minutes": DURATION_MINUTES,
-            "results_release": "immediate",
+            "results_release": "manual",
             "llm_auto_score": False,
             "max_violations": 0,
         })

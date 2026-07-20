@@ -241,18 +241,6 @@
                         </details>
                     </div>
 
-                    <div class="alert alert-info" role="alert"
-                         invisible="extract_state not in ('queued','extracting')">
-                        Tag extraction runs in the background. Tags will appear
-                        within about a minute.
-                    </div>
-                    <div class="alert alert-danger" role="alert"
-                         invisible="extract_state != 'failed'">
-                        <strong>Extraction failed.</strong>
-                        <field name="extract_error" readonly="1" nolabel="1"
-                               class="d-inline"/>
-                        Fix the issue and click Extract Tags again.
-                    </div>
                     <notebook>
                         <page string="Resources">
                             <div class="alert alert-info" role="alert">

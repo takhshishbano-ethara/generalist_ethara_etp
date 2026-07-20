@@ -1,4 +1,4 @@
-# etp_assessment_pro — Locust load & concurrency harness
+# etp_assessment_pro - Locust load & concurrency harness
 
 > **Additive-only operator tooling.** Nothing here is auto-discovered by Odoo's
 > test runner: this directory is not imported by `tests/__init__.py` and no file
@@ -34,7 +34,7 @@ to actually run a load test.
 inline**. Subjective answers call `existing._enqueue_subjective_scoring()` and
 are graded later by the `_cron_llm_auto_score` cron via `services/scoring.py`
 -> `services/vertex.py:_call_vertex`. So the entire concurrent-candidate submit
-path exercises only **Postgres + Odoo HTTP workers** — no LLM calls, no model
+path exercises only **Postgres + Odoo HTTP workers** - no LLM calls, no model
 budget. Keep `llm_auto_score` off (the seeder sets it `False`) or disable the
 cron during a run so scoring load does not confound your portal numbers.
 **Scoring throughput is a separate test** (drive the cron with
@@ -45,7 +45,7 @@ cron during a run so scoring load does not confound your portal numbers.
 The tokenized routes are `auth="public"` but portal.py:79 / portal.py:239
 redirect to `/web/login` when `request.env.user._is_public()`. A virtual
 candidate MUST first authenticate a portal session (`POST /web/login`, carry the
-`session_id` cookie) — the token only scopes *which* day-session. CSRF is
+`session_id` cookie) - the token only scopes *which* day-session. CSRF is
 disabled on the POST exam routes (`csrf=False`), so no CSRF token is needed on
 begin/submit/finish/violation. The **login form** does need a `csrf_token`,
 which the harness scrapes from `GET /web/login`.
@@ -78,13 +78,13 @@ odoo-bin shell -d etp_test_db --no-http \
 > Every seeded candidate has a valid `email_from`
 > (`loadcand_XXXX@loadtest.example.com`), so at 300 candidates × `NUM_DAYS` days
 > that is 300·`NUM_DAYS` **blocking** SMTP deliveries **inside the seed
-> transaction** — on a throwaway `etp_test_db` with no reachable mail server it
+> transaction** - on a throwaway `etp_test_db` with no reachable mail server it
 > hangs on connection timeouts or raises `MailDeliveryException` and rolls back
 > the entire seed. The seeder therefore neutralizes `mail.template.send_mail`
 > for the duration of the launch (`_generate_plan_without_invites`); no invites
 > are delivered and none are needed (the harness logs in with the known password
 > and drives the token directly). Note that setting `ir.mail_server` to a dead
-> host is **not** sufficient — the explicit `force_send=True` still tries to
+> host is **not** sufficient - the explicit `force_send=True` still tries to
 > connect, so the send must be suppressed, not merely misrouted.
 
 ### CSV schema (the harness reads either form)
@@ -111,7 +111,7 @@ per question:
 The current `seed_load_data.py` emits this PRIMARY (multi-question)
 `question_plan` form directly.
 
-**LEGACY (single-question)** — accepted for backward compatibility and
+**LEGACY (single-question)** - accepted for backward compatibility and
 normalized into a one-item plan:
 
 ```
@@ -125,7 +125,7 @@ email(or login),password,token,question_id,option_id,dimension_field
 Point the harness at a non-default CSV with `LOCUST_CANDIDATES_CSV=/path.csv`
 (the older `ETP_LOAD_CSV` name is still honored).
 
-## Run — steady state (recommended baseline)
+## Run - steady state (recommended baseline)
 
 ```bash
 locust -f custom_addons/etp_assessment_pro/tests/load/locustfile.py \
@@ -136,7 +136,7 @@ locust -f custom_addons/etp_assessment_pro/tests/load/locustfile.py \
 `-u` target users, `-r` spawn rate/sec. When you pass `-u/-r`, Locust controls
 the ramp and the `LoadTestShape` stays inactive.
 
-## Run — spike (deadline stampede)
+## Run - spike (deadline stampede)
 
 Everyone races the deadline: near-zero think-time, submit/finish pile up at
 once. This is the scenario most likely to trip the no-row-lock upsert race
@@ -157,7 +157,7 @@ To provoke the same-question double-submit race deliberately, seed **duplicate
 rows for the same `token`** (more users than distinct tokens); the harness
 wraps around and multiple users then hammer the same evaluator row.
 
-## Run — soak (leaks, connection exhaustion, cron interference)
+## Run - soak (leaks, connection exhaustion, cron interference)
 
 ```bash
 locust -f .../locustfile.py --headless -u 250 -r 10 \
@@ -209,7 +209,7 @@ thing to blow at 300 users on default configs.
 **The no-lock upsert race (inventory open-question #19).** After a spike run,
 query for duplicate response rows:
 `SELECT assessment_evaluator_id, question_id, count(*) FROM etp_assessment_pro_response
-GROUP BY 1,2 HAVING count(*) > 1;` — any group > 1 confirms the missing row
+GROUP BY 1,2 HAVING count(*) > 1;` - any group > 1 confirms the missing row
 lock / unique constraint under concurrent double-submit.
 
 **Cron / scoring is SEPARATE.** The portal path makes **no Vertex calls**;

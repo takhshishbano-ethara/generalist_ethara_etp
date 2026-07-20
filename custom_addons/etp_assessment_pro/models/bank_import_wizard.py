@@ -289,7 +289,11 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         else None (so the CSV path runs)."""
         try:
             data = json.loads(self._decode().decode("utf-8-sig"))
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            # Not parseable as JSON → fall through to the CSV path. Log at debug
+            # so a corrupt native-export upload is diagnosable (otherwise the
+            # admin sees a confusing "no CSV rows" error instead).
+            _logger.debug("Native-payload parse failed, trying CSV path: %s", exc)
             return None
         if isinstance(data, dict) and data.get("etp_assessment_pro_bank") \
                 and isinstance(data.get("questions"), list):

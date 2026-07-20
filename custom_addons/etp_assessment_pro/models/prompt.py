@@ -68,22 +68,6 @@ class EtpAssessmentPrompt(models.Model):
     question_count = fields.Integer(compute="_compute_counts")
     approved_count = fields.Integer(compute="_compute_counts")
     last_extract_summary = fields.Char(readonly=True)
-    extract_state = fields.Selection(
-        [
-            ("idle", "Idle"),
-            ("queued", "Queued"),
-            ("extracting", "Extracting"),
-            ("done", "Extracted"),
-            ("failed", "Failed"),
-        ],
-        default="idle", copy=False, string="Extraction State",
-        help="Tag extraction runs in the background: clicking Extract Tags "
-             "queues it and a cron does the (slow) LLM call OFF the web request. "
-             "This is what prevents the 'cursor already closed' crash on managed "
-             "Postgres, where a long in-request call lets the DB connection be "
-             "reaped mid-flight.")
-    extract_error = fields.Char(
-        string="Extraction Error", readonly=True, copy=False)
     sop_gen_state = fields.Selection(
         [("idle", "Idle"), ("queued", "Queued"), ("generating", "Generating"),
          ("done", "Done"), ("failed", "Failed")],
@@ -1876,10 +1860,6 @@ class EtpAssessmentPromptQuestion(models.Model):
 
     def action_deny(self):
         self.filtered(lambda r: r.state == "draft").write({"state": "denied"})
-        return True
-
-    def action_approve_all(self):
-        self.filtered(lambda r: r.state == "draft").action_approve()
         return True
 
     def _briefs(self):

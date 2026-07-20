@@ -16,8 +16,13 @@ from ..constants import (
     AB_VERDICT_WEIGHT,
     AB_JUSTIFICATION_WEIGHT,
     ADVISORY_LOCK_AUTOSCORE,
+    ADVISORY_LOCK_AUTOSCORE_SHARD_BASE,
+    ADVISORY_LOCK_EXPIRE_ATTEMPTS,
+    MAX_SCORING_SHARDS,
     is_integrity_gate,
 )
+
+from psycopg2 import IntegrityError
 
 _logger = logging.getLogger(__name__)
 
@@ -68,14 +73,13 @@ class EtpAssessment(models.Model):
     results_release = fields.Selection(
         [
             ("manual", "Manual (admin releases)"),
-            ("immediate", "Immediate"),
         ],
         default="manual",
         required=True,
         string="Results Release",
-        help="When candidate-facing results are revealed. Manual = admin "
-             "flips results_released on each evaluator; immediate = as each "
-             "candidate is scored.",
+        help="Candidate-facing results stay hidden until an admin explicitly "
+             "releases them (per evaluator via Release Results). This is the "
+             "only release mode: results are never auto-revealed.",
     )
 
     subjective_threshold = fields.Float(
@@ -133,24 +137,31 @@ class EtpAssessment(models.Model):
     rule_block_devtools = fields.Boolean(
         string="Block Developer Tools", default=True)
     rule_watermark = fields.Boolean(
-        string="Watermark Content", default=True)
+        string="Watermark Content", default=True,
+        help="Overlay the candidate's identity (name + email) faintly across "
+             "the exam page to deter screenshots/photos of the questions.")
     rule_fullscreen = fields.Boolean(
         string="Require Fullscreen", default=True,
-        help="Force the assessment to run in fullscreen; exiting raises a "
-             "violation.")
+        help="Prompt the candidate into fullscreen when the exam opens; "
+             "leaving fullscreen raises a proctoring violation.")
     rule_webcam = fields.Boolean(
         string="Require Webcam", default=False,
-        help="Require webcam access for proctoring (placeholder switch - "
-             "client-side detector wired in portal_templates.xml).")
+        help="Ask for webcam access when the exam opens; denying or losing "
+             "the camera raises a proctoring violation.")
     max_violations = fields.Integer(
-        string="Max Violations (0 = no cap)", default=0,
-        help="Auto-submit once a candidate exceeds this many violations. "
-             "0 disables the cap; violation_action still applies per event.",
+        string="Violations Allowed Before Auto-Submit", default=0,
+        help="Auto-submit the exam once this many violations are reached "
+             "(when On Violation = Auto-submit). 0 and 1 both end the exam on "
+             "the first violation; 2 allows one then ends on the second, and so "
+             "on. To never auto-submit, set On Violation = Log only.",
     )
     violation_action = fields.Selection(
         [("auto_submit", "Auto-submit assessment"),
          ("log_only", "Log violation only")],
         string="On Violation", default="auto_submit", required=True,
+        help="Auto-submit assessment = end the exam once Violations Allowed is "
+             "reached. Log violation only = record every violation but never "
+             "end the exam (no cap).",
     )
     require_objective_justification = fields.Boolean(
         string="Require Justification on Objective Questions", default=False,
@@ -387,7 +398,7 @@ class EtpAssessment(models.Model):
         if user and user._is_internal():
             _logger.warning(
                 "Candidate %s email %s matches an internal user (id=%s); not "
-                "binding — resolve manually.", applicant.partner_name, email, user.id)
+                "binding - resolve manually.", applicant.partner_name, email, user.id)
             return "skipped"
         created = False
         if not user:
@@ -413,7 +424,7 @@ class EtpAssessment(models.Model):
         if not created and not user.active:
             _logger.warning(
                 "Candidate %s email %s matches a DEACTIVATED portal user "
-                "(id=%s); linking but NOT reactivating — enable it manually if "
+                "(id=%s); linking but NOT reactivating - enable it manually if "
                 "this candidate should sit the exam.",
                 applicant.partner_name, email, user.id)
         applicant.candidate_user_id = user.id
@@ -556,7 +567,7 @@ class EtpAssessment(models.Model):
         warn = bool(unscored)
         if unscored:
             msg += (" NOTE: %s of them still have subjective answers being "
-                    "graded — their scores will fill in automatically as the "
+                    "graded - their scores will fill in automatically as the "
                     "grader finishes (usually within a minute). Use 'Run "
                     "Subjective Evaluation' if it stays pending."
                     % len(unscored))
@@ -572,19 +583,39 @@ class EtpAssessment(models.Model):
         }
 
     @api.model
-    def _cron_llm_auto_score(self):
+    def _scoring_shard_count(self):
+        """Configured parallel scoring lanes (ir.config_parameter
+        etp_assessment_pro.scoring_shards). Clamped to [1, MAX_SCORING_SHARDS];
+        1 (default) reproduces the original single-lock serial drainer.
+        """
+        raw = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment_pro.scoring_shards", "1")
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            n = 1
+        return max(1, min(n, MAX_SCORING_SHARDS))
+
+    @api.model
+    def _cron_llm_auto_score(self, shard=0):
+        """Drain one scoring shard. Each shard cron owns a disjoint slice of
+        submitted evaluators (id %% shard_count == shard) under its OWN advisory
+        lock, so N shard crons score N candidates in parallel instead of one at a
+        time. Shard 0 keeps ADVISORY_LOCK_AUTOSCORE (identical to the single-lock
+        design at shard_count=1); higher shards are no-ops until scoring_shards is
+        raised, so parallelism is a pure config lever with no cron/code change.
+        """
+        shard_count = self._scoring_shard_count()
+        if shard >= shard_count:
+            return
+        lock = (ADVISORY_LOCK_AUTOSCORE if shard == 0
+                else ADVISORY_LOCK_AUTOSCORE_SHARD_BASE + shard)
         self.env.cr.execute("SELECT pg_advisory_unlock_all()")
-        self.env.cr.execute(
-            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_AUTOSCORE,))
+        self.env.cr.execute("SELECT pg_try_advisory_lock(%s)", (lock,))
         if not self.env.cr.fetchone()[0]:
             return
         try:
-            evaluators = self.env["etp.assessment.pro.evaluator"].search([
-                ("state", "=", "submitted"),
-                ("scoring_requested", "=", True),
-                ("llm_state", "in", ("pending", "scoring", "partial", "failed")),
-            ], limit=20)
-            for ev in evaluators:
+            for ev in self._scoring_shard_evaluators(shard, shard_count):
                 try:
                     with self.env.cr.savepoint():
                         ev.action_llm_score()
@@ -595,12 +626,30 @@ class EtpAssessment(models.Model):
                     continue
         finally:
             try:
-                self.env.cr.execute(
-                    "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_AUTOSCORE,))
+                self.env.cr.execute("SELECT pg_advisory_unlock(%s)", (lock,))
             except Exception:
                 _logger.warning(
-                    "auto-score advisory lock %s not released this tick",
-                    ADVISORY_LOCK_AUTOSCORE)
+                    "auto-score advisory lock %s not released this tick", lock)
+
+    @api.model
+    def _scoring_shard_evaluators(self, shard, shard_count, limit=20):
+        """Up to ``limit`` submitted-and-queued evaluators owned by this shard
+        (id %% shard_count == shard). shard_count=1 skips the modulo so the query
+        is identical to the original drainer. Queued evaluators are bounded by the
+        live cohort, so selecting matching ids and capping in Python is cheap and
+        keeps the per-shard limit exact without ORM-version-specific raw SQL.
+        """
+        Evaluator = self.env["etp.assessment.pro.evaluator"]
+        domain = [
+            ("state", "=", "submitted"),
+            ("scoring_requested", "=", True),
+            ("llm_state", "in", ("pending", "scoring", "partial", "failed")),
+        ]
+        if shard_count <= 1:
+            return Evaluator.search(domain, limit=limit)
+        matching = Evaluator.search(domain, order="id").filtered(
+            lambda e: e.id % shard_count == shard)
+        return matching[:limit]
 
     def action_export_results(self):
         self.ensure_one()
@@ -763,7 +812,7 @@ class EtpAssessmentEvaluator(models.Model):
         res = super().write(vals)
         # Auto-queue subjective grading the moment a candidate submits, so the
         # every-minute background cron (_cron_llm_auto_score) drains it without
-        # an admin having to click "Run Subjective Evaluation" — and without
+        # an admin having to click "Run Subjective Evaluation" - and without
         # lagging the exam, because the actual Vertex call happens in the cron,
         # never in this request. Respects the per-assessment llm_auto_score
         # toggle (default OFF while the Vertex testing budget is frozen; flip ON
@@ -782,7 +831,8 @@ class EtpAssessmentEvaluator(models.Model):
         return res
 
     score_percent = fields.Float(
-        string="Score %", compute="_compute_result", store=True)
+        string="Score %", compute="_compute_result", store=True,
+        aggregator="avg")
     pass_threshold = fields.Float(
         string="Pass Threshold %", compute="_compute_result", store=True)
     result = fields.Selection(
@@ -790,8 +840,8 @@ class EtpAssessmentEvaluator(models.Model):
         string="Result", compute="_compute_result", store=True, default="pending")
     results_released = fields.Boolean(
         string="Results Released", default=False,
-        help="Gates candidate-facing results based on assessment.results_release. "
-             "Manual = admin flips; immediate = on submit.",
+        help="Gates candidate-facing results. An admin flips this by "
+             "releasing results; until then the candidate sees no score.",
     )
     scoring_requested = fields.Boolean(
         string="Subjective Grading Requested", default=False, copy=False,
@@ -993,7 +1043,7 @@ class EtpAssessmentEvaluator(models.Model):
                     "auto_delete": False,
                 })
                 continue
-            tpl.send_mail(rec.id, force_send=False)
+            tpl.send_mail(rec.id, force_send=True)
 
     def _deliver_invitation(self):
         self.ensure_one()
@@ -1003,6 +1053,89 @@ class EtpAssessmentEvaluator(models.Model):
                 create_user=1, import_file=False, install_mode=False,
             ).action_reset_password()
         self._send_single_invitation()
+
+    def _auto_submit_expired(self):
+        """Settle an expired/finished attempt: fill placeholders for unanswered
+        questions, lock it, and flip the assessment to done once all evaluators
+        are submitted. Shared by the portal path and _cron_expire_stale_attempts
+        so an abandoned tab settles identically; idempotent per response.
+        """
+        self.ensure_one()
+        Response = self.env["etp.assessment.pro.response"].sudo()
+        question_order = json.loads(self.question_order or "[]")
+        for q_id in question_order:
+            existing = Response.search([
+                ("assessment_evaluator_id", "=", self.id),
+                ("question_id", "=", q_id),
+                ("state", "=", "submitted"),
+            ], limit=1)
+            if existing:
+                continue
+            draft = Response.search([
+                ("assessment_evaluator_id", "=", self.id),
+                ("question_id", "=", q_id),
+                ("state", "=", "draft"),
+            ], limit=1)
+            if draft:
+                draft.write({"state": "submitted", "llm_state": "not_needed"})
+            else:
+                try:
+                    with self.env.cr.savepoint():
+                        Response.create({
+                            "assessment_id": self.assessment_id.id,
+                            "assessment_evaluator_id": self.id,
+                            "evaluator_id": self.applicant_id.id,
+                            "question_id": q_id,
+                            "justification": "[Auto-submitted: time expired]",
+                            "state": "submitted",
+                            "llm_state": "not_needed",
+                        }).flush_recordset()
+                except IntegrityError:
+                    continue
+        self.write({"state": "submitted", "is_locked": True})
+        assessment = self.assessment_id
+        evs = assessment.assessment_evaluator_ids
+        if evs and all(e.state == "submitted" for e in evs):
+            assessment.write({"state": "done"})
+
+    @api.model
+    def _cron_expire_stale_attempts(self, limit=100):
+        """Rescue abandoned in-progress attempts past their deadline. Without
+        this, a candidate who closes the tab is never auto-submitted (that only
+        happened on a live portal request), leaving answers unscored and the
+        assessment pinned in 'in_progress'. Unlimited sittings (no
+        deadline_datetime) are skipped by the '<' filter.
+        """
+        self.env.cr.execute("SELECT pg_advisory_unlock_all()")
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_EXPIRE_ATTEMPTS,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        try:
+            stale = self.search([
+                ("state", "=", "in_progress"),
+                ("deadline_datetime", "!=", False),
+                ("deadline_datetime", "<", fields.Datetime.now()),
+            ], limit=limit)
+            for ev in stale:
+                try:
+                    with self.env.cr.savepoint():
+                        ev._auto_submit_expired()
+                    self.env.cr.commit()
+                except Exception:  # noqa: BLE001 - isolate per candidate
+                    _logger.exception(
+                        "Expire-stale: auto-submit failed for evaluator %s",
+                        ev.id)
+                    continue
+        finally:
+            try:
+                self.env.cr.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (ADVISORY_LOCK_EXPIRE_ATTEMPTS,))
+            except Exception:  # noqa: BLE001
+                _logger.warning(
+                    "expire-stale advisory lock %s not released this tick",
+                    ADVISORY_LOCK_EXPIRE_ATTEMPTS)
 
     @api.model
     def _cron_send_pending_invitations(self, batch=25):
@@ -1051,7 +1184,6 @@ class EtpAssessmentEvaluator(models.Model):
                 })
                 continue
             rec._compute_subjective_rollup()
-            rec._apply_results_disclosure()
         return scored
 
     def action_queue_llm_score(self):
@@ -1146,15 +1278,6 @@ class EtpAssessmentEvaluator(models.Model):
         if not self.deadline_datetime:
             return False
         return fields.Datetime.now() > self.deadline_datetime
-
-    def _apply_results_disclosure(self):
-        for rec in self:
-            if rec.results_released:
-                continue
-            mode = rec.assessment_id.results_release
-            done_single = rec.state == "submitted" and not rec.subjective_pending
-            if mode == "immediate" and done_single:
-                rec.results_released = True
 
 
 class EtpAssessmentResponse(models.Model):
@@ -1570,7 +1693,7 @@ class EtpAssessmentResponse(models.Model):
 
     def _enqueue_subjective_scoring(self):
         # Queue only: LLM scoring must never run inline on the candidate's
-        # submit path — the cron drains it.
+        # submit path - the cron drains it.
         from ..services import scoring as scoring_svc
         auto_eval_ids = set()
         repend_eval_ids = set()

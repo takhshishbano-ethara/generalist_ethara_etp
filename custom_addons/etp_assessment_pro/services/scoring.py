@@ -661,8 +661,16 @@ def _build_item(resp):
             cba = json.loads(gen.covered_by_all_json or "[]")
             if isinstance(cba, list) and cba:
                 item["covered_by_all"] = cba
-    except Exception:  # noqa: BLE001
-        pass
+    except (ValueError, TypeError):
+        # Malformed element JSON silently thins the grading context (the v6/v10
+        # rubric loses required_elements / covered_by_all), which can lower a
+        # candidate's score with no trace. Log it and flag the item for review
+        # rather than swallowing it.
+        _logger.warning(
+            "scoring: malformed element JSON on question %s (generator %s); "
+            "grading without required/covered context",
+            q.id, q.generator_id.id or "-")
+        item["element_context_error"] = True
     if q.solution_json:
         try:
             item["golden_answer"] = json.loads(q.solution_json)

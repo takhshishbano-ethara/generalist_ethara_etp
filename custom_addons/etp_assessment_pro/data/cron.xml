@@ -6,7 +6,39 @@
             <field name="name">ETP Assessment: Auto-score submitted candidates</field>
             <field name="model_id" ref="model_etp_assessment_pro"/>
             <field name="state">code</field>
-            <field name="code">model._cron_llm_auto_score()</field>
+            <field name="code">model._cron_llm_auto_score(shard=0)</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <!-- Parallel scoring lanes 1-3. Idle no-ops until
+             ir.config_parameter etp_assessment_pro.scoring_shards > shard. -->
+        <record id="ir_cron_llm_auto_score_shard_1" model="ir.cron">
+            <field name="name">ETP Assessment: Auto-score (shard 1)</field>
+            <field name="model_id" ref="model_etp_assessment_pro"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_llm_auto_score(shard=1)</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_llm_auto_score_shard_2" model="ir.cron">
+            <field name="name">ETP Assessment: Auto-score (shard 2)</field>
+            <field name="model_id" ref="model_etp_assessment_pro"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_llm_auto_score(shard=2)</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_llm_auto_score_shard_3" model="ir.cron">
+            <field name="name">ETP Assessment: Auto-score (shard 3)</field>
+            <field name="model_id" ref="model_etp_assessment_pro"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_llm_auto_score(shard=3)</field>
             <field name="interval_number">1</field>
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
@@ -58,6 +90,16 @@
             <field name="state">code</field>
             <field name="code">model._cron_poll_video_ops()</field>
             <field name="interval_number">2</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_expire_stale_attempts" model="ir.cron">
+            <field name="name">ETP Assessment: Auto-submit abandoned attempts past deadline</field>
+            <field name="model_id" ref="model_etp_assessment_pro_evaluator"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_expire_stale_attempts()</field>
+            <field name="interval_number">1</field>
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>

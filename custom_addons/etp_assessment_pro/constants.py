@@ -26,10 +26,19 @@ ADVISORY_LOCK_AUTOSCORE = 827193
 ADVISORY_LOCK_IMAGE_RENDER = 827194
 ADVISORY_LOCK_IMAGE_DETECT = 827195
 ADVISORY_LOCK_VIDEO_POLL = 827196
+ADVISORY_LOCK_EXPIRE_ATTEMPTS = 827197
 ADVISORY_LOCK_SKILL_EXTRACT = 827200
 ADVISORY_LOCK_QUESTION_GEN = 827201
 ADVISORY_LOCK_TAG_EXTRACT = 827202
 ADVISORY_LOCK_VERTEX_BEARER = 827300
+
+# Parallel scoring lanes. Shard 0 keeps ADVISORY_LOCK_AUTOSCORE so the default
+# (scoring_shards=1) is byte-identical to the single-lock design; shards >= 1 use
+# this reserved block (base + shard) which cannot collide with the keys above.
+# MAX_SCORING_SHARDS MUST equal the number of shard cron records in data/cron.xml,
+# or evaluators in an unserved shard would never be scored.
+ADVISORY_LOCK_AUTOSCORE_SHARD_BASE = 827250
+MAX_SCORING_SHARDS = 4
 
 QUESTION_TYPE_SELECTION = [
     ("mcq", "Objective - MCQ"),
@@ -88,7 +97,6 @@ AB_CHOICE_SET = frozenset(AB_CHOICES)
 VERTEX_GLOBAL_LOCATION = "global"
 VERTEX_DEFAULT_LOCATION = VERTEX_GLOBAL_LOCATION
 VERTEX_DEFAULT_MODEL = "gemini-3-pro-image"
-VERTEX_DEFAULT_IMAGE_MODEL = VERTEX_DEFAULT_MODEL
 # Generation reads a SOP document: must NOT fall back to the image model, which
 # sees a PDF as opaque binary -> "document has no pages".
 GENERATION_DEFAULT_MODEL = "gemini-3.1-pro-preview"

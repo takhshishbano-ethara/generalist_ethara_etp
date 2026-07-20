@@ -1901,7 +1901,13 @@ _ENVELOPE_REMINDER = (
 def _facet_vocabulary_note(env):
     try:
         vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        # A silent "" here strips the tag-vocabulary steering from the
+        # generation directive, so the model can invent off-taxonomy facets
+        # with no trace. Degrade gracefully, but log why.
+        _logger.warning(
+            "generation: facet vocabulary unavailable (%s); "
+            "proceeding without vocab steering", repr(exc)[:160])
         return ""
     if not vocab:
         return ""
