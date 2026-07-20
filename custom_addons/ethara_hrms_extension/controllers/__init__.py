@@ -1,4 +1,5 @@
 from . import job
+from . import job_approval
 from . import candidate
 from . import lead
 from . import employee_dashboard
