@@ -22,15 +22,25 @@
         <field name="arch" type="xml">
             <form string="AI Model">
                 <sheet>
+                    <div class="alert alert-info" role="alert">
+                        For <b>Amazon Bedrock</b>, leave <b>API URL</b> and
+                        <b>API Key</b> blank — Bedrock authenticates with the AWS
+                        <b>access key + secret key</b> stored under
+                        <b>Ethara Projects → AWS → Credentials</b> (also editable in
+                        Settings → Ethara Projects). Name the provider
+                        "Amazon Bedrock" or "Bedrock".
+                    </div>
                     <group>
                         <group>
                             <field name="name" string="Provider"/>
                             <field name="provider" readonly="1"/>
-                            <field name="api_url"/>
+                            <field name="api_url"
+                                   placeholder="Leave blank for Amazon Bedrock"/>
                         </group>
                         <group>
                             <field name="api_key" password="True"
-                                   groups="base.group_system"/>
+                                   groups="base.group_system"
+                                   placeholder="Leave blank for Amazon Bedrock"/>
                             <field name="sequence"/>
                             <field name="active"/>
                         </group>
