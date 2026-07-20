@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="erza_dashboard.ErzaShowcase">
+        <div class="erza-showcase">
+            <header class="erza-showcase-header">
+                <span class="erza-tag">AGENT-SKILLS EFFICACY · Δ MEASURED</span>
+                <h1 class="erza-title">Erza</h1>
+                <p class="erza-subtitle">
+                Measuring how much a curated Agent Skill changes what an autonomous agent
+                actually does - paired, with-Skills vs no-Skills, over deterministic verifiers.
+            </p>
+                <p class="erza-byline">
+                by 
+                    <strong>Ethara.AI</strong> - 
+                    <a t-att-href="state.githubUrl" target="_blank">github</a>
+                · 
+                    <a t-att-href="state.huggingfaceUrl" target="_blank">huggingface</a>
+                · 
+                    <a t-att-href="state.paperUrl" target="_blank">readme</a></p>
+            </header>
+            <section t-if="state.loading" class="erza-section erza-loading">
+                <p>Loading benchmark data…</p>
+            </section>
+            <t t-if="!state.loading and state.summary">
+                <section class="erza-section erza-metrics">
+                    <div class="erza-metric-grid">
+                        <div class="erza-metric-card">
+                            <div class="erza-metric-value">
+                                <t t-esc="state.summary.task_count"/>
+                            </div>
+                            <div class="erza-metric-label">Task bundles
+                            </div>
+                        </div>
+                        <div class="erza-metric-card">
+                            <div class="erza-metric-value">
+                                <t t-esc="state.summary.model_count"/>
+                            </div>
+                            <div class="erza-metric-label">Models
+                            </div>
+                        </div>
+                        <div class="erza-metric-card">
+                            <div class="erza-metric-value">
+                                <t t-esc="state.summary.run_count"/>
+                            </div>
+                            <div class="erza-metric-label">Paired runs
+                            </div>
+                        </div>
+                        <div class="erza-metric-card">
+                            <div class="erza-metric-value">
+                                <t t-esc="state.summary.skill_count"/>
+                            </div>
+                            <div class="erza-metric-label">Curated Skills
+                            </div>
+                        </div>
+                        <div class="erza-metric-card">
+                            <div class="erza-metric-value">
+                                <t t-esc="formatPercent(state.summary.pass_rate_overall)"/>
+                            </div>
+                            <div class="erza-metric-label">With-Skills pass
+                            </div>
+                        </div>
+                        <div class="erza-metric-card">
+                            <div class="erza-metric-value">
+                                <t t-esc="formatDelta(state.summary.mean_delta_overall)"/>
+                            </div>
+                            <div class="erza-metric-label">Efficacy (Δ)
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="erza-section erza-models">
+                    <h2 class="erza-section-title">Models</h2>
+                    <table class="erza-table">
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Provider</th>
+                                <th class="erza-num">Runs</th>
+                                <th class="erza-num">No-Skills</th>
+                                <th class="erza-num">With-Skills</th>
+                                <th class="erza-num">Mean score</th>
+                                <th class="erza-num">Δ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="state.summary.models" t-as="m" t-key="m.key">
+                                <td>
+                                    <span class="erza-color-dot" t-attf-style="background:{{ m.color }}"/>
+                                    <strong t-esc="m.display_name"/>
+                                </td>
+                                <td class="text-muted" t-esc="m.provider"/>
+                                <td class="erza-num" t-esc="m.run_count"/>
+                                <td class="erza-num" t-esc="formatPercent(m.no_skill_pass_rate)"/>
+                                <td class="erza-num" t-esc="formatPercent(m.pass_at_3)"/>
+                                <td class="erza-num" t-esc="formatPercent(m.mean_score)"/>
+                                <td class="erza-num" t-esc="formatDelta(m.mean_delta)"/>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+                <section class="erza-section erza-tiers">
+                    <h2 class="erza-section-title">Baseline difficulty tiers</h2>
+                    <table class="erza-table">
+                        <thead>
+                            <tr>
+                                <th>Tier</th>
+                                <th class="erza-num">Tasks</th>
+                                <th class="erza-num">No-Skills</th>
+                                <th class="erza-num">With-Skills</th>
+                                <th class="erza-num">Δ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="['trivial','easy','medium','hard','expert']" t-as="tier" t-key="tier">
+                                <td class="erza-tier-cell" t-esc="tier"/>
+                                <td class="erza-num" t-esc="state.summary.tiers[tier] and state.summary.tiers[tier].task_count or 0"/>
+                                <td class="erza-num" t-esc="formatPercent(state.summary.tiers[tier] and state.summary.tiers[tier].no_skill_pass_rate)"/>
+                                <td class="erza-num" t-esc="formatPercent(state.summary.tiers[tier] and state.summary.tiers[tier].pass_rate)"/>
+                                <td class="erza-num" t-esc="formatDelta(state.summary.tiers[tier] and state.summary.tiers[tier].mean_delta)"/>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+            </t>
+            <section class="erza-section erza-actions">
+                <button class="erza-btn" t-on-click="openTasks">Browse task bundles</button>
+                <button class="erza-btn" t-on-click="openRuns">Browse runs</button>
+                <button class="erza-btn erza-btn-filled" t-on-click="openPortal">Open public portal</button>
+            </section>
+        </div>
+    </t>
+</templates>

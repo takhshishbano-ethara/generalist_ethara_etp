@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_erza_task_user,erza.task.user,model_erza_task,base.group_user,1,0,0,0
+access_erza_task_admin,erza.task.admin,model_erza_task,base.group_system,1,1,1,1
+access_erza_model_user,erza.model.user,model_erza_model,base.group_user,1,0,0,0
+access_erza_model_admin,erza.model.admin,model_erza_model,base.group_system,1,1,1,1
+access_erza_run_user,erza.run.user,model_erza_run,base.group_user,1,0,0,0
+access_erza_run_admin,erza.run.admin,model_erza_run,base.group_system,1,1,1,1
