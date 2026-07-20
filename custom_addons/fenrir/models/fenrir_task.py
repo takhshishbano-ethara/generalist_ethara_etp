@@ -789,7 +789,6 @@ class FenrirTask(models.Model):
         })
         cell_fmt = wb.add_format({"valign": "top"})
         date_fmt = wb.add_format({"valign": "top", "num_format": "yyyy-mm-dd"})
-
         headers = [
             "Sr. No.", "Task ID", "Categories", "Title", "Overview",
             "Scope of work", "Company details", "Assets (PRD)",
@@ -955,7 +954,8 @@ class FenrirTask(models.Model):
                     else:
                         _put(r, 11, "")
                     _put(r, 12, offer.received_custom_offer)
-                    _put(r, 13, offer.negotiated_offer)
+                    # _put(r, 13, offer.negotiated_offer)
+                    _put(r, 13, offer.price_paid_usd)
                     _put(r, 14, offer.conversation)
                     if offer.order_date:
                         ws.write_datetime(r, 15, offer.order_date, date_fmt)

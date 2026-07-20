@@ -68,7 +68,7 @@ class FenrirSellerOffer(models.Model):
         default=0,
         help="Count of revision rounds requested before acceptance.")
     price_paid_usd = fields.Float(
-        string="Price Paid (USD)",
+        string="Price paid without tax (USD)",
         help="Final amount paid for the order in USD. Used as the canonical "
              "value emitted in seller metadata.json.")
     display_name = fields.Char(compute="_compute_display_name", store=True)
