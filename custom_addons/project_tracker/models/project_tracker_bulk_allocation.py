@@ -8,6 +8,7 @@ batch. Preview (summary before saving) and a final report are provided.
 """
 import base64
 import csv
+import heapq
 import io
 import random
 from collections import deque
@@ -26,24 +27,40 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
     #  Inputs
     # ------------------------------------------------------------------ #
     source_mode = fields.Selection(
-        [('file', 'Upload File'),
-         ('unassigned', 'Load Unassigned Personas')],
-        string='Persona Source', default='file', required=True,
-        help='Upload File: read persona names from a CSV/XLSX (reuse/create).\n'
-             'Load Unassigned Personas: allocate personas that already exist but '
-             'are not assigned to any tasker yet.')
+        [('unassigned', 'Existing Personas'),
+         ('file', 'Upload File')],
+        string='Persona Source', default='unassigned', required=True,
+        help='Existing Personas: allocate personas that already exist in the '
+             'pool but are not yet assigned to anyone.\n'
+             'Upload File: read persona names from a CSV/XLSX (reuse/create).')
     csv_file = fields.Binary(string='Persona Names File')
     filename = fields.Char(string='Filename')
+    # Optional: restrict the existing-persona pool to one domain, so a run can
+    # hand out only (e.g.) the "coding" personas. Empty = all domains.
+    domain_filter = fields.Selection(
+        selection='_domain_selection', string='Domain',
+        help='Allocate only personas in this domain. Leave empty for all domains.')
     unassigned_available = fields.Integer(
         string='Unassigned Personas', compute='_compute_unassigned_available')
+
+    @api.model
+    def _domain_selection(self):
+        """Distinct domains across personas, for the Domain filter dropdown."""
+        groups = self.env['kensei2.persona']._read_group(
+            [('pt_domain', '!=', False)], ['pt_domain'])
+        domains = sorted({g[0] for g in groups if g[0]})
+        return [(d, d) for d in domains]
     state = fields.Selection(
         [('draft', 'Draft'), ('preview', 'Preview'), ('done', 'Done')],
         default='draft')
 
+    # Required in the Bulk Allocation form (see the view), but NOT at the model
+    # level: the Persona Import wizard builds a throwaway record of this model to
+    # reuse the CSV parser, and that import needs no project.
     project_id = fields.Many2one(
         'project.tracker.project', string='Project',
-        help='Optional — stamp every allocation created by this run with a '
-             'project. Leave empty to assign later per task.')
+        help="Allocate within this project: its active taskers are loaded below, "
+             "and every allocation created is stamped with it.")
     allocation_method = fields.Selection(
         [('sequential', 'Sequential'), ('random', 'Random')],
         string='Allocation Method', default='sequential', required=True)
@@ -79,38 +96,59 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
     result_html = fields.Html(string='Report', readonly=True, sanitize=False)
 
     # ------------------------------------------------------------------ #
-    #  Defaults — list every active Tasker with their current load, all ticked.
+    #  Taskers — the project's OWN active taskers, each with their current load
+    #  and all ticked. Loaded on open (if a project is passed in) and refreshed
+    #  whenever the Project is changed.
     # ------------------------------------------------------------------ #
-    @api.model
-    def default_get(self, fields_list):
-        res = super().default_get(fields_list)
+    def _tasker_line_commands(self, project_id):
+        """One2many create-commands for every active tasker on ``project_id``."""
         Member = self.env['project.tracker.team.member']
         Alloc = self.env['project.tracker.allocation']
-        taskers = Member.search([('role', '=', 'tasker'), ('status', '=', 'active')])
+        taskers = Member.search([
+            ('project_ids', 'in', project_id),
+            ('role', '=', 'tasker'),
+            ('status', '=', 'active'),
+        ])
         counts = {}
         if taskers:
             for m, c in Alloc._read_group(
                     [('tasker_member_id', 'in', taskers.ids)],
                     ['tasker_member_id'], ['__count']):
                 counts[m.id] = c
-        res['tasker_line_ids'] = [
+        return [
             (0, 0, {'member_id': m.id, 'selected': True,
                     'current_count': counts.get(m.id, 0)})
             for m in taskers
         ]
+
+    @api.model
+    def default_get(self, fields_list):
+        res = super().default_get(fields_list)
+        project_id = res.get('project_id') or self.env.context.get('default_project_id')
+        if project_id:
+            res['project_id'] = project_id
+            res['tasker_line_ids'] = self._tasker_line_commands(project_id)
         return res
+
+    @api.onchange('project_id')
+    def _onchange_project_id(self):
+        """Reload the tasker roster for the chosen project — only its members can
+        be allocated to."""
+        cmds = [(5, 0, 0)]                     # drop the previous project's taskers
+        if self.project_id:
+            cmds += self._tasker_line_commands(self.project_id.id)
+        self.tasker_line_ids = cmds
 
     # ------------------------------------------------------------------ #
     #  CSV / XLSX parsing (Persona name + optional L1 / L2)
     # ------------------------------------------------------------------ #
+    # Import carries the persona's own attributes: NAME, optional DOMAIN and
+    # optional SOURCE URL. Task taxonomy (L1/L2, Agent Type) is filled by the
+    # tasker per allocation, never stored on the persona — so it is NOT a column.
     _COL_ALIASES = {
         'name': ['persona name', 'persona', 'name'],
-        'l1': ['l1', 'l1 category', 'l1category'],
-        'l2': ['l2', 'l2 category', 'l2category'],
-        # SFT taxonomy — parsed alongside L1/L2; a given project's CSV only fills
-        # the pair that matches its type.
         'domain': ['domain'],
-        'agent_type': ['agent type', 'agenttype'],
+        'source_url': ['source url', 'source', 'url'],
     }
 
     @staticmethod
@@ -122,7 +160,8 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
         return (name or '').strip().lower().replace(' ', '-')
 
     def _parse_rows(self):
-        """Ordered [{'name', 'l1', 'l2'}] from the uploaded file (header optional)."""
+        """Ordered [{'name', 'source_url'}] from the uploaded file (header
+        optional). Taxonomy columns, if any, are ignored — taxonomy is per task."""
         try:
             text = base64.b64decode(self.csv_file).decode('utf-8-sig')
         except Exception:
@@ -139,8 +178,7 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
             colmap[key] = next((i for i, h in enumerate(header)
                                 if h in [self._norm(a) for a in aliases]), None)
         if colmap['name'] is None:
-            colmap = {'name': 0, 'l1': None, 'l2': None,
-                      'domain': None, 'agent_type': None}
+            colmap = {'name': 0, 'domain': None, 'source_url': None}  # col 0 = name
             data = rows
         else:
             data = rows[1:]
@@ -153,19 +191,16 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
             name = cell(row, colmap['name'])
             if name:
                 result.append({'name': name,
-                               'l1': cell(row, colmap['l1']),
-                               'l2': cell(row, colmap['l2']),
                                'domain': cell(row, colmap['domain']),
-                               'agent_type': cell(row, colmap['agent_type'])})
+                               'source_url': cell(row, colmap['source_url'])})
         return result
 
     # ------------------------------------------------------------------ #
     #  Reusable business logic
     # ------------------------------------------------------------------ #
-    @api.model
     def _unassigned_persona_domain(self):
         """Domain for personas not referenced by any Task Allocation (active
-        personas only).
+        personas only), optionally narrowed to a single domain.
 
         ``kensei2.persona.pt_assignment_status`` is a STORED, INDEXED compute kept in
         sync by ``_compute_tracker_allocation`` — the model already answers this
@@ -175,9 +210,12 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
         wizard open and on every ``source_mode`` change (see
         ``_compute_unassigned_available``). This is one indexed equality instead.
         """
-        return [('pt_assignment_status', '=', 'unassigned')]
+        domain = [('pt_assignment_status', '=', 'unassigned')]
+        if self.domain_filter:
+            domain.append(('pt_domain', '=', self.domain_filter))
+        return domain
 
-    @api.depends('source_mode')
+    @api.depends('source_mode', 'domain_filter')
     def _compute_unassigned_available(self):
         Persona = self.env['kensei2.persona']
         for wiz in self:
@@ -196,10 +234,9 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
                 self._unassigned_persona_domain())
             if not personas:
                 raise UserError(_("There are no unassigned personas to allocate."))
-            return [{'sanitized': p.name, 'name': p.name,
-                     'l1': p.l1_category or '', 'l2': p.l2_category or '',
-                     'domain': p.pt_domain or '', 'agent_type': p.pt_agent_type or '',
-                     'is_new': False, 'persona': p} for p in personas]
+            return [{'sanitized': p.name, 'name': p.name, 'domain': '',
+                     'source_url': '', 'is_new': False, 'persona': p}
+                    for p in personas]
 
         rows = self._parse_rows()
         if not rows:
@@ -213,8 +250,8 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
                 continue
             seen.add(sanitized)
             entries.append({'sanitized': sanitized, 'name': r['name'],
-                            'l1': r['l1'], 'l2': r['l2'],
-                            'domain': r['domain'], 'agent_type': r['agent_type'],
+                            'domain': r.get('domain', ''),
+                            'source_url': r.get('source_url', ''),
                             'is_new': True, 'persona': Persona.browse()})
 
         # one query resolves all existing personas (archived included -> reuse)
@@ -230,24 +267,17 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
                 e['persona'] = p
 
         if create_missing:
-            # New personas inherit the project the upload was launched from, so
-            # they show up in that project immediately (context key set by the
-            # persona action / import wizard smart button).
-            project_id = self.env.context.get('default_pt_project_id')
+            # Personas are global — no project, no taxonomy. The project is applied
+            # per allocation (self.project_id below); taxonomy is filled by the
+            # tasker on the task. Only the optional Source URL rides along.
             new_vals = []
             for e in entries:
                 if e['is_new']:
                     vals = {'name': e['name']}
-                    if e['l1']:
-                        vals['l1_category'] = e['l1']
-                    if e['l2']:
-                        vals['l2_category'] = e['l2']
-                    if e['domain']:
+                    if e.get('domain'):
                         vals['pt_domain'] = e['domain']
-                    if e['agent_type']:
-                        vals['pt_agent_type'] = e['agent_type']
-                    if project_id:
-                        vals['pt_project_id'] = project_id
+                    if e.get('source_url'):
+                        vals['pt_source_url'] = e['source_url']
                     new_vals.append((e, vals))
             if new_vals:
                 created = Persona.create([v for _e, v in new_vals])
@@ -272,6 +302,8 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
         the new personas and returns the ordered persona records to allocate.
         """
         self.ensure_one()
+        if not self.project_id:
+            raise UserError(_("Pick a Project to allocate within."))
         if self.limit_mode == 'limited' and self.allocation_limit < 1:
             raise UserError(_("Allocation Limit must be at least 1 (or choose No Limit)."))
 
@@ -329,6 +361,68 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
             'res_id': self.id, 'view_mode': 'form', 'target': 'new', 'name': name,
         }
 
+    # ------------------------------------------------------------------ #
+    #  Distribution strategies
+    # ------------------------------------------------------------------ #
+    def _distribute_least_loaded(self, personas, lines, caps):
+        """Give each persona to the tasker with the FEWEST total allocations so
+        far (existing ``current_count`` + already assigned in this run), so the
+        least-loaded people fill up first and the load evens out. Respects the
+        per-tasker cap (Limited mode): a tasker drops out once full. ``cap is
+        None`` means No Limit.
+
+        A min-heap keyed on the running load makes each placement O(log m).
+        """
+        heap = []
+        for ln in lines:
+            cap = caps[ln.id]
+            if cap is None or cap > 0:
+                # (load, name, id) is a total order — id is unique so the member
+                # recordset that follows is never compared.
+                heapq.heappush(
+                    heap,
+                    (ln.current_count, (ln.member_name or '').lower(), ln.id,
+                     ln.member_id, cap))
+        assignments, unallocated = [], []
+        for persona in personas:
+            if not heap:
+                unallocated.append(persona)
+                continue
+            load, name, lid, member, cap = heapq.heappop(heap)
+            assignments.append((member, persona))
+            new_cap = None if cap is None else cap - 1
+            if new_cap is None or new_cap > 0:
+                heapq.heappush(heap, (load + 1, name, lid, member, new_cap))
+            # else capacity exhausted -> leave the tasker out of the heap
+        return assignments, unallocated
+
+    def _distribute_round_robin(self, personas, lines, caps):
+        """Even round-robin over a shuffled tasker order (used by Random). Each
+        persona is O(1): assign to the tasker at the front, then either drop it
+        (capacity exhausted) or rotate it to the back for an even spread."""
+        ordered = list(lines)
+        random.shuffle(ordered)
+        queue = deque()
+        for ln in ordered:
+            cap = caps[ln.id]
+            if cap is None or cap > 0:
+                queue.append([ln.member_id, cap])
+        assignments, unallocated = [], []
+        for persona in personas:
+            if not queue:
+                unallocated.append(persona)
+                continue
+            member, cap = queue[0]
+            assignments.append((member, persona))
+            if cap is None:
+                queue.rotate(-1)                 # unlimited -> keep in rotation
+            elif cap - 1 > 0:
+                queue[0][1] = cap - 1
+                queue.rotate(-1)
+            else:
+                queue.popleft()                  # capacity exhausted -> drop
+        return assignments, unallocated
+
     def action_preview(self):
         self.ensure_one()
         if self.source_mode == 'file' and not self.csv_file:
@@ -364,42 +458,14 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
         lines, caps = plan['lines'], plan['caps']
         entries = plan['to_allocate']
 
-        # order personas by the chosen method
         personas = [e['persona'] for e in entries]
         if self.allocation_method == 'random':
             random.shuffle(personas)
-
-        # order taskers: lightest-loaded first for an even spread (shuffled for random)
-        ordered = list(lines)
-        if self.allocation_method == 'random':
-            random.shuffle(ordered)
+            assignments, unallocated = self._distribute_round_robin(
+                personas, lines, caps)
         else:
-            ordered.sort(key=lambda ln: (ln.current_count, (ln.member_name or '').lower()))
-
-        # Round-robin over a queue of taskers that still have capacity. Each
-        # persona is O(1): assign to the tasker at the front, then either drop it
-        # (capacity exhausted) or rotate it to the back for an even spread. This
-        # keeps the whole distribution O(n) even with tight per-tasker limits
-        # (a plain scan would be O(n·m) — see review).  ``cap is None`` = No Limit.
-        queue = deque()
-        for ln in ordered:
-            cap = caps[ln.id]
-            if cap is None or cap > 0:
-                queue.append([ln.member_id, cap])
-        assignments, unallocated = [], []
-        for persona in personas:
-            if not queue:
-                unallocated.append(persona)
-                continue
-            member, cap = queue[0]
-            assignments.append((member, persona))
-            if cap is None:
-                queue.rotate(-1)                 # unlimited -> keep in rotation
-            elif cap - 1 > 0:
-                queue[0][1] = cap - 1
-                queue.rotate(-1)
-            else:
-                queue.popleft()                  # capacity exhausted -> drop
+            assignments, unallocated = self._distribute_least_loaded(
+                personas, lines, caps)
 
         # single optimized batch write
         Alloc = self.env['project.tracker.allocation'].with_context(project_tracker_skip_toast=True)

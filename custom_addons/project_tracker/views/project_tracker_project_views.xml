@@ -2,109 +2,35 @@
 <odoo>
   <data>
 
-    <!-- ===================== Projects: Kanban (the landing) ===================== -->
-    <!-- The Project Tracker root opens here: one card per project. Clicking a
-         card drops you INTO that project's workspace (the form below), where
-         allocations, personas and team are all scoped to it. -->
-    <record model="ir.ui.view" id="project_tracker_project_kanban">
-      <field name="name">project.tracker.project.kanban</field>
-      <field name="model">project.tracker.project</field>
-      <field name="arch" type="xml">
-        <kanban class="o_kanban_dashboard" sample="1">
-          <field name="allocation_count"/>
-          <field name="persona_count"/>
-          <field name="team_count"/>
-          <field name="project_type"/>
-          <templates>
-            <t t-name="card">
-              <div class="oe_kanban_global_click o_kanban_card_content p-2">
-                <div class="d-flex justify-content-between align-items-start">
-                  <strong class="fs-5"><field name="name"/></strong>
-                  <div class="d-flex gap-1 flex-shrink-0">
-                    <span class="badge text-bg-primary"><field name="project_type"/></span>
-                    <span class="badge text-bg-secondary" t-if="record.code.raw_value">
-                      <field name="code"/>
-                    </span>
-                  </div>
-                </div>
-                <div class="text-muted small mt-1" t-if="record.description.raw_value">
-                  <field name="description"/>
-                </div>
-                <div class="d-flex justify-content-around text-center mt-3 pt-2 border-top">
-                  <div>
-                    <div class="fs-4 fw-bold"><field name="allocation_count"/></div>
-                    <div class="text-muted small">Tasks</div>
-                  </div>
-                  <div>
-                    <div class="fs-4 fw-bold"><field name="persona_count"/></div>
-                    <div class="text-muted small">Personas</div>
-                  </div>
-                  <div>
-                    <div class="fs-4 fw-bold"><field name="team_count"/></div>
-                    <div class="text-muted small">Team</div>
-                  </div>
-                </div>
-              </div>
-            </t>
-          </templates>
-        </kanban>
-      </field>
-    </record>
-
     <!-- ===================== Projects: List ===================== -->
+    <!-- Projects are lightweight labels used to slice allocations. They are
+         created/edited here; there is no "open the project to work inside it"
+         plane any more — Personas, Team and Task Allocation are all top-level
+         and cross-project. -->
     <record model="ir.ui.view" id="project_tracker_project_list">
       <field name="name">project.tracker.project.list</field>
       <field name="model">project.tracker.project</field>
       <field name="arch" type="xml">
-        <list string="Projects" sample="1">
+        <list string="Projects" sample="1" editable="bottom">
           <field name="name"/>
           <field name="project_type" string="Type"/>
           <field name="code" optional="show"/>
           <field name="allocation_count" string="Allocations"/>
-          <field name="persona_count" string="Personas" optional="show"/>
           <field name="team_count" string="Team" optional="show"/>
           <field name="description" optional="hide"/>
         </list>
       </field>
     </record>
 
-    <!-- ===================== Projects: Workspace form ===================== -->
-    <!-- Everything for one project on one page: its allocations, personas and
-         team, plus a button into the dashboard scoped to it. This is the
-         "inside the project" plane. -->
+    <!-- ===================== Projects: Form (plain manager) ===================== -->
     <record model="ir.ui.view" id="project_tracker_project_form">
       <field name="name">project.tracker.project.form</field>
       <field name="model">project.tracker.project</field>
       <field name="arch" type="xml">
         <form string="Project">
-          <header>
-            <!-- Primary action into the project-scoped dashboard. In the header
-                 so it never wraps or crowds the stat buttons. -->
-            <button name="action_open_dashboard" type="object"
-                    string="Open Dashboard" class="btn-primary"
-                    icon="fa-line-chart" invisible="not id"/>
-          </header>
           <sheet>
             <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
                     invisible="active"/>
-            <div class="oe_button_box" name="button_box">
-              <button name="action_view_allocations" type="object"
-                      class="oe_stat_button" icon="fa-tasks" invisible="not id">
-                <field name="allocation_count" widget="statinfo" string="Allocations"/>
-              </button>
-              <button name="%(project_tracker_persona_action)d" type="action"
-                      class="oe_stat_button" icon="fa-user-circle-o"
-                      context="{'search_default_pt_project_id': id, 'default_pt_project_id': id, 'pt_project_type': project_type}"
-                      invisible="not id">
-                <field name="persona_count" widget="statinfo" string="Personas"/>
-              </button>
-              <button name="%(project_tracker_team_member_action)d" type="action"
-                      class="oe_stat_button" icon="fa-users"
-                      context="{'search_default_project_ids': id, 'default_project_ids': [id]}"
-                      invisible="not id">
-                <field name="team_count" widget="statinfo" string="Team"/>
-              </button>
-            </div>
             <div class="oe_title">
               <label for="name"/>
               <h1><field name="name" placeholder="e.g. Kensei SFT"/></h1>
@@ -115,68 +41,6 @@
               <field name="project_type"/>
               <field name="description" placeholder="What this project covers…"/>
             </group>
-
-            <notebook>
-              <page string="Allocations" name="page_allocations">
-                <div class="text-muted mb-2" invisible="id">
-                  <i class="fa fa-info-circle me-1"/>Save the project first, then
-                  add its task allocations here.
-                </div>
-                <!-- Trimmed inline list (no Project column — every row IS this
-                     project). Full detail opens on click / via the smart button. -->
-                <field name="allocation_ids" context="{'default_project_id': id}"
-                       readonly="not id" nolabel="1">
-                  <list string="Allocations">
-                    <field name="task_id" string="Task ID"/>
-                    <field name="tasker_member_id" string="Tasker"/>
-                    <field name="persona_id"/>
-                    <field name="assigned_pl_id" string="PL" optional="show"/>
-                    <field name="assigned_date" optional="hide"/>
-                    <field name="status" widget="badge"/>
-                  </list>
-                </field>
-              </page>
-              <page string="Personas" name="page_personas">
-                <!-- Columns follow the project TYPE: RLHF shows L1/L2, SFT shows
-                     Domain/Agent Type. Both sets exist on the model; parent.
-                     project_type just picks which to render. -->
-                <field name="persona_ids" context="{'default_pt_project_id': id}"
-                       readonly="not id" nolabel="1">
-                  <list string="Personas" editable="bottom">
-                    <field name="name"/>
-                    <field name="l1_category" string="L1 Category"
-                           column_invisible="parent.project_type != 'rlhf'"/>
-                    <field name="l2_category" string="L2 Category"
-                           column_invisible="parent.project_type != 'rlhf'"/>
-                    <field name="pt_domain" string="Domain"
-                           column_invisible="parent.project_type == 'rlhf'"/>
-                    <field name="pt_agent_type" string="Agent Type"
-                           column_invisible="parent.project_type == 'rlhf'"/>
-                    <field name="pt_assignment_status" widget="badge"
-                           decoration-success="pt_assignment_status == 'assigned'"
-                           decoration-warning="pt_assignment_status == 'unassigned'"/>
-                    <field name="pt_current_task_ref" string="Task ID" optional="show"/>
-                    <field name="pt_current_status" string="Status" optional="show"/>
-                  </list>
-                </field>
-              </page>
-              <page string="Team" name="page_team">
-                <field name="team_member_ids" context="{'default_project_ids': [id]}"
-                       readonly="not id" nolabel="1">
-                  <list string="Team">
-                    <field name="member_name" string="Name"/>
-                    <field name="email"/>
-                    <field name="role" widget="badge"
-                           decoration-danger="role == 'admin'"
-                           decoration-success="role == 'pl'"
-                           decoration-info="role == 'ql'"
-                           decoration-warning="role == 'tasker'"/>
-                    <field name="status" widget="badge"
-                           decoration-success="status == 'active'"/>
-                  </list>
-                </field>
-              </page>
-            </notebook>
           </sheet>
         </form>
       </field>
@@ -190,6 +54,9 @@
           <field name="name"/>
           <field name="code"/>
           <filter name="archived" string="Archived" domain="[('active', '=', False)]"/>
+          <group>
+            <filter name="g_type" string="Type" context="{'group_by': 'project_type'}"/>
+          </group>
         </search>
       </field>
     </record>
@@ -197,13 +64,13 @@
     <record model="ir.actions.act_window" id="project_tracker_project_action">
       <field name="name">Projects</field>
       <field name="res_model">project.tracker.project</field>
-      <field name="view_mode">kanban,list,form</field>
+      <field name="view_mode">list,form</field>
       <field name="search_view_id" ref="project_tracker_project_search"/>
       <field name="help" type="html">
         <p class="o_view_nocontent_smiling_face">Create your first project</p>
-        <p>Each project is its own workspace — open a card to manage its
-           allocations, personas, team and dashboard, all kept separate from
-           every other project.</p>
+        <p>A project is a label used to slice allocations. Create one here, then
+           allocate work to it from <b>Task Allocation</b> — filter that list by
+           project to see everything under it.</p>
       </field>
     </record>
 

@@ -3,61 +3,40 @@
   <data>
 
     <!-- ===================== Tracker Persona: List ===================== -->
-    <!-- Distinct from the generic Personas list under the Kensei2 app: this one is
-         about ALLOCATION — is this persona in play, who has it, and where is it. -->
+    <!-- The GLOBAL persona pool. A persona is just a reusable name — no project,
+         no taxonomy. The same persona can be allocated on any project, to any
+         number of taskers. Taxonomy (L1/L2, Agent Type) is TASK-specific and
+         lives on the allocation, filled by the tasker. -->
     <record model="ir.ui.view" id="project_tracker_persona_list">
       <field name="name">project.tracker.persona.list</field>
       <field name="model">kensei2.persona</field>
       <field name="arch" type="xml">
         <!-- Unassigned personas are the actionable ones (they are waiting to be
              allocated), so they stay at normal weight; assigned ones recede. -->
-        <list string="Personas" sample="1" multi_edit="1" js_class="project_tracker_stats_list"
+        <list string="Personas" sample="1" multi_edit="1" editable="bottom"
+              js_class="project_tracker_stats_list"
               decoration-muted="pt_assignment_status == 'assigned'">
           <header>
-            <!-- Forward the project we're scoped to (set by the project's
-                 Personas smart button) so the wizards stamp imports with it and
-                 pick the right taxonomy columns. -->
+            <!-- Only importing into the pool lives here. Allocation (bulk or
+                 otherwise) is a Task Allocation concern, not a persona-pool one. -->
             <button name="%(action_project_tracker_persona_import)d" type="action"
                     string="Upload Personas" class="btn-primary text-nowrap"
                     icon="fa-upload" display="always"
-                    context="{'default_pt_project_id': context.get('default_pt_project_id')}"
-                    groups="project_tracker.group_project_tracker_ql"/>
-            <button name="%(action_project_tracker_bulk_allocation)d" type="action"
-                    string="Bulk Allocation" class="btn-secondary text-nowrap"
-                    icon="fa-random" display="always"
-                    context="{'default_pt_project_id': context.get('default_pt_project_id')}"
                     groups="project_tracker.group_project_tracker_ql"/>
           </header>
 
           <field name="name"/>
-          <field name="pt_project_id" string="Project" optional="show"/>
-          <!-- Columns follow the project type carried in context (set by a
-               project's Personas smart button): RLHF shows L1/L2, SFT shows
-               Domain/Agent Type. -->
-          <field name="l1_category" string="L1 Category"
-                 column_invisible="context.get('pt_project_type') != 'rlhf'"/>
-          <field name="l2_category" string="L2 Category"
-                 column_invisible="context.get('pt_project_type') != 'rlhf'"/>
-          <field name="pt_domain" string="Domain"
-                 column_invisible="context.get('pt_project_type') == 'rlhf'"/>
-          <field name="pt_agent_type" string="Agent Type"
-                 column_invisible="context.get('pt_project_type') == 'rlhf'"/>
-
-          <field name="pt_assignment_status" widget="badge"
+          <field name="pt_domain" string="Domain" placeholder="e.g. coding"
+                 optional="show"/>
+          <field name="pt_source_url" string="Source URL" widget="url"
+                 placeholder="https://…" optional="show"/>
+          <!-- The persona pool only shows whether a persona is IN USE (allocated
+               to at least one task). No taxonomy, no task detail — a persona is
+               global and can be in many allocations at once. -->
+          <field name="pt_assignment_status" string="In Use" widget="badge"
                  decoration-success="pt_assignment_status == 'assigned'"
                  decoration-warning="pt_assignment_status == 'unassigned'"/>
-
-          <!-- Who has it, and where it is -->
-          <field name="pt_current_task_ref" string="Task ID" optional="show"/>
-          <field name="pt_current_stage" string="Stage" optional="show"/>
-          <field name="pt_current_tasker_id" string="Tasker" optional="show"/>
-          <field name="pt_current_pl_id" string="PL" optional="show"/>
-          <field name="pt_current_status" string="Task Status" widget="badge"
-                 optional="show"
-                 decoration-success="pt_current_status == 'deliverable'"
-                 decoration-danger="pt_current_status == 'failed'"
-                 decoration-warning="pt_current_status in ('manual_qc','ready_next_stage')"/>
-          <field name="pt_allocation_count" string="Allocations" optional="hide"/>
+          <field name="pt_allocation_count" string="Allocations" optional="show"/>
 
           <button name="action_view_pt_allocations" type="object"
                   string="Allocations" icon="fa-list"
@@ -73,39 +52,23 @@
       <field name="arch" type="xml">
         <search string="Personas">
           <field name="name"/>
-          <field name="pt_project_id" string="Project"/>
-          <field name="l1_category"/>
-          <field name="l2_category"/>
-          <field name="pt_current_task_ref" string="Task ID"/>
-          <field name="pt_current_tasker_id" string="Tasker"/>
+          <field name="pt_domain" string="Domain"/>
+          <field name="pt_source_url" string="Source URL"/>
 
-          <!-- Unassigned first: that is the queue to act on. -->
-          <filter name="f_unassigned" string="Unassigned"
+          <!-- Availability only — the persona pool is about what is free to
+               allocate, not the state of any particular task using it. -->
+          <filter name="f_unassigned" string="Available"
                   domain="[('pt_assignment_status', '=', 'unassigned')]"/>
-          <filter name="f_assigned" string="Assigned"
+          <filter name="f_assigned" string="In Use"
                   domain="[('pt_assignment_status', '=', 'assigned')]"/>
-          <separator/>
-          <filter name="f_in_flight" string="In Flight"
-                  domain="[('pt_current_status', 'not in', ('deliverable', 'failed')),
-                           ('pt_assignment_status', '=', 'assigned')]"/>
-          <filter name="f_delivered" string="Delivered"
-                  domain="[('pt_current_status', '=', 'deliverable')]"/>
-          <filter name="f_failed" string="Failed"
-                  domain="[('pt_current_status', '=', 'failed')]"/>
           <separator/>
           <filter name="f_archived" string="Archived" domain="[('active', '=', False)]"/>
 
           <group>
-            <filter name="g_project" string="Project"
-                    context="{'group_by': 'pt_project_id'}"/>
-            <filter name="g_assignment" string="Assignment"
+            <filter name="g_assignment" string="In Use"
                     context="{'group_by': 'pt_assignment_status'}"/>
-            <filter name="g_status" string="Task Status"
-                    context="{'group_by': 'pt_current_status'}"/>
-            <filter name="g_tasker" string="Tasker"
-                    context="{'group_by': 'pt_current_tasker_id'}"/>
-            <filter name="g_pl" string="PL" context="{'group_by': 'pt_current_pl_id'}"/>
-            <filter name="g_l1" string="L1 Category" context="{'group_by': 'l1_category'}"/>
+            <filter name="g_domain" string="Domain"
+                    context="{'group_by': 'pt_domain'}"/>
           </group>
         </search>
       </field>
@@ -115,39 +78,17 @@
     <record model="ir.actions.act_window" id="project_tracker_persona_action">
       <field name="name">Personas</field>
       <field name="res_model">kensei2.persona</field>
-      <field name="view_mode">list,form</field>
+      <!-- LIST ONLY. No form is bound, so a row click never opens the full
+           kensei2 persona detail (MD, docker, all its fields) — the pool is just
+           a flat list, editable inline for quick fixes. -->
+      <field name="view_mode">list</field>
       <field name="search_view_id" ref="project_tracker_persona_search"/>
-      <!-- Bind the tracker-specific LIST while reusing the existing persona form. -->
       <field name="view_ids" eval="[(5, 0, 0),
-            (0, 0, {'view_mode': 'list', 'view_id': ref('project_tracker_persona_list')}),
-            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei2.kensei2_persona_form')})]"/>
+            (0, 0, {'view_mode': 'list', 'view_id': ref('project_tracker_persona_list')})]"/>
       <field name="help" type="html">
         <p class="o_view_nocontent_smiling_face">No personas yet</p>
-        <p>Use <b>Bulk Upload Personas</b> to import them from a CSV, then
+        <p>Use <b>Upload Personas</b> to import them from a CSV, then
            <b>Bulk Allocation</b> to distribute them to taskers.</p>
-      </field>
-    </record>
-
-    <!-- ===================== Persona form: Tracker fields ===================== -->
-    <!-- Add the project link + the SFT taxonomy (Domain / Agent Type) next to
-         the RLHF L1/L2 on the shared kensei2 persona form, so a persona's
-         attributes are editable wherever it is opened. -->
-    <record model="ir.ui.view" id="kensei2_persona_form_pt_fields">
-      <field name="name">kensei2.persona.form.project.tracker</field>
-      <field name="model">kensei2.persona</field>
-      <field name="inherit_id" ref="kensei2.kensei2_persona_form"/>
-      <field name="arch" type="xml">
-        <!-- Append inside the sheet rather than anchoring on l1/l2 — those fields
-             may not exist on every deployment's persona form, and a missing
-             anchor makes the whole module fail to install. Every form has a
-             <sheet>, so this is safe everywhere. -->
-        <xpath expr="//sheet" position="inside">
-          <group string="Project Tracker" name="pt_group">
-            <field name="pt_project_id" options="{'no_create_edit': True}"/>
-            <field name="pt_domain"/>
-            <field name="pt_agent_type"/>
-          </group>
-        </xpath>
       </field>
     </record>
 

@@ -52,15 +52,9 @@
               decoration-muted="status == 'deliverable'"
               decoration-danger="status == 'failed'">
           <header>
-            <!-- Two persona entry points, deliberately distinct:
-                 - Bulk Upload Personas: CSV -> personas only, left UNASSIGNED.
-                   "Load the data now, decide who works it later."
-                 - Bulk Allocation: distributes personas to taskers (from a CSV
-                   directly, or from the pool of unassigned ones). -->
-            <button name="%(action_project_tracker_persona_import)d" type="action"
-                    string="Upload Personas" class="btn-secondary text-nowrap"
-                    icon="fa-upload" display="always"
-                    groups="project_tracker.group_project_tracker_ql"/>
+            <!-- Bulk Allocation distributes personas to taskers (from a CSV
+                 directly, or from the pool of unassigned personas). Importing
+                 personas into the pool lives on the Personas tab, not here. -->
             <button name="%(action_project_tracker_bulk_allocation)d" type="action"
                     string="Bulk Allocation" class="btn-primary text-nowrap"
                     icon="fa-random" display="always"
@@ -176,12 +170,6 @@
                    statusbar_visible="ready_baseline,baseline_generated,manual_qc,deliverable"/>
           </header>
           <sheet>
-            <div class="oe_button_box" name="button_box">
-              <button name="action_view_stage_chain" type="object"
-                      class="oe_stat_button" icon="fa-sitemap">
-                <field name="stage_no" widget="statinfo" string="Stage"/>
-              </button>
-            </div>
             <div class="oe_title">
               <label for="task_id"/>
               <h1><field name="task_id" readonly="1"/></h1>
@@ -259,24 +247,36 @@
                 <!-- One record = one stage = one tasker. The label follows the stage
                      this record actually is; the other stage's tasker is on the
                      Summary and Stage tabs. -->
+                <!-- Any active team member can be assigned — the tasker is no
+                     longer gated on the project being chosen first (that made the
+                     picker empty on a brand-new record). -->
                 <field name="tasker_member_id" string="Stage 1 Tasker"
                        invisible="stage_no != 1" readonly="not is_manager"
-                       domain="[('project_ids', 'in', project_id)]"
+                       domain="[('status', '=', 'active')]"
                        options="{'no_create': True, 'no_open': True}"
                        placeholder="Search a team member by name or email…"/>
                 <field name="tasker_member_id" string="Stage 2 Tasker"
                        invisible="stage_no == 1" readonly="not is_manager"
-                       domain="[('project_ids', 'in', project_id)]"
+                       domain="[('status', '=', 'active')]"
                        options="{'no_create': True, 'no_open': True}"
                        placeholder="Search a team member by name or email…"/>
                 <field name="tasker_email" readonly="1"/>
-                <!-- This project's personas, plus any not yet claimed by a
-                     project (they get pinned to this one on allocation). -->
+                <!-- Personas are global — the whole pool is selectable on every
+                     project, and the same persona may be allocated many times. -->
                 <field name="persona_id" readonly="not is_manager"
-                       domain="['|', ('pt_project_id', '=', project_id), ('pt_project_id', '=', False)]"
                        options="{'no_open': True}"/>
                 <field name="project_id" readonly="not is_manager"
                        options="{'no_create_edit': True, 'no_open': True}"/>
+                <field name="project_type" invisible="1"/>
+                <!-- TASK taxonomy, filled by the TASKER (not gated on is_manager).
+                     Shown per project type: RLHF -> L1/L2, SFT -> Agent Type.
+                     Frozen once the stage is locked (handed off / terminal). -->
+                <field name="l1_category" invisible="project_type != 'rlhf'"
+                       readonly="is_locked" placeholder="e.g. Finance"/>
+                <field name="l2_category" invisible="project_type != 'rlhf'"
+                       readonly="is_locked" placeholder="e.g. Accounts Payable"/>
+                <field name="agent_type" invisible="project_type != 'sft'"
+                       readonly="is_locked"/>
               </group>
               <group string="Assignment">
                 <field name="assigned_pl_id" string="PL"
@@ -705,12 +705,15 @@
       <field name="model">project.tracker.allocation</field>
       <field name="arch" type="xml">
         <search string="Task Allocation">
+          <!-- Project is the primary filter — first, so it is the top suggestion
+               the moment you click the search bar. Pick one to see only its tasks. -->
+          <field name="project_id" string="Project"
+                 filter_domain="[('project_id', '=', self)]"/>
           <field name="task_id"/>
           <field name="tasker_name"/>
           <field name="tasker_email"/>
           <field name="pl_id"/>
           <field name="persona_id"/>
-          <field name="project_id"/>
 
           <!-- Each stage of a task is its own record, so a handed-off task otherwise
                appears TWICE (stage 1 + stage 2) under the same Task ID, with no way to

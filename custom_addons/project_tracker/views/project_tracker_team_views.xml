@@ -117,8 +117,10 @@
       <field name="model">project.tracker.team.member</field>
       <field name="arch" type="xml">
         <search string="Team Members">
-          <field name="member_name" string="Name"/>
+          <!-- Project is the primary filter — first, so it is the top suggestion
+               the moment you click the search bar. Pick one to see only its team. -->
           <field name="project_ids" string="Project"/>
+          <field name="member_name" string="Name"/>
           <field name="email"/>
           <field name="assigned_pl_id"/>
           <field name="assigned_ql_id"/>
@@ -135,6 +137,7 @@
           <filter name="f_archived" string="Archived" domain="[('active', '=', False)]"/>
 
           <group>
+            <filter name="g_project" string="Project" context="{'group_by': 'project_ids'}"/>
             <filter name="g_role" string="Role" context="{'group_by': 'role'}"/>
             <filter name="g_assigned_pl" string="Assigned PL" context="{'group_by': 'assigned_pl_id'}"/>
             <filter name="g_assigned_ql" string="Assigned QL" context="{'group_by': 'assigned_ql_id'}"/>

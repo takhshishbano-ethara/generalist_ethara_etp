@@ -10,30 +10,16 @@
 
           <!-- ===== Step 1: upload ===== -->
           <div invisible="state == 'done'">
-            <field name="project_type" invisible="1"/>
             <div class="alert alert-info" role="alert">
-              Upload a CSV of persona names for
-              <b><field name="pt_project_id" readonly="1" nolabel="1"
-                        class="d-inline-block" options="{'no_open': True}"/></b>.
-              Personas that already exist are <b>reused, not duplicated</b>, and
-              are stamped with this project. Imported personas are left
-              <b>unassigned</b> — distribute them afterwards with
-              <b>Bulk Allocation → Load Unassigned Personas</b>.
-              <!-- Columns follow the project type: SFT uses Domain/Agent Type,
-                   RLHF uses L1/L2. -->
-              <div class="mt-2" invisible="project_type == 'rlhf'">
+              Upload a CSV of persona names into the <b>global persona pool</b>.
+              Personas that already exist are <b>reused, not duplicated</b>.
+              Imported personas are left <b>unassigned</b> — distribute them
+              afterwards with <b>Bulk Allocation</b>.
+              <div class="mt-2">
                 <b>Columns:</b> <code>Persona Name</code> (required),
-                <code>Domain</code>, <code>Agent Type</code> (optional). A header
-                row is optional — a single-column file of names works too.
+                <code>Domain</code> and <code>Source URL</code> (optional). A
+                header row is optional — a single-column file of names works too.
                 <a href="/project_tracker/persona/sample_csv" class="ms-2">
-                  <i class="fa fa-download me-1"/>Download sample CSV
-                </a>
-              </div>
-              <div class="mt-2" invisible="project_type != 'rlhf'">
-                <b>Columns:</b> <code>Persona Name</code> (required),
-                <code>L1</code>, <code>L2</code> (optional). A header row is
-                optional — a single-column file of names works too.
-                <a href="/project_tracker/persona/sample_csv?type=rlhf" class="ms-2">
                   <i class="fa fa-download me-1"/>Download sample CSV
                 </a>
               </div>

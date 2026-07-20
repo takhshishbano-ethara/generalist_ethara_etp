@@ -14,22 +14,20 @@ class Kensei2Persona(models.Model):
 
     _inherit = "kensei2.persona"
 
-    # The project this persona belongs to. A persona lives under ONE project
-    # (the Tracker slices personas by project); its allocations must stay within
-    # that project. Backfilled from the current allocation on upgrade.
-    pt_project_id = fields.Many2one(
-        "project.tracker.project", string="Project", index=True,
-        help="Project this persona belongs to. Only this project's allocations "
-             "may use it.")
-    # SFT projects describe a persona by Domain + Agent Type rather than the
-    # RLHF L1/L2 taxonomy. Both sets live on the model; the project's type decides
-    # which the UI surfaces (see project_tracker_project_views).
+    # Personas are GLOBAL and carry NO taxonomy of their own. A persona is just a
+    # reusable name — it can be allocated on any project, to any number of
+    # taskers. The taxonomy (RLHF L1/L2, SFT Agent Type) is TASK-specific: it is
+    # filled by the tasker on each allocation (project.tracker.allocation), because
+    # the same persona can be worked under different taxonomies on different tasks.
     pt_domain = fields.Char(
         string="Domain", index=True,
-        help="SFT taxonomy — the persona's domain (e.g. coding, math).")
-    pt_agent_type = fields.Char(
-        string="Agent Type",
-        help="SFT taxonomy — the persona's agent type (Single Agent or Multiagent).")
+        help="The persona's domain (e.g. coding, math, finance). A property of "
+             "the persona itself — unlike L1/L2 and Agent Type, which are set "
+             "per task.")
+    pt_source_url = fields.Char(
+        string="Source URL",
+        help="Where this persona comes from (e.g. the doc or dataset it was "
+             "sourced from). Shown on the persona pool for reference.")
     pt_allocation_ids = fields.One2many(
         "project.tracker.allocation", "persona_id", string="Task Allocations")
     pt_allocation_count = fields.Integer(
