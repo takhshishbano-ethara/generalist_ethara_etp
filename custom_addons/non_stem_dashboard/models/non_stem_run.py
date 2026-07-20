@@ -70,7 +70,7 @@ class NonStemRun(models.Model):
 
     def _compute_is_current_user_manager(self):
         user = self.env.user
-        is_mgr = user._is_admin() or user.has_group("non_stem_dashboard.group_manager")
+        is_mgr = user._is_admin() or user.has_group("non_stem_dashboard.group_admin")
         for rec in self:
             rec.is_current_user_manager = is_mgr
 
@@ -184,7 +184,18 @@ class NonStemRun(models.Model):
     @api.model
     def check_is_manager(self):
         user = self.env.user
-        return user._is_admin() or user.has_group("non_stem_dashboard.group_manager")
+        return user._is_admin() or user.has_group("non_stem_dashboard.group_admin")
+
+    @api.model
+    def get_user_role(self):
+        user = self.env.user
+        if user._is_admin() or user.has_group("non_stem_dashboard.group_admin"):
+            return "admin"
+        elif user.has_group("non_stem_dashboard.group_user"):
+            return "user"
+        elif user.has_group("non_stem_dashboard.group_viewer"):
+            return "viewer"
+        return False
 
     def action_copy_public_link(self):
         self.ensure_one()
