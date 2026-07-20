@@ -14,13 +14,16 @@ class NonStemDashboardView extends Component {
             selectedRun: null,
             dashboardType: "tasker",
             loading: true,
-            isManager: false,
+            role: false,
         });
 
         onWillStart(async () => {
-            this.state.isManager = await this.orm.call(
-                "non.stem.run", "check_is_manager", []
+            this.state.role = await this.orm.call(
+                "non.stem.run", "get_user_role", []
             );
+            if (this.state.role === "viewer") {
+                this.state.dashboardType = "management";
+            }
             await this.loadRuns();
         });
     }

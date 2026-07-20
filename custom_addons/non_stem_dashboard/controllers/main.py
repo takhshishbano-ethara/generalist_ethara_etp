@@ -26,9 +26,9 @@ class NonStemDashboardController(http.Controller):
     )
     def management_dashboard(self, run_id, **kw):
         user = request.env.user
-        is_manager = user._is_admin() or user.has_group("non_stem_dashboard.group_manager")
-        if not is_manager:
-            raise Forbidden("Only managers can access the management dashboard.")
+        has_access = user._is_admin() or user.has_group("non_stem_dashboard.group_viewer")
+        if not has_access:
+            raise Forbidden("You do not have access to the management dashboard.")
         run = request.env["non.stem.run"].sudo().browse(run_id)
         if not run.exists() or not run.management_dashboard_html:
             return request.not_found()
