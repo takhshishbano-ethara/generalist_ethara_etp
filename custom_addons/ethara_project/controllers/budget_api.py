@@ -82,6 +82,18 @@ def _coerce_float(value, default=0.0):
         return default
 
 
+def _coerce_bool(value, default=False):
+    """Coerce a JSON/multipart value to a bool. Multipart form values arrive as
+    strings, so treat 'true'/'1'/'yes'/'on' (any case) as True."""
+    if isinstance(value, bool):
+        return value
+    if value is None or value == '':
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in ('true', '1', 'yes', 'on')
+
+
 def _coerce_date(value):
     if not value:
         return False

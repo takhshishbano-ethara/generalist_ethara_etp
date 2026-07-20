@@ -17,6 +17,22 @@ def _normalize_provider_name(name):
     return "".join((name or "").split()).lower()
 
 
+# Providers are often named with a vendor prefix in the admin ("Amazon
+# Bedrock", "AWS Bedrock") — map those normalized names to the canonical
+# fetcher key so the provider still resolves.
+_PROVIDER_ALIASES = {
+    "amazonbedrock": "bedrock",
+    "awsbedrock": "bedrock",
+    "bedrockruntime": "bedrock",
+}
+
+
+def _fetcher_key(name):
+    """Normalized provider name resolved to its fetcher key (honoring aliases)."""
+    normalized = _normalize_provider_name(name)
+    return _PROVIDER_ALIASES.get(normalized, normalized)
+
+
 def _get_row(env, name):
     normalized = _normalize_provider_name(name)
     if not normalized:
@@ -162,8 +178,7 @@ def supported_providers():
 
 def list_models(env, provider_name):
     row = _get_row(env, provider_name)
-    normalized = _normalize_provider_name(row.name)
-    fetcher = _FETCHERS.get(normalized)
+    fetcher = _FETCHERS.get(_fetcher_key(row.name))
     if not fetcher:
         raise ProviderError(
             f"Provider '{row.name}' is not supported. "
@@ -202,7 +217,7 @@ def list_providers(env):
     supported = set(_FETCHERS.keys())
     out = []
     for row in rows:
-        if _normalize_provider_name(row.name) not in supported:
+        if _fetcher_key(row.name) not in supported:
             continue
         out.append({"id": row.id, "name": row.name})
     return out

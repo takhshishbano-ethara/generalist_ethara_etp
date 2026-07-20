@@ -50,11 +50,13 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from .budget_api import (
     _coerce_int,
     _coerce_float,
+    _coerce_bool,
     _coerce_date,
     _pagination,
     _read_multipart_or_json,
     _missing_ids,
 )
+from ..models.role_map import resolve_role_ids
 
 _logger = logging.getLogger(__name__)
 
@@ -538,6 +540,40 @@ def _request_to_summary(req):
     }
 
 
+def _caller_is_cfo():
+    """True when the authenticated caller holds a CFO role. `@validate_token`
+    sets `request.env.user` to the token's user (via update_env), so this
+    reflects the HTTP caller even when the record itself is browsed sudo."""
+    user = request.env.user
+    role = getattr(user, 'user_role', False)
+    if not role:
+        return False
+    return role.id in resolve_role_ids(request.env, 'cfo')
+
+
+# Buffer figures are a CFO-confidential reserve ("Not visible to TPM/CTO").
+# They are stripped from the detail payload for every non-CFO caller.
+_BUFFER_TOPLEVEL_KEYS = ('buffer_pct', 'buffer_amount')
+_BUFFER_TOTALS_KEYS = (
+    'buffer_pct', 'buffer_amount',
+    'buffer_amount_requested', 'buffer_amount_approved',
+)
+
+
+def _redact_buffer_for_non_cfo(detail):
+    """Remove the confidential buffer keys unless the caller is a CFO. Enforces
+    the buffer's CFO-only visibility at the API, not just in the UI."""
+    if _caller_is_cfo():
+        return detail
+    for key in _BUFFER_TOPLEVEL_KEYS:
+        detail.pop(key, None)
+    totals = detail.get('totals')
+    if isinstance(totals, dict):
+        for key in _BUFFER_TOTALS_KEYS:
+            totals.pop(key, None)
+    return detail
+
+
 def _request_to_detail(req):
     req.ensure_one()
     model_approved_base = sum(req.model_line_ids.mapped('approved_amount'))
@@ -672,6 +708,9 @@ def _request_to_detail(req):
             getattr(req, 'cfo_change_request_note', '') or ''
         ),
         'buffer_pct': req.buffer_pct,
+        # Stable CFO "Financial overview" snapshots (see model fields).
+        'original_requested_total': req.original_requested_total,
+        'cto_forwarded_total': req.cto_forwarded_total,
         'model_lines': model_lines,
         'infra_lines': infra_lines,
         'subscription_lines': sub_lines,
@@ -686,6 +725,10 @@ def _request_to_detail(req):
             'subscription_monthly_total': sub_monthly_total,
             'subscription_per_day_total': sub_per_day_total,
             'buffer_pct': req.buffer_pct,
+            # Persisted buffer reserve (stored on the request, kept OUT of
+            # approved_total). The *_requested/_approved figures below remain
+            # computed for display parity.
+            'buffer_amount': req.buffer_amount,
             'buffer_amount_requested': (
                 model_requested_total
                 + infra_requested_total
@@ -715,7 +758,7 @@ def _request_to_detail(req):
             'detail': _batch_detail(req.phase_id),
         },
     })
-    return detail
+    return _redact_buffer_for_non_cfo(detail)
 
 
 # ---------------------------------------------------------------------------
@@ -919,8 +962,10 @@ class EtharaBudgetRequestController(http.Controller):
             state_aliases = {
                 'pending': ['draft', 'cto_review', 'cfo_review'],
                 'approved': ['approved', 'partially_approved'],
-                # CTO/CFO reject writes state=changes_required.
-                'rejected': ['changes_required'],
+                # A CTO send-back / CFO return writes state=changes_required; a
+                # terminal CFO reject writes state=rejected. Both read as
+                # "rejected" in the queue's Rejected filter.
+                'rejected': ['changes_required', 'rejected'],
                 'withdrawn': ['withdrawn'],
             }
             valid_states = [v for v, _l in Request._fields['state'].selection]
@@ -1509,12 +1554,21 @@ class EtharaBudgetRequestController(http.Controller):
                         ),
                     })
                 if 'approved_amount' in jdata:
+                    # The client sends the BASE approved amount here (buffer is
+                    # NOT folded in); it becomes approved_total verbatim.
                     req.write({
                         'approved_total': _coerce_float(
                             jdata.get('approved_amount'), 0.0,
                         ),
                     })
-                req.action_cfo_approve()
+                # Explicit Approve (full) vs Partial decision from the CFO. When
+                # `is_partial` is absent, the model infers it from the amounts.
+                if 'is_partial' in jdata:
+                    req.with_context(
+                        force_partial=_coerce_bool(jdata.get('is_partial')),
+                    ).action_cfo_approve()
+                else:
+                    req.action_cfo_approve()
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})
         except Exception as e:
@@ -1589,7 +1643,14 @@ class EtharaBudgetRequestController(http.Controller):
                         ),
                         status=400, data={},
                     )
-                req._do_cfo_request_changes(note)
+                # `mode='reject'` closes the request terminally (state
+                # `rejected`); the default `changes` sends it back to the PL for
+                # revision (state `changes_required`).
+                mode = (jdata.get('mode') or 'changes').strip().lower()
+                if mode == 'reject':
+                    req._do_cfo_reject(note)
+                else:
+                    req._do_cfo_request_changes(note)
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})
         except Exception as e:
@@ -1599,7 +1660,12 @@ class EtharaBudgetRequestController(http.Controller):
                 data={'errors': [str(e)]},
             )
 
-        verb = 'CTO send-back' if step == 'cto' else 'CFO change request'
+        if step == 'cto':
+            verb = 'CTO send-back'
+        elif (jdata.get('mode') or 'changes').strip().lower() == 'reject':
+            verb = 'CFO rejection'
+        else:
+            verb = 'CFO change request'
         return return_Response(
             message=f'Budget request returned with {verb}.', status=200,
             data={'data': _request_to_detail(req.sudo())},
