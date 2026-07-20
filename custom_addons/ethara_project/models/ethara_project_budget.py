@@ -24,7 +24,9 @@ BUDGET_STATE_SELECTION = [
 
 BUDGET_TYPE_SELECTION = [
     ('rnd', 'R&D'),
-    ('operations', 'Operations'),
+    # Stored key stays 'operations' (no data migration); only the display
+    # label is "Production".
+    ('operations', 'Production'),
 ]
 
 PRIORITY_SELECTION = [

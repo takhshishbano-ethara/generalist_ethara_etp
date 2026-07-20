@@ -206,6 +206,20 @@ def _user_brief(user):
     }
 
 
+def _user_role_code(user):
+    """The canonical role string ('CTO'/'CFO'/…) for a user, taken from their
+    `user_role.user_type`. Empty when the user or role is missing. Matches the
+    `user_type` the Flutter side feeds to `UserRole.fromApiString`, so the
+    approval trail can tell WHICH role acted (e.g. a CTO send-back vs a CTO
+    approve-and-forward)."""
+    if not user or 'user_role' not in user._fields:
+        return ''
+    role = user.user_role
+    if not role:
+        return ''
+    return getattr(role, 'user_type', '') or ''
+
+
 def _author_brief(partner):
     if not partner:
         return None
@@ -512,6 +526,12 @@ def _request_to_summary(req):
             fields.Datetime.to_string(req.approval_date)
             if req.approval_date else None
         ),
+        # WHO sent it back and in WHICH role — needed by the approval trail
+        # (on list cards too) to tell a CTO send-back from a CTO
+        # approve-and-forward. Without the role the trail always read
+        # "forwarded to CFO" even for a returned request.
+        'rejected_by': req.rejected_by.name if req.rejected_by else '',
+        'rejected_by_role': _user_role_code(req.rejected_by),
         'batch': {
             'id': req.phase_id.id,
             'name': req.phase_id.name,
@@ -558,11 +578,101 @@ _BUFFER_TOTALS_KEYS = (
     'buffer_pct', 'buffer_amount',
     'buffer_amount_requested', 'buffer_amount_approved',
 )
+# The activity-log subject used by the set_buffer message_post. Shared between
+# the post site and the redaction filter so they can't drift — a buffer message
+# reveals the exact reserve, so it must be scrubbed from the change_log for
+# non-CFO callers just like the buffer fields.
+BUFFER_LOG_SUBJECT = 'Buffer reserve updated'
+
+# Subject stamped on the chatter entry logged when a raiser revises + resubmits
+# a returned budget, so the detail activity log shows WHAT changed and WHO did it.
+RESUBMIT_LOG_SUBJECT = 'Budget revised & resubmitted'
+
+
+def _esc(value):
+    """Minimal HTML escape for user-controlled names in a message_post body."""
+    return (
+        str(value or '')
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+    )
+
+
+def _request_line_snapshot(req):
+    """A name-keyed snapshot of a request's cost lines, used to diff what the
+    raiser changed on resubmit (lines are replaced wholesale, so we match on
+    the human name rather than a stable id)."""
+    snap = {'Models': {}, 'Infrastructure': {}, 'Subscriptions': {}}
+    for line in req.model_line_ids:
+        name = line.ai_model_name or (
+            line.ai_model_id.name if line.ai_model_id else 'Model'
+        )
+        snap['Models'][name] = {'amount': line.requested_amount or 0.0}
+    for line in req.infra_line_ids:
+        name = line.instance_type or (
+            line.infra_type_id.display_name or line.infra_type_id.name
+            if line.infra_type_id else 'Infrastructure'
+        )
+        snap['Infrastructure'][name] = {
+            'amount': line.requested_amount or 0.0,
+            'qty': line.quantity or 0.0,
+        }
+    for line in req.subscription_line_ids:
+        name = line.subscription_id.name if line.subscription_id else 'Subscription'
+        snap['Subscriptions'][name] = {
+            'amount': line.requested_amount or 0.0,
+            'seats': getattr(line, 'subscription_count', 0) or 0,
+        }
+    return snap
+
+
+def _diff_request_lines(before, after):
+    """Build human-readable change lines from two `_request_line_snapshot`s:
+    added / removed lines, amount changes, and infra quantity changes."""
+    out = []
+    for group in ('Models', 'Infrastructure', 'Subscriptions'):
+        b = before.get(group, {})
+        a = after.get(group, {})
+        for name, av in a.items():
+            bv = b.get(name)
+            if bv is None:
+                out.append(
+                    f'Added {group[:-1] if group.endswith("s") else group} '
+                    f'"{_esc(name)}" (USD {av["amount"]:,.2f})'
+                )
+            elif abs(av['amount'] - bv['amount']) > 0.005:
+                out.append(
+                    f'{group} "{_esc(name)}": USD {bv["amount"]:,.2f} '
+                    f'→ USD {av["amount"]:,.2f}'
+                )
+            elif 'qty' in av and av.get('qty') != bv.get('qty'):
+                out.append(
+                    f'{group} "{_esc(name)}": qty '
+                    f'{bv.get("qty", 0):g} → {av.get("qty", 0):g}'
+                )
+        for name in b:
+            if name not in a:
+                out.append(
+                    f'Removed {group[:-1] if group.endswith("s") else group} '
+                    f'"{_esc(name)}"'
+                )
+    return out
+
+
+def _is_buffer_log_entry(entry):
+    """True when a change_log entry reveals the confidential buffer reserve."""
+    if not isinstance(entry, dict):
+        return False
+    subject = (entry.get('subject') or '').strip()
+    body = entry.get('body') or ''
+    return subject == BUFFER_LOG_SUBJECT or 'Buffer reserve' in body
 
 
 def _redact_buffer_for_non_cfo(detail):
-    """Remove the confidential buffer keys unless the caller is a CFO. Enforces
-    the buffer's CFO-only visibility at the API, not just in the UI."""
+    """Remove the confidential buffer data unless the caller is a CFO. Enforces
+    the buffer's CFO-only visibility at the API, not just in the UI — this
+    covers the buffer fields AND the buffer message in the activity log."""
     if _caller_is_cfo():
         return detail
     for key in _BUFFER_TOPLEVEL_KEYS:
@@ -571,6 +681,11 @@ def _redact_buffer_for_non_cfo(detail):
     if isinstance(totals, dict):
         for key in _BUFFER_TOTALS_KEYS:
             totals.pop(key, None)
+    log = detail.get('change_log')
+    if isinstance(log, list):
+        detail['change_log'] = [
+            e for e in log if not _is_buffer_log_entry(e)
+        ]
     return detail
 
 
@@ -702,7 +817,7 @@ def _request_to_detail(req):
             if req.topup_reason_id else None
         ),
         'rejection_reason': req.rejection_reason or '',
-        'rejected_by': req.rejected_by.name if req.rejected_by else '',
+        # `rejected_by` / `rejected_by_role` come from `_request_to_summary`.
         'cto_review_note': getattr(req, 'cto_review_note', '') or '',
         'cfo_change_request_note': (
             getattr(req, 'cfo_change_request_note', '') or ''
@@ -847,6 +962,23 @@ def _build_request_infra_cmds(entries, replace=False):
             vals['approved_amount'] = _coerce_float(
                 line.get('approved_amount'), 0.0,
             )
+        # Persist the structured instance specs. Because the update / CTO-forward
+        # paths call this with replace=True (delete + recreate every line), the
+        # client MUST echo these back or they'd be lost — previously they were
+        # silently wiped on every resubmit. Only write keys the client sent so a
+        # caller that omits them doesn't zero out an existing value on a new line.
+        for key, coerce in (
+            ('instance_type', lambda v: v or False),
+            ('unit_price_usd', lambda v: _coerce_float(v, 0.0)),
+            ('price_unit', lambda v: v or False),
+            ('quantity', lambda v: _coerce_float(v, 0.0)),
+            ('duration_hours', lambda v: _coerce_float(v, 0.0)),
+            ('ebs_storage_gb', lambda v: _coerce_float(v, 0.0)),
+            ('volume_type', lambda v: v or False),
+            ('volume_rate_usd_per_gb_mo', lambda v: _coerce_float(v, 0.0)),
+        ):
+            if key in line:
+                vals[key] = coerce(line.get(key))
         cmds.append((0, 0, vals))
     if cmds:
         missing = _missing_ids(
@@ -920,12 +1052,19 @@ def _apply_line_overrides(req, jdata):
             if not line_id or 'approved_amount' not in line:
                 continue
             target = getattr(req, attr).filtered(lambda l: l.id == line_id)
-            if target:
-                target.write({
-                    'approved_amount': _coerce_float(
-                        line.get('approved_amount'), 0.0,
-                    ),
-                })
+            if not target:
+                continue
+            write_vals = {
+                'approved_amount': _coerce_float(
+                    line.get('approved_amount'), 0.0,
+                ),
+            }
+            # The CFO may edit an infra line's quantity in place (the only
+            # structured field they can change). The compute/storage/computed
+            # amounts recompute automatically from quantity on the line model.
+            if attr == 'infra_line_ids' and 'quantity' in line:
+                write_vals['quantity'] = _coerce_float(line.get('quantity'), 0.0)
+            target.write(write_vals)
 
 
 # ---------------------------------------------------------------------------
@@ -1362,6 +1501,12 @@ class EtharaBudgetRequestController(http.Controller):
                     )
                 vals['topup_reason_id'] = reason_id
 
+        # Snapshot the lines BEFORE the write (they're replaced wholesale) so we
+        # can log what the raiser changed.
+        _before_snap = _request_line_snapshot(req)
+        _before_total = req.requested_total or 0.0
+        _before_just = req.justification or ''
+
         try:
             if vals:
                 req.write(vals)
@@ -1373,6 +1518,33 @@ class EtharaBudgetRequestController(http.Controller):
                 message='Something went wrong.', status=400,
                 data={'errors': [str(e)]},
             )
+
+        # Log WHAT changed and WHO changed it into the chatter → surfaces in the
+        # detail page's activity log (`_change_log`). Never let logging break the
+        # update.
+        if vals:
+            try:
+                changes = _diff_request_lines(
+                    _before_snap, _request_line_snapshot(req),
+                )
+                _after_total = req.requested_total or 0.0
+                if abs(_after_total - _before_total) > 0.005:
+                    changes.insert(
+                        0,
+                        f'Requested total: USD {_before_total:,.2f} '
+                        f'→ USD {_after_total:,.2f}',
+                    )
+                if (req.justification or '') != _before_just:
+                    changes.append('Justification updated.')
+                if changes:
+                    body = (
+                        f'<strong>{RESUBMIT_LOG_SUBJECT}</strong><br/>'
+                        f'By: {_esc(request.env.user.display_name)}<br/>'
+                        + '<br/>'.join('&bull; ' + c for c in changes)
+                    )
+                    req.message_post(body=body, subject=RESUBMIT_LOG_SUBJECT)
+            except Exception:
+                _logger.exception('update_budget_request change-log failed')
 
         if uploaded_files:
             new_att_ids, _urls = _upload_files_as_url_attachments(
@@ -1575,7 +1747,9 @@ class EtharaBudgetRequestController(http.Controller):
                 # authoritative — `action_cfo_approve` recomputes the total from
                 # the lines and skips auto-redistribution.
                 cfo_line_override = (
-                    'model_lines' in jdata or 'subscription_lines' in jdata
+                    'model_lines' in jdata
+                    or 'subscription_lines' in jdata
+                    or 'infra_lines' in jdata
                 )
                 ctx = {}
                 if cfo_line_override:
@@ -1839,11 +2013,11 @@ class EtharaBudgetRequestController(http.Controller):
             req.write({'buffer_pct': pct, 'buffer_amount': amount})
             req.message_post(
                 body=(
-                    '<strong>Buffer reserve updated</strong><br/>'
+                    f'<strong>{BUFFER_LOG_SUBJECT}</strong><br/>'
                     f'Reserved {pct:.2f}% (USD {amount:,.2f}) by '
                     f'{request.env.user.display_name}'
                 ),
-                subject='Buffer reserve updated',
+                subject=BUFFER_LOG_SUBJECT,
             )
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})

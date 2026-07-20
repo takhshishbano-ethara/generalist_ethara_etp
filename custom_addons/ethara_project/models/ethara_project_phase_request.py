@@ -471,23 +471,24 @@ class EtharaProjectPhaseRequest(models.Model):
             ) % {'approved': approved_total, 'floor': floor})
 
     def _check_infra_cost_floor(self):
-        """Infrastructure-only floor. Used when the CFO edits line amounts
-        directly (models + subscriptions are editable, so only infrastructure
-        remains a protected fixed cost). The approved total may not drop below
-        the infrastructure requested cost."""
+        """Infrastructure floor. Used when the CFO edits line amounts directly
+        (models + subscriptions are editable). The approved total may not drop
+        below the infrastructure cost the CFO is committing to — i.e. the infra
+        lines' APPROVED amounts, which now track the CFO's editable instance
+        quantity (previously infra was locked, so approved == requested and this
+        floored on requested)."""
         self.ensure_one()
-        infra_req = sum(
-            (line.requested_amount or 0.0) for line in self.infra_line_ids
+        infra_floor = sum(
+            (line.approved_amount or 0.0) for line in self.infra_line_ids
         )
-        if infra_req <= 0.0:
+        if infra_floor <= 0.0:
             return
         approved_total = self.approved_total or 0.0
-        if approved_total + 1e-6 < infra_req:
+        if approved_total + 1e-6 < infra_floor:
             raise UserError(_(
                 "Approved amount (USD %(approved).2f) must be at least the "
-                "infrastructure cost (USD %(floor).2f), which cannot be "
-                "reduced."
-            ) % {'approved': approved_total, 'floor': infra_req})
+                "infrastructure cost (USD %(floor).2f)."
+            ) % {'approved': approved_total, 'floor': infra_floor})
 
     def _check_can_submit(self):
         self.ensure_one()
@@ -795,6 +796,12 @@ class EtharaProjectPhaseRequest(models.Model):
                     'Only requests in CTO Review can be approved by the CTO.'
                 ))
             rec._check_can_cto_review()
+            # The CTO may have revised the request down (or up). The modified
+            # requested_total IS the envelope being forwarded, so reseed
+            # approved_total from it (mirroring action_submit_for_approval)
+            # before distributing — otherwise a stale pre-revision approved_total
+            # would linger above requested_total and skew the waterfall.
+            rec.approved_total = rec.requested_total or 0.0
             rec._distribute_approved_amount()
             if (rec.approved_total or 0.0) <= 0.0:
                 raise UserError(_(
