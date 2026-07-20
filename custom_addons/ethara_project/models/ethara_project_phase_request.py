@@ -1,8 +1,10 @@
 import logging
+import threading
 from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.modules.registry import Registry
 
 from .role_map import ROLE_XML_IDS
 
@@ -570,27 +572,82 @@ class EtharaProjectPhaseRequest(models.Model):
                 self.name or self.id, template_xmlid,
             )
             return
-        project._ethara_post_thread_message(
-            template_xmlid, self, partner_ids, email_values=email_values,
-        )
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        ctx = dict(self.env.context)
+        project_id = project.id
+        request_id = self.id
+        template_ref = template_xmlid
+        partners_snapshot = list(partner_ids)
+        email_values_snapshot = dict(email_values) if email_values else None
+
+        def _launch():
+            def _run():
+                try:
+                    registry = Registry(dbname)
+                    with registry.cursor() as new_cr:
+                        new_env = api.Environment(new_cr, uid, ctx)
+                        proj = new_env['ethara.project'].browse(project_id).exists()
+                        req = new_env['ethara.project.phase.request'].browse(request_id).exists()
+                        if proj and req:
+                            proj._ethara_post_thread_message(
+                                template_ref, req, partners_snapshot,
+                                email_values=email_values_snapshot,
+                            )
+                        new_cr.commit()
+                except Exception:
+                    _logger.exception(
+                        'Deferred phase-request mail failed for request %s',
+                        request_id,
+                    )
+            threading.Thread(target=_run, daemon=True).start()
+
+        self.env.cr.postcommit.add(_launch)
 
     def _post_project_thread(self, body):
+        if self.env.context.get('ethara_skip_notify'):
+            return
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        ctx = dict(self.env.context)
+        posts = []
         for rec in self:
             project = rec.ethara_project_id
             if not project:
                 continue
             partner_ids = project._ethara_thread_partner_ids()
-            try:
-                project.message_post(
-                    body=body,
-                    subtype_xmlid='mail.mt_note',
-                    message_type='notification',
-                    partner_ids=partner_ids,
-                )
-            except Exception:
-                _logger.exception(
-                    'Failed to cross-post phase request note for %s', rec.id,
-                )
+            posts.append((project.id, rec.id, list(partner_ids or []), body))
+        if not posts:
+            return
+
+        def _launch():
+            def _run():
+                try:
+                    registry = Registry(dbname)
+                    with registry.cursor() as new_cr:
+                        new_env = api.Environment(new_cr, uid, ctx)
+                        for project_id, rec_id, targets, body_str in posts:
+                            proj = new_env['ethara.project'].sudo().browse(project_id).exists()
+                            if not proj:
+                                continue
+                            try:
+                                proj.message_post(
+                                    body=body_str,
+                                    subtype_xmlid='mail.mt_note',
+                                    message_type='notification',
+                                    partner_ids=targets,
+                                )
+                            except Exception:
+                                _logger.exception(
+                                    'Deferred phase-request chatter post failed for %s',
+                                    rec_id,
+                                )
+                        new_cr.commit()
+                except Exception:
+                    _logger.exception('Deferred phase-request chatter setup failed')
+            threading.Thread(target=_run, daemon=True).start()
+
+        self.env.cr.postcommit.add(_launch)
 
     @api.model_create_multi
     def create(self, vals_list):

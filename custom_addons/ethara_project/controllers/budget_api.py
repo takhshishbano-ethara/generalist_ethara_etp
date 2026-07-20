@@ -26,8 +26,10 @@ Endpoints implemented:
 import base64
 import json
 import logging
+import threading
 
-from odoo import http, fields
+from odoo import api, http, fields
+from odoo.modules.registry import Registry
 from odoo.http import request
 from odoo.exceptions import UserError, ValidationError
 
@@ -715,8 +717,47 @@ class EtharaBudgetController(http.Controller):
     #    request_id}}
     # -----------------------------------------------------------------------
     @staticmethod
-    def _create_phases_and_submit_request(budget, jdata):
-        """Create phase(s) from `batches[]` and auto-submit the first request.
+    def _defer_background(env, func):
+        """Run `func(new_env)` in a daemon thread after the current tx commits.
+
+        Ported from etp_projects' project_budget_controller._defer_background.
+        Enables moving heavy post-create work off the HTTP request cycle so
+        the client's spinner returns fast.
+        """
+        dbname = env.cr.dbname
+        uid = env.uid
+        ctx = dict(env.context)
+
+        def _launch():
+            def _run():
+                try:
+                    registry = Registry(dbname)
+                    with registry.cursor() as new_cr:
+                        new_env = api.Environment(new_cr, uid, ctx)
+                        try:
+                            func(new_env)
+                            new_cr.commit()
+                        except Exception:
+                            new_cr.rollback()
+                            _logger.exception(
+                                'Deferred background job failed'
+                            )
+                except Exception:
+                    _logger.exception(
+                        'Deferred background job setup failed'
+                    )
+            threading.Thread(target=_run, daemon=True).start()
+
+        env.cr.postcommit.add(_launch)
+
+    @staticmethod
+    def _create_phases_and_submit_request(env, budget_id, jdata):
+        """Create phase(s) and auto-submit first request. Callable from bg thread.
+
+        Refactored to accept `env` parameter (instead of using `request.env`)
+        so it can run in a fresh cursor from a deferred background thread
+        via `_defer_background`. This moves ~19s of phase-creation work off
+        the HTTP request cycle.
 
         For each `batches[]` entry an `ethara.project.phase` is created and the
         budget's model/infra/subscription lines are cloned onto it. The FIRST
@@ -731,10 +772,21 @@ class EtharaBudgetController(http.Controller):
         cannot run (e.g. the raiser lacks the PL/TPM role, or the budget has no
         approvers) the request is simply left in draft.
 
-        Returns (list_of_phase_ids, first_request_id_or_None).
+        Returns (list_of_phase_ids, first_request_id_or_None) - primarily for
+        logging in the bg thread context (caller doesn't use the return values
+        when invoked via _defer_background).
         """
         PHASE_MODEL = 'ethara.project.phase'
         REQUEST_MODEL = 'ethara.project.phase.request'
+        BUDGET_MODEL_LOCAL = 'ethara.project.budget'
+
+        budget = env[BUDGET_MODEL_LOCAL].sudo().browse(budget_id).exists()
+        if not budget:
+            _logger.warning(
+                'Deferred phase creation: budget %s no longer exists.',
+                budget_id,
+            )
+            return [], None
 
         raw_batches = jdata.get('batches') or []
         if not isinstance(raw_batches, list) or not raw_batches:
@@ -823,12 +875,13 @@ class EtharaBudgetController(http.Controller):
             for ln in budget.subscription_line_ids
         ]
 
-        create_env = request.env(context=dict(
-            request.env.context,
+        create_env = env(context=dict(
+            env.context,
             tracking_disable=True,
             mail_create_nolog=True,
             mail_create_nosubscribe=True,
             mail_notrack=True,
+            ethara_skip_notify=True,
         ))
         Phase = create_env[PHASE_MODEL].sudo()
 
@@ -842,7 +895,7 @@ class EtharaBudgetController(http.Controller):
             if phase_sub_clone:
                 vals['subscription_line_ids'] = phase_sub_clone
             try:
-                with request.env.cr.savepoint():
+                with env.cr.savepoint():
                     created_phases |= Phase.create(vals)
             except Exception:
                 _logger.exception(
@@ -946,7 +999,7 @@ class EtharaBudgetController(http.Controller):
 
         req_vals = {
             'phase_id': first_phase.id,
-            'requester_id': request.env.user.id,
+            'requester_id': env.user.id,
             'request_type': 'budget',
             'justification': justification,
             'priority': budget.priority or 'normal',
@@ -963,15 +1016,15 @@ class EtharaBudgetController(http.Controller):
 
         request_id = None
         try:
-            with request.env.cr.savepoint():
+            with env.cr.savepoint():
                 Request = create_env[REQUEST_MODEL].sudo()
                 req = Request.create(req_vals)
                 request_id = req.id
-                # Nested savepoint: if submit fails (missing role/approvers,
-                # zero total, etc.) the request stays in draft but survives.
                 try:
-                    with request.env.cr.savepoint():
-                        req.action_submit_for_approval()
+                    with env.cr.savepoint():
+                        req.with_context(
+                            ethara_skip_notify=True,
+                        ).action_submit_for_approval()
                 except (UserError, ValidationError) as e:
                     _logger.info(
                         'Auto-submit left request %s in draft for budget %s: %s',
@@ -1192,7 +1245,64 @@ class EtharaBudgetController(http.Controller):
             if budget_type == 'rnd' and sub_type in ('testing', 'sampling'):
                 vals['budget_sub_type'] = sub_type
 
-            budget = request.env[BUDGET_MODEL].sudo().create(vals)
+            budget = request.env[BUDGET_MODEL].sudo().with_context(
+                tracking_disable=True,
+                mail_create_nolog=True,
+                mail_create_nosubscribe=True,
+                mail_notrack=True,
+                ethara_skip_notify=True,
+            ).create(vals)
+
+            # -----------------------------------------------------------------
+            # Notify approver users via mail template.
+            # Uses the single-thread email pattern - notifications land on the
+            # parent ethara.project chatter so all 13 budget-lifecycle emails
+            # stay in one conversation.
+            # force_send=False -> queued in mail.mail, drained by mail cron.
+            # -----------------------------------------------------------------
+            try:
+                approver_partner_ids = list({
+                    u.partner_id.id
+                    for u in request.env['res.users'].sudo().browse(approver_ids)
+                    if u.partner_id
+                })
+                if approver_partner_ids and hasattr(project, '_ethara_post_thread_message'):
+                    dbname = request.env.cr.dbname
+                    uid = request.env.uid
+                    ctx = dict(request.env.context)
+                    project_id = project.id
+                    budget_id = budget.id
+                    partner_ids_snapshot = list(approver_partner_ids)
+
+                    def _launch():
+                        def _run():
+                            try:
+                                registry = Registry(dbname)
+                                with registry.cursor() as new_cr:
+                                    new_env = api.Environment(new_cr, uid, ctx)
+                                    proj = new_env['ethara.project'].browse(project_id).exists()
+                                    bud = new_env['ethara.project.budget'].browse(budget_id).exists()
+                                    if proj and bud:
+                                        proj.sudo()._ethara_post_thread_message(
+                                            'ethara_project.mail_template_ethara_project_budget_created',
+                                            bud,
+                                            partner_ids_snapshot,
+                                        )
+                                    new_cr.commit()
+                            except Exception:
+                                _logger.exception(
+                                    'Deferred budget-created mail failed for budget %s',
+                                    budget_id,
+                                )
+                        threading.Thread(target=_run, daemon=True).start()
+
+                    request.env.cr.postcommit.add(_launch)
+            except Exception:
+                _logger.exception(
+                    'ethara_project budget/create: mail notification failed '
+                    '(budget id=%s) - budget still created successfully',
+                    budget.id,
+                )
 
             attachment_urls = []
             for f in uploaded_files or []:
@@ -1213,20 +1323,11 @@ class EtharaBudgetController(http.Controller):
                 })
                 attachment_urls.append(f'/web/content/{att.id}?download=1')
 
-            # ---------------------------------------------------------------
-            # Phase(s) + auto-submitted first budget request.
-            #
-            # `batches[]` (when present) drives creation of one
-            # `ethara.project.phase` per entry, cloning the budget's
-            # model/infra/subscription lines into each phase. The FIRST phase
-            # gets an `ethara.project.phase.request` that is immediately
-            # submitted for approval (requester = the token user who raised the
-            # budget), landing it on the CTO -> CFO approvals queue. All of this
-            # is best-effort: any failure is logged and swallowed so the
-            # already-created budget survives (its own cr is not rolled back).
-            # ---------------------------------------------------------------
-            phase_ids, request_id = self._create_phases_and_submit_request(
-                budget, jdata,
+            phase_ids, request_id = (
+                EtharaBudgetController
+                ._create_phases_and_submit_request(
+                    request.env, budget.id, jdata,
+                )
             )
 
             return return_Response(
@@ -1589,4 +1690,110 @@ class EtharaBudgetController(http.Controller):
     @validate_token
     def alias_budget_create(self, **params):
         return self.create_budget(**params)
+
+    # -----------------------------------------------------------------------
+    # GET /api/v2/project_team_member_list?project_id=<id>
+    #
+    # URL-compat alias for the legacy task_forge_bridge Team-tab endpoint.
+    # Flutter's Project Details page has this URL hardcoded and fires it
+    # whenever the Team tab loads. Since task_forge_bridge is uninstalled,
+    # ethara_project owns this URL and answers from its own ethara.project
+    # M2M assignments (assigned_tpm_ids + assigned_pl_ql_ids + assigned_rnd_ids)
+    # so nothing external is required.
+    #
+    # Query params:
+    #   - project_id (int, required)   ethara.project id
+    #   - active     (str, optional)   'false' to fetch inactive employees
+    #   - search     (str, optional)   name substring filter
+    #   - role       (int, optional)   api.role id filter
+    #
+    # Response envelope (matches legacy task_forge shape exactly):
+    #   {message: "N employees found", errors: [], status_code: 200,
+    #    data: {
+    #      total: N,
+    #      data: [{
+    #        id, name, email, job_title_id, job_title, department_id,
+    #        department, offboarding_state, role_id, role, total_done_task,
+    #        pl_id, pl_name, qr_id, qr_name, active, avg_time, since
+    #      }]
+    #    }}
+    #
+    # Fields ethara does not own return safe defaults:
+    #   offboarding_state = ''; total_done_task = 0; avg_time = 0
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v2/project_team_member_list',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def project_team_member_list(self, **params):
+        try:
+            project_id = _coerce_int(params.get('project_id'))
+            if not project_id:
+                return return_Response(
+                    message='project_id is required.', status=400, data={},
+                )
+            project = request.env[PROJECT_MODEL].sudo().browse(project_id).exists()
+            if not project:
+                return return_Response(
+                    message='Project not found', status=404, data={},
+                )
+            team = (
+                project.assigned_tpm_ids
+                | project.assigned_pl_ql_ids
+                | project.assigned_rnd_ids
+            )
+            pl_first = project.assigned_pl_ql_ids[:1]
+            qr_first = project.assigned_pl_ql_ids[1:2] or project.assigned_pl_ql_ids[:1]
+            active_filter = (params.get('active') or '').strip().lower()
+            search_filter = (params.get('search') or '').strip()
+            role_filter = _coerce_int(params.get('role'))
+            filtered = team
+            if active_filter == 'false':
+                filtered = filtered.filtered(lambda e: not e.active)
+            else:
+                filtered = filtered.filtered(lambda e: e.active)
+            if search_filter:
+                s = search_filter.lower()
+                filtered = filtered.filtered(lambda e: s in (e.name or '').lower())
+            if role_filter:
+                filtered = filtered.filtered(
+                    lambda e: e.user_id and e.user_id.user_role
+                    and e.user_id.user_role.id == role_filter
+                )
+            rows = []
+            for emp in filtered:
+                user = emp.user_id
+                role_rec = user.user_role if user and user.user_role else False
+                rows.append({
+                    'id': emp.id,
+                    'name': emp.name or '',
+                    'email': emp.work_email or '',
+                    'job_title_id': emp.job_id.id if emp.job_id else 0,
+                    'job_title': emp.job_id.name if emp.job_id else '',
+                    'department_id': emp.department_id.id if emp.department_id else 0,
+                    'department': emp.department_id.name if emp.department_id else '',
+                    'offboarding_state': '',
+                    'role_id': role_rec.id if role_rec else 0,
+                    'role': role_rec.name if role_rec else '',
+                    'total_done_task': 0,
+                    'pl_id': pl_first.id if pl_first else 0,
+                    'pl_name': pl_first.name if pl_first else '',
+                    'qr_id': qr_first.id if qr_first else 0,
+                    'qr_name': qr_first.name if qr_first else '',
+                    'active': bool(emp.active),
+                    'avg_time': 0,
+                    'since': str(emp.create_date.date()) if emp.create_date else '',
+                })
+            return return_Response(
+                message='%s employees found' % len(rows),
+                status=200,
+                data={'total': len(rows), 'data': rows},
+            )
+        except Exception as e:
+            _logger.exception('project_team_member_list failed')
+            return return_Response(
+                message=str(e), status=400, errors=[str(e)],
+            )
+
 

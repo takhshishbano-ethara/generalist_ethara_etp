@@ -1,7 +1,9 @@
 import logging
+import threading
 
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
+from odoo.modules.registry import Registry
 
 from .role_map import resolve_role_ids
 
@@ -296,15 +298,42 @@ class EtharaProject(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
-        records._recompute_team_work_status()
-        records._ethara_subscribe_thread_followers()
-        for rec in records:
-            try:
-                rec._ethara_send_welcome_email()
-            except Exception:
-                _logger.exception(
-                    "Welcome email failed for ethara.project %s", rec.id,
-                )
+        record_ids = records.ids
+        if record_ids:
+            dbname = self.env.cr.dbname
+            uid = self.env.uid
+            ctx = dict(self.env.context)
+
+            def _launch():
+                def _run():
+                    try:
+                        registry = Registry(dbname)
+                        with registry.cursor() as new_cr:
+                            new_env = api.Environment(new_cr, uid, ctx)
+                            projects = (
+                                new_env['ethara.project']
+                                .browse(record_ids).exists()
+                            )
+                            projects._recompute_team_work_status()
+                            projects._ethara_subscribe_thread_followers()
+                            for rec in projects:
+                                try:
+                                    rec._ethara_send_welcome_email()
+                                except Exception:
+                                    _logger.exception(
+                                        "Welcome email failed for "
+                                        "ethara.project %s", rec.id,
+                                    )
+                            new_cr.commit()
+                    except Exception:
+                        _logger.exception(
+                            "Deferred welcome job failed for "
+                            "ethara.project %s", record_ids,
+                        )
+
+                threading.Thread(target=_run, daemon=True).start()
+
+            self.env.cr.postcommit.add(_launch)
         return records
 
     def write(self, vals):

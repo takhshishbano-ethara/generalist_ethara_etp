@@ -1,13 +1,13 @@
 import json
 import logging
 import re
+import threading
 from datetime import date, timedelta
-
 import requests
 from dateutil.relativedelta import relativedelta
-
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
@@ -324,6 +324,12 @@ class EtharaProjectBudget(models.Model):
         return pairs
 
     def _post_project_thread_note(self, body, partner_ids=None):
+        if self.env.context.get('ethara_skip_notify'):
+            return
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        ctx = dict(self.env.context)
+        posts = []
         for rec in self:
             project = rec.ethara_project_id
             if not project:
@@ -331,18 +337,38 @@ class EtharaProjectBudget(models.Model):
             targets = partner_ids
             if targets is None:
                 targets = project._ethara_thread_partner_ids()
-            try:
-                project.message_post(
-                    body=body,
-                    subtype_xmlid='mail.mt_comment',
-                    message_type='comment',
-                    partner_ids=targets,
-                )
-            except Exception:
-                _logger.exception(
-                    'Failed to cross-post to project chatter for budget %s',
-                    rec.id,
-                )
+            posts.append((project.id, rec.id, list(targets or []), body))
+        if not posts:
+            return
+
+        def _launch():
+            def _run():
+                try:
+                    registry = Registry(dbname)
+                    with registry.cursor() as new_cr:
+                        new_env = api.Environment(new_cr, uid, ctx)
+                        for project_id, rec_id, targets, body_str in posts:
+                            proj = new_env['ethara.project'].sudo().browse(project_id).exists()
+                            if not proj:
+                                continue
+                            try:
+                                proj.message_post(
+                                    body=body_str,
+                                    subtype_xmlid='mail.mt_comment',
+                                    message_type='comment',
+                                    partner_ids=targets,
+                                )
+                            except Exception:
+                                _logger.exception(
+                                    'Deferred chatter post failed for budget %s',
+                                    rec_id,
+                                )
+                        new_cr.commit()
+                except Exception:
+                    _logger.exception('Deferred budget chatter setup failed')
+            threading.Thread(target=_run, daemon=True).start()
+
+        self.env.cr.postcommit.add(_launch)
 
     def _send_fetch_summary_mail(self, provider_label, created, updated):
         self.ensure_one()

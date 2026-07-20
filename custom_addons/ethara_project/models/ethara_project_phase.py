@@ -1,7 +1,8 @@
 import logging
-
+import threading
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
@@ -310,22 +311,49 @@ class EtharaProjectPhase(models.Model):
                 rec.health_status = 'critical'
 
     def _post_project_thread(self, body):
+        if self.env.context.get('ethara_skip_notify'):
+            return
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        ctx = dict(self.env.context)
+        posts = []
         for rec in self:
             project = rec.ethara_project_id
             if not project:
                 continue
             partner_ids = project._ethara_thread_partner_ids()
-            try:
-                project.message_post(
-                    body=body,
-                    subtype_xmlid='mail.mt_comment',
-                    message_type='comment',
-                    partner_ids=partner_ids,
-                )
-            except Exception:
-                _logger.exception(
-                    'Failed to cross-post phase note for phase %s', rec.id,
-                )
+            posts.append((project.id, rec.id, list(partner_ids or []), body))
+        if not posts:
+            return
+
+        def _launch():
+            def _run():
+                try:
+                    registry = Registry(dbname)
+                    with registry.cursor() as new_cr:
+                        new_env = api.Environment(new_cr, uid, ctx)
+                        for project_id, rec_id, targets, body_str in posts:
+                            proj = new_env['ethara.project'].sudo().browse(project_id).exists()
+                            if not proj:
+                                continue
+                            try:
+                                proj.message_post(
+                                    body=body_str,
+                                    subtype_xmlid='mail.mt_comment',
+                                    message_type='comment',
+                                    partner_ids=targets,
+                                )
+                            except Exception:
+                                _logger.exception(
+                                    'Deferred phase chatter post failed for phase %s',
+                                    rec_id,
+                                )
+                        new_cr.commit()
+                except Exception:
+                    _logger.exception('Deferred phase chatter setup failed')
+            threading.Thread(target=_run, daemon=True).start()
+
+        self.env.cr.postcommit.add(_launch)
 
     @api.model_create_multi
     def create(self, vals_list):
