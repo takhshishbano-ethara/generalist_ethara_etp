@@ -673,12 +673,12 @@ class TestResultSummary(_Base):
             int(action["url"].split("/web/content/")[1].split("?")[0]))
         text = base64.b64decode(att.datas).decode("utf-8")
         rows = list(_csv.DictReader(_io.StringIO(text)))
-        summary = [r for r in rows if r["question"] == "=== RESULT SUMMARY ==="]
+        summary = [r for r in rows if r["question"] == "[RESULT SUMMARY]"]
         self.assertEqual(len(summary), 1,
                          "exactly one summary row per candidate")
         s = summary[0]
         # The summary row must be the FIRST row (top of the candidate block).
-        self.assertEqual(rows[0]["question"], "=== RESULT SUMMARY ===")
+        self.assertEqual(rows[0]["question"], "[RESULT SUMMARY]")
         # Its totals must equal the evaluator's stored scoring fields.
         self.assertEqual(int(s["objective_score"]), ev.total_score)
         self.assertEqual(int(s["subjective_mark"]), ev.llm_total_score)

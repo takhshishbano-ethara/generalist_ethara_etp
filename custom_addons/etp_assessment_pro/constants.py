@@ -27,6 +27,7 @@ ADVISORY_LOCK_IMAGE_RENDER = 827194
 ADVISORY_LOCK_IMAGE_DETECT = 827195
 ADVISORY_LOCK_VIDEO_POLL = 827196
 ADVISORY_LOCK_EXPIRE_ATTEMPTS = 827197
+ADVISORY_LOCK_INVITE_SEND = 827198
 ADVISORY_LOCK_SKILL_EXTRACT = 827200
 ADVISORY_LOCK_QUESTION_GEN = 827201
 ADVISORY_LOCK_TAG_EXTRACT = 827202
@@ -225,10 +226,18 @@ INTEGRITY_GATE_PATTERNS = [
     r"disregard\s+(?:the\s+|all\s+|any\s+)?(?:previous\s+|prior\s+)?instructions",
     r"(?:grading|scoring)\s+is\s+waived",
     r"you\s+are\s+now\b",
-    r"award\s+(?:full|maximum|max)\s+(?:marks|score|points|credit)",
+    r"(?:award|give|assign|grant|hand)\s+(?:me\s+|this\s+|the\s+)?"
+    r"(?:answer\s+|response\s+)?(?:full|maximum|max)\s+"
+    r"(?:marks|score|points|credit)",
     r"(?:output|print|return|give|assign|set)\b.{0,40}?\bscore\b.{0,20}?"
     r"(?:1\.0|100|full|max(?:imum)?)",
     r"(?:score|grade)\s+(?:of\s+)?(?:1\.0|100)\b",
+    # Spelled-out perfect-score coercion ("give me one hundred percent",
+    # "award a perfect score") — the numeric forms above miss the words.
+    r"(?:score|grade|marks?|credit|rating)\b.{0,40}?"
+    r"(?:one\s+hundred|hundred\s+percent|perfect|full\s+marks)",
+    r"(?:give|award|assign|grant)\b.{0,25}?(?:a\s+)?perfect\s+(?:score|grade|"
+    r"mark|rating)",
 ]
 
 # 0-100 upper bounds applied by services/scoring._apply_ceilings; must stay in

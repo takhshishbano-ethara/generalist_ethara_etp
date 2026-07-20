@@ -428,6 +428,20 @@ class EtpAssessmentQuestion(models.Model):
 
     def action_export_csv(self):
         import csv, io
+        # Neutralize CSV formula injection: question name/prompt/options are
+        # LLM-authored (a prompt-injected SOP could plant `=HYPERLINK(...)`),
+        # and this bank CSV is opened by admins in Excel/Numbers. Prefix any
+        # cell that starts with a formula lead char so it renders as text.
+        _lead = ("=", "+", "-", "@", "\t", "\r")
+
+        def _safe(v):
+            if v is None:
+                return ""
+            if isinstance(v, (int, float)):
+                return v
+            s = str(v)
+            return "'" + s if s and s[0] in _lead else s
+
         recs = self or self.search([])
         buf = io.StringIO()
         w = csv.writer(buf)
@@ -441,10 +455,10 @@ class EtpAssessmentQuestion(models.Model):
                 pass_cond = (rubric[0] or {}).get("pass_condition", "") if isinstance(rubric[0], dict) else ""
             elif isinstance(rubric, dict):
                 pass_cond = rubric.get("pass_condition", "")
-            w.writerow([row["id"], row["name"], row["generator"],
-                        row["question_type"],
-                        row["difficulty"], row["time_minutes"], row["prompt"],
-                        row["description"], " | ".join(row["options"]),
-                        row["correct_answer"], pass_cond, row["source_ref"]])
+            w.writerow([_safe(row["id"]), _safe(row["name"]), _safe(row["generator"]),
+                        _safe(row["question_type"]),
+                        _safe(row["difficulty"]), _safe(row["time_minutes"]), _safe(row["prompt"]),
+                        _safe(row["description"]), _safe(" | ".join(row["options"])),
+                        _safe(row["correct_answer"]), _safe(pass_cond), _safe(row["source_ref"])])
         return recs._export_download_action(
             "question_bank.csv", "text/csv", buf.getvalue().encode("utf-8"))

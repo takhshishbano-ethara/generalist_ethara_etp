@@ -166,17 +166,32 @@ def _minted_bearer(env):
         )
     import httpx
     sa = json.loads(sa_json)
+    # M-5: the JWT assertion (signed with the SA private key) is POSTed to
+    # sa["token_uri"]. A tampered SA JSON could point token_uri at an attacker
+    # host and exfiltrate a valid Google-signed assertion. Pin it to Google's
+    # OAuth token endpoints before signing anything.
+    token_uri = (sa.get("token_uri") or "").strip()
+    _allowed_token_hosts = ("oauth2.googleapis.com",
+                            "accounts.google.com",
+                            "www.googleapis.com")
+    from urllib.parse import urlparse as _urlparse
+    _tu = _urlparse(token_uri)
+    if _tu.scheme != "https" or _tu.hostname not in _allowed_token_hosts:
+        raise RuntimeError(
+            "Service account token_uri %r is not a recognised Google OAuth "
+            "endpoint; refusing to mint a bearer (possible tampered SA JSON)."
+            % (token_uri or "<empty>"))
     now = int(time.time())
     claim = {
         "iss": sa["client_email"],
         "scope": "https://www.googleapis.com/auth/cloud-platform",
-        "aud": sa["token_uri"],
+        "aud": token_uri,
         "iat": now,
         "exp": now + 3600,
     }
     assertion = _jwt.encode(claim, sa["private_key"], algorithm="RS256")
     resp = _httpx().post(
-        sa["token_uri"],
+        token_uri,
         data={
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": assertion,
@@ -338,8 +353,30 @@ def _log_usage(env, model, usage_meta, image_count, ctx):
             ctx.get("operation") or "other", model or "", ti, to, th,
             image_count or 0, vsec, cost,
             (ctx.get("note") or "")[:60])
-    except Exception:
-        _logger.exception("etp_assessment: LLM usage log failed")
+    except Exception as exc:
+        # NEVER swallow a billing-accounting failure silently: the Vertex call
+        # already happened and Google WILL bill for it, so a lost usage row means
+        # the LLM-budget dashboard silently under-reports real spend. Log loudly
+        # with the estimated cost so a human can reconcile against the Vertex
+        # invoice; still swallow (don't crash the scoring/gen path on a logging
+        # DB hiccup), but the money is now traceable, not invisible.
+        try:
+            _est = (_estimate_video_cost(model, float((ctx or {}).get(
+                        "video_seconds") or 0.0))
+                    if (ctx or {}).get("video_seconds")
+                    else _estimate_cost(
+                        model,
+                        int((usage_meta or {}).get("promptTokenCount") or 0),
+                        int((usage_meta or {}).get("candidatesTokenCount") or 0),
+                        int((usage_meta or {}).get("thoughtsTokenCount") or 0),
+                        image_count))
+        except Exception:  # noqa: BLE001
+            _est = -1.0
+        _logger.error(
+            "etp_assessment COST ACCOUNTING FAILED (op=%s model=%s est=$%.4f): "
+            "%s — the Vertex call was billed but NOT recorded; reconcile the "
+            "LLM-budget dashboard against the Vertex invoice.",
+            (ctx or {}).get("operation") or "other", model or "", _est, exc)
 
 
 class LLMRefusalError(RuntimeError):
@@ -384,6 +421,13 @@ def _apply_thinking_budget(gen_config, model):
 
 _MAX_OUTPUT_TOKENS_CEILING = 64000
 
+# C-2: the MAX_TOKENS / bad-JSON retry doubles maxOutputTokens AND re-sends the
+# whole (candidate-controlled) input. Left unbounded that is a cost-DoS lever, so
+# the retry is capped hard here — 16k output covers any legitimate scoring or
+# generation JSON (8 items * ~2k tokens) with headroom, while denying an
+# adversary a 64k-token doubled retry on a payload they crafted to overflow.
+_RETRY_OUTPUT_TOKENS_CEILING = 16000
+
 # Billed per generated token, so this high cap costs nothing on short outputs.
 _GEN_MAX_OUTPUT_TOKENS = 64000
 
@@ -413,6 +457,9 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
     _project, _loc, default_model, _key = _vertex_creds(env)
     model = model or default_model
     url, headers = _gemini_request(env, model, "generateContent")
+
+    # H-5: refuse before spending if a daily / per-candidate cap is already hit.
+    _check_budget(env, usage_ctx)
 
     attempt_tokens = max_tokens
     last_finish = None
@@ -468,9 +515,9 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
             if isinstance(p, dict) and p.get("text") and not p.get("thought"))
         if not text:
             if (finish == "MAX_TOKENS" and attempt == 0
-                    and attempt_tokens < _MAX_OUTPUT_TOKENS_CEILING):
+                    and attempt_tokens < _RETRY_OUTPUT_TOKENS_CEILING):
                 attempt_tokens = min(attempt_tokens * 2,
-                                     _MAX_OUTPUT_TOKENS_CEILING)
+                                     _RETRY_OUTPUT_TOKENS_CEILING)
                 _logger.warning(
                     "etp_assessment Vertex MAX_TOKENS with no text; retrying "
                     "with maxOutputTokens=%d", attempt_tokens)
@@ -478,8 +525,9 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
             raise LLMRefusalError(
                 "the model returned no text content (finishReason: %s)" % finish)
         if (finish == "MAX_TOKENS" and attempt == 0
-                and attempt_tokens < _MAX_OUTPUT_TOKENS_CEILING):
-            attempt_tokens = min(attempt_tokens * 2, _MAX_OUTPUT_TOKENS_CEILING)
+                and attempt_tokens < _RETRY_OUTPUT_TOKENS_CEILING):
+            attempt_tokens = min(attempt_tokens * 2,
+                                 _RETRY_OUTPUT_TOKENS_CEILING)
             _logger.warning(
                 "etp_assessment Vertex MAX_TOKENS with truncated text (%d chars); "
                 "retrying with maxOutputTokens=%d", len(text), attempt_tokens)
@@ -488,9 +536,10 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
         if refusal:
             raise LLMRefusalError(refusal)
         if (response_json and attempt == 0
-                and attempt_tokens < _MAX_OUTPUT_TOKENS_CEILING
+                and attempt_tokens < _RETRY_OUTPUT_TOKENS_CEILING
                 and not _json_parses(text)):
-            attempt_tokens = min(attempt_tokens * 2, _MAX_OUTPUT_TOKENS_CEILING)
+            attempt_tokens = min(attempt_tokens * 2,
+                                 _RETRY_OUTPUT_TOKENS_CEILING)
             _logger.warning(
                 "etp_assessment Vertex returned unparseable JSON (%d chars, "
                 "finish=%s); retrying with maxOutputTokens=%d",
@@ -513,10 +562,78 @@ class VertexQuotaError(RuntimeError):
     partial = []
 
 
+class VertexBudgetError(RuntimeError):
+    """A per-day or per-candidate LLM spend cap would be exceeded by this call.
+
+    Raised BEFORE the HTTP request so no money is spent. Not transient: the
+    admin must raise the cap or wait for the daily window to roll over. Callers
+    surface it like a refusal (the response resolves to error, not a silent
+    partial)."""
+
+
+# H-5: default spend caps (USD). Data-driven — overridable per deployment via
+# ir.config_parameter, ON by default so a fresh install is protected without any
+# flag to remember. 0 disables a cap. Defaults are generous for a real cohort
+# (300 candidates * a few subjective Qs is well under $100/day) but stop the
+# unbounded-input / retry-doubling cost-DoS dead.
+_DEFAULT_DAILY_LLM_CAP_USD = 100.0
+_DEFAULT_PER_EVALUATOR_LLM_CAP_USD = 5.0
+
+
+def _spend_cap(env, key, default):
+    raw = env["ir.config_parameter"].sudo().get_param(
+        "etp_assessment_pro.%s" % key, "")
+    if raw in (None, "", False):
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _spend_since(env, domain):
+    """Sum cost_usd on the usage ledger for ``domain`` (read_group, one query)."""
+    rows = env["etp.assessment.pro.llm.usage"].sudo().read_group(
+        domain, ["cost_usd:sum"], [])
+    return (rows[0].get("cost_usd") or 0.0) if rows else 0.0
+
+
+def _check_budget(env, usage_ctx):
+    """Refuse a Vertex call that would push same-day or per-candidate LLM spend
+    over the configured cap. Uses the persisted usage ledger (actual recorded
+    cost, not an estimate) so the gate is honest even across workers. Called at
+    the top of every _call_vertex, before any billable HTTP request."""
+    ctx = usage_ctx or {}
+    daily_cap = _spend_cap(env, "daily_llm_cap_usd", _DEFAULT_DAILY_LLM_CAP_USD)
+    if daily_cap > 0:
+        # create_date is stored in UTC; compare against UTC midnight so the daily
+        # window is stable regardless of the caller's tz.
+        day_start = datetime.utcnow().strftime("%Y-%m-%d 00:00:00")
+        spent = _spend_since(env, [("create_date", ">=", day_start)])
+        if spent >= daily_cap:
+            raise VertexBudgetError(
+                "Daily LLM spend cap $%.2f reached ($%.2f used today). Raise "
+                "etp_assessment_pro.daily_llm_cap_usd or wait for the daily "
+                "reset." % (daily_cap, spent))
+    ev_id = ctx.get("evaluator_id")
+    ev_cap = _spend_cap(
+        env, "per_evaluator_llm_cap_usd", _DEFAULT_PER_EVALUATOR_LLM_CAP_USD)
+    if ev_id and ev_cap > 0:
+        spent = _spend_since(env, [("evaluator_id", "=", ev_id)])
+        if spent >= ev_cap:
+            raise VertexBudgetError(
+                "Per-candidate LLM spend cap $%.2f reached for evaluator %s "
+                "($%.2f used). Raise etp_assessment_pro.per_evaluator_llm_cap_usd "
+                "if this candidate legitimately needs more grading."
+                % (ev_cap, ev_id, spent))
+
+
 def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
     import httpx
     model = _vertex_image_model(env)
     url, headers = _gemini_request(env, model, "generateContent")
+    # H-5: image render is billable too — honour the spend caps before the call.
+    _check_budget(env, usage_ctx)
     prompt_text = image_prompt or ""
     if aspect_hint:
         prompt_text = f"{prompt_text}\n\n(Aspect/framing hint: {aspect_hint})"
@@ -1817,13 +1934,19 @@ def _inline_doc_part(name, data, default_mime="application/pdf"):
     mime = _SOP_MIME_BY_EXT.get(ext, default_mime)
     raw = data.decode() if isinstance(data, bytes) else data
     if mime == "application/pdf":
+        # M-6: verify the PDF magic properly. base64 decodes in 3-byte/4-char
+        # groups, so slice on a 4-char boundary and require the "%PDF-" signature
+        # at offset 0 (a real PDF always starts with "%PDF-1.x"), not merely
+        # "%PDF" somewhere in a loosely-decoded head.
         try:
-            head = base64.b64decode(raw[:12])
+            _b64head = (raw or "")[:16]
+            _b64head = _b64head[:len(_b64head) // 4 * 4]  # whole base64 groups
+            head = base64.b64decode(_b64head) if _b64head else b""
         except Exception:
             head = b""
-        if not head.startswith(b"%PDF"):
+        if not head.startswith(b"%PDF-"):
             raise LLMRefusalError(
-                "File %r is not a readable PDF (missing %%PDF header) — "
+                "File %r is not a readable PDF (missing %%PDF- header) — "
                 "re-upload a valid PDF." % (name or "?"))
     return {"inlineData": {"mimeType": mime, "data": raw}}
 

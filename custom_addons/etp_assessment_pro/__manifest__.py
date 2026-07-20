@@ -29,7 +29,7 @@
         "views/llm_usage_views.xml",
     ],
     "external_dependencies": {
-        "python": ["PyJWT", "httpx", "boto3", "cryptography"],
+        "python": ["PyJWT", "httpx", "boto3", "cryptography", "defusedxml"],
     },
     "assets": {
         "web.assets_frontend": [

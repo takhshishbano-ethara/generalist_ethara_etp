@@ -214,7 +214,15 @@ def download(env, key, client=None):
                 "S3 object %s is %s bytes (> %s cap); not proxied through the "
                 "worker.", key, length, _MAX_DOWNLOAD_BYTES)
             return None, None
-        return resp["Body"].read(), resp.get("ContentType")
+        # M-4: ContentLength can be absent; read with a hard +1 cap so a missing
+        # length can't stream unbounded bytes into worker memory.
+        body = resp["Body"].read(_MAX_DOWNLOAD_BYTES + 1)
+        if len(body) > _MAX_DOWNLOAD_BYTES:
+            _logger.warning(
+                "S3 object %s exceeded %s bytes on read (ContentLength absent); "
+                "aborted.", key, _MAX_DOWNLOAD_BYTES)
+            return None, None
+        return body, resp.get("ContentType")
     except Exception as exc:
         _logger.warning("S3 download failed for %s: %s", key, exc)
         return None, None

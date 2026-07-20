@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import base64
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -18,6 +19,7 @@ from ..constants import (
     ADVISORY_LOCK_AUTOSCORE,
     ADVISORY_LOCK_AUTOSCORE_SHARD_BASE,
     ADVISORY_LOCK_EXPIRE_ATTEMPTS,
+    ADVISORY_LOCK_INVITE_SEND,
     MAX_SCORING_SHARDS,
     is_integrity_gate,
 )
@@ -301,6 +303,17 @@ class EtpAssessment(models.Model):
             if rec.question_limit < 0:
                 raise ValidationError("Number of Questions cannot be negative.")
 
+    @api.constrains("subjective_threshold")
+    def _check_subjective_threshold(self):
+        # M-11: reject an out-of-range pass bar at the WRITE path instead of
+        # relying on the read-time defensive clamp in _compute_result. A stored
+        # -50 / 250 silently changed pass/fail semantics and hid the bad value.
+        for rec in self:
+            if not (0.0 <= rec.subjective_threshold <= 100.0):
+                raise ValidationError(
+                    "Subjective Pass Threshold must be between 0 and 100 "
+                    "(got %s)." % rec.subjective_threshold)
+
     @api.constrains("start_date", "end_date")
     def _check_dates(self):
         for rec in self:
@@ -329,6 +342,28 @@ class EtpAssessment(models.Model):
                 raise UserError(
                     f"Requested {limit} questions but only "
                     f"{len(available_questions)} available in this generator.")
+
+            # H-11 + M-13: refuse to start if any objective (mcq/msq) OR image_ab
+            # question has dimensions but NO correct option marked. Such a
+            # question scores 0 for EVERY candidate (an authoring bug) with no
+            # error — surface it now, before candidates sit, not after results
+            # look wrong.
+            def _is_keyless(q):
+                if q.question_type not in ("mcq", "msq", "image_ab"):
+                    return False
+                dims = q.question_dimension_ids
+                if not dims:
+                    return False
+                return not any(
+                    qd.option_line_ids.filtered("is_correct") for qd in dims)
+            keyless = available_questions.filtered(_is_keyless)
+            if keyless:
+                raise UserError(
+                    "%s question(s) have no correct answer marked and would "
+                    "score 0 for every candidate. Fix their answer key before "
+                    "starting:\n- %s" % (
+                        len(keyless),
+                        "\n- ".join(keyless.mapped("name")[:10])))
 
             all_question_ids = available_questions.ids
             rec.write({
@@ -427,6 +462,22 @@ class EtpAssessment(models.Model):
                 "(id=%s); linking but NOT reactivating - enable it manually if "
                 "this candidate should sit the exam.",
                 applicant.partner_name, email, user.id)
+        # H-1/H-2: never bind a portal user that is ALREADY the candidate_user_id
+        # of a DIFFERENT applicant. Without this, two applicants sharing an email
+        # (duplicate CSV row, or an attacker who pre-registered the email) both
+        # resolve to the same login -> that user could sit either exam, and
+        # _deliver_invitation would fire a password-reset on the victim's account.
+        if not created:
+            other = self.env["hr.applicant"].sudo().search([
+                ("candidate_user_id", "=", user.id),
+                ("id", "!=", applicant.id),
+            ], limit=1)
+            if other:
+                _logger.warning(
+                    "Email %s already bound to applicant %s (user %s); refusing "
+                    "to rebind for applicant %s. Resolve the duplicate email "
+                    "manually.", email, other.id, user.id, applicant.id)
+                return "skipped"
         applicant.candidate_user_id = user.id
         if not applicant.partner_id and user.partner_id:
             applicant.partner_id = user.partner_id.id
@@ -700,12 +751,16 @@ class EtpAssessmentEvaluator(models.Model):
             user = self.env["res.users"].sudo().search(
                 [("partner_id", "=", self.applicant_id.partner_id.id)], limit=1)
         if not user and (self.applicant_id.email_from or "").strip():
-            # Security: login==email fallback can match an internal user never
-            # bound as a candidate, widening candidate auth.
-            user = self.env["res.users"].sudo().with_context(
+            # Security (M-1): the login==email fallback can match an INTERNAL
+            # user who was never bound as a candidate, widening candidate auth to
+            # staff. Restrict the fallback to portal/non-internal users so a
+            # matching employee login is never treated as "the candidate".
+            match = self.env["res.users"].sudo().with_context(
                 active_test=False).search(
                 [("login", "=ilike", self.applicant_id.email_from.strip())],
                 limit=1)
+            if match and not match._is_internal():
+                user = match
         return user
     access_token = fields.Char(
         string="Access Token", index=True, copy=False,
@@ -1139,26 +1194,43 @@ class EtpAssessmentEvaluator(models.Model):
 
     @api.model
     def _cron_send_pending_invitations(self, batch=25):
-        pending = self.search([("invite_state", "=", "queued")], limit=batch)
-        for ev in pending:
-            try:
-                with self.env.cr.savepoint():
-                    ev._deliver_invitation()
-                    ev.invite_state = "sent"
-                    ev.invite_error = False
-                self.env.cr.commit()
-            except Exception as exc:  # noqa: BLE001
-                _logger.exception(
-                    "Invite send failed for candidate %s (evaluator %s)",
-                    ev.applicant_id.partner_name, ev.id)
+        # H-7: single-flight the invite drainer. Without a lock two workers (or a
+        # worker racing a manual requeue) both select the same queued rows and
+        # send duplicate invitation emails to every candidate in the overlap.
+        self.env.cr.execute("SELECT pg_advisory_unlock_all()")
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_INVITE_SEND,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        try:
+            pending = self.search([("invite_state", "=", "queued")], limit=batch)
+            for ev in pending:
                 try:
                     with self.env.cr.savepoint():
-                        ev.invite_state = "failed"
-                        ev.invite_error = str(exc)[:200]
+                        ev._deliver_invitation()
+                        ev.invite_state = "sent"
+                        ev.invite_error = False
                     self.env.cr.commit()
-                except Exception:
+                except Exception as exc:  # noqa: BLE001
                     _logger.exception(
-                        "Invite cron: could not flag evaluator %s failed", ev.id)
+                        "Invite send failed for candidate %s (evaluator %s)",
+                        ev.applicant_id.partner_name, ev.id)
+                    try:
+                        with self.env.cr.savepoint():
+                            ev.invite_state = "failed"
+                            ev.invite_error = str(exc)[:200]
+                        self.env.cr.commit()
+                    except Exception:
+                        _logger.exception(
+                            "Invite cron: could not flag evaluator %s failed", ev.id)
+        finally:
+            try:
+                self.env.cr.execute(
+                    "SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_INVITE_SEND,))
+            except Exception:  # noqa: BLE001
+                _logger.warning(
+                    "invite-send advisory lock %s not released this tick",
+                    ADVISORY_LOCK_INVITE_SEND)
 
     def action_requeue_invitation(self):
         self.filtered(lambda e: e.invite_state != "sent").write(
@@ -1387,6 +1459,11 @@ class EtpAssessmentResponse(models.Model):
              "quote. The audit trail of how key closeness was judged.")
     llm_attempts = fields.Integer(
         string="Subjective Attempts", default=0, copy=False)
+    llm_scored_hash = fields.Char(
+        string="Scored Answer Hash", copy=False,
+        help="H-16: sha256 of the justification that was last graded. A "
+             "re-submit with identical text is not re-queued (stops a scored "
+             "answer being re-scored in a loop when llm_auto_score is on).")
     llm_state = fields.Selection(
         [
             ("not_needed", "Not Needed"),
@@ -1715,6 +1792,18 @@ class EtpAssessmentResponse(models.Model):
                 continue
             if not (rec.justification or "").strip() or not rec.needs_llm:
                 rec.llm_state = "not_needed"
+                continue
+            # H-16: don't re-queue an answer that is ALREADY scored and whose
+            # text has not changed. Without this, a candidate re-submitting a
+            # scored subjective answer (while still in-progress on other
+            # questions, with llm_auto_score on) forces the cron to grade the
+            # same text again and again — a candidate-driven cost loop. A genuine
+            # edit changes the hash and DOES re-queue (once), and an exhausted
+            # attempt budget is left alone.
+            cur_hash = hashlib.sha256(
+                (rec.justification or "").encode("utf-8")).hexdigest()
+            if (rec.llm_state == "scored"
+                    and rec.llm_scored_hash == cur_hash):
                 continue
             rec.llm_state = "pending"
             if rec.assessment_evaluator_id:

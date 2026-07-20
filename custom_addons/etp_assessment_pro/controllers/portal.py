@@ -12,6 +12,19 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
+# Hard cap on any candidate-supplied free-text answer BEFORE it is stored or
+# ever reaches the LLM scorer. A subjective answer / per-box label is prose, not
+# a document; 8000 chars is far more than any honest response and stops a
+# candidate stuffing megabytes of CJK into `justification` to run up the Vertex
+# bill (each char ~1 token; the scorer re-sends the whole thing, and MAX_TOKENS
+# retries double it). Long-form answers past this are truncated, not rejected,
+# so an honest candidate never loses their attempt.
+_JUSTIFICATION_MAX_LEN = 8000
+# Per-box cap for image_label annotations. Coverage scoring only counts filled
+# boxes, so a box label needs no more than a short phrase; this bounds the
+# serialized label JSON regardless of how many boxes an image has.
+_LABEL_VALUE_MAX_LEN = 500
+
 
 def _rules_json(assessment, evaluator=None):
     """Serialize proctoring rules + violation policy as JSON for inline JS.
@@ -706,7 +719,7 @@ class EtpAssessmentPortal(http.Controller):
                 continue
             if isinstance(val, (list, tuple)):
                 val = val[0] if val else ""
-            text = (val or "").strip()
+            text = (val or "").strip()[:_LABEL_VALUE_MAX_LEN]
             if text:
                 labels[num] = text
         return {k: labels[k] for k in sorted(labels, key=int)}
@@ -726,7 +739,8 @@ class EtpAssessmentPortal(http.Controller):
         order = json.loads(evaluator.question_order or "[]")
         if qid not in order:
             return False
-        justification = (form.get("justification") or "").strip()
+        justification = (form.get("justification") or "").strip()[
+            :_JUSTIFICATION_MAX_LEN]
         if question.question_type == "image_label":
             label_map = self._collect_image_label_answers(form)
             if label_map:

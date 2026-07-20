@@ -11,6 +11,21 @@ _RED = (214, 40, 40)
 _WHITE = (255, 255, 255)
 
 
+def _harden_pillow():
+    """M-3: bound Pillow's decompression-bomb exposure. A crafted image with a
+    huge declared canvas (CVE-2023-4863 libwebp class + generic DoS) can pin RAM
+    when opened. Cap the pixel count so PIL raises DecompressionBombError instead
+    of allocating gigabytes. 64MP is far above any real question stimulus."""
+    try:
+        from PIL import Image
+        Image.MAX_IMAGE_PIXELS = 64_000_000
+    except Exception:  # noqa: BLE001 - never break rendering if PIL is odd
+        pass
+
+
+_harden_pillow()
+
+
 def _to_pixels(box_2d, w, h):
     ymin, xmin, ymax, xmax = box_2d  # Gemini order [ymin,xmin,ymax,xmax], 0-1000
     return (
