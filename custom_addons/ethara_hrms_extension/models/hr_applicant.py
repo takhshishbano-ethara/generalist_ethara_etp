@@ -121,6 +121,11 @@ class HrApplicant(models.Model):
         string='Marital Status',
     )
 
+    selection_form_document_ids = fields.One2many(
+        'hr.applicant.document', 'applicant_id',
+        string='Selection Form Documents',
+    )
+
     _PIPELINE_ORDER = (
         'applied', 'shortlisted', 'evaluation', 'submission',
         'contract', 'compliance', 'email_id', 'onboarded',

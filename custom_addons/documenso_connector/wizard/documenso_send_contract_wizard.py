@@ -18,10 +18,11 @@ class DocumensoSendContractWizard(models.TransientModel):
     doc_class = fields.Selection([
         ('contract', 'Contract'),
         ('compliance', 'Compliance'),
+        ('offer', 'Offer'),
     ], string='Document Class', default='contract', required=True)
     template_ids = fields.Many2many(
         'documenso.template', string='Templates', required=True,
-        domain="[('active', '=', True), ('doc_class', '=', doc_class)]")
+        domain="[('active', '=', True), ('is_published', '=', True), ('doc_class', '=', doc_class)]")
     title_override = fields.Char(string='Title Override')
     distribute = fields.Boolean(string='Send Immediately', default=True)
     extra_prefill_json = fields.Text(

@@ -8,3 +8,4 @@ from  . import job_approval
 from . import screening
 from . import candidates
 from . import candidate_me
+from . import selection_form

@@ -13,6 +13,7 @@
         'views/ethara_candidate_views.xml',
         'views/ethara_lead_views.xml',
         'views/hr_applicant_views.xml',
+        'views/hr_applicant_document_views.xml',
         'views/hr_applicant_screening_views.xml',
         'data/candidate_me_endpoints.xml',
     ],

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hr_applicant_document_list" model="ir.ui.view">
+        <field name="name">hr.applicant.document.list</field>
+        <field name="model">hr.applicant.document</field>
+        <field name="arch" type="xml">
+            <list editable="bottom"
+                  decoration-success="verification_status == 'verified'"
+                  decoration-warning="verification_status == 'mismatch'"
+                  decoration-info="verification_status == 'pending'"
+                  decoration-danger="verification_status == 'failed'"
+                  decoration-muted="verification_status == 'skipped'">
+                <field name="document_type"/>
+                <field name="s3_url" widget="url"/>
+                <field name="file_name"/>
+                <field name="verification_status" readonly="1"/>
+                <field name="verification_confidence" widget="progressbar" readonly="1"/>
+                <field name="ocr_matched_keywords" readonly="1" optional="hide"/>
+                <field name="verification_error" readonly="1" optional="hide"/>
+                <field name="uploaded_at" readonly="1"/>
+                <field name="uploaded_by_id" readonly="1" optional="hide"/>
+                <button name="action_verify_document" type="object"
+                        string="Re-verify" icon="fa-refresh"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_hr_applicant_document_form" model="ir.ui.view">
+        <field name="name">hr.applicant.document.form</field>
+        <field name="model">hr.applicant.document</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_verify_document" type="object"
+                            string="Re-verify" class="btn-primary"/>
+                    <field name="verification_status" widget="statusbar"
+                           statusbar_visible="pending,verified,mismatch,failed,skipped"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="applicant_id"/>
+                            <field name="document_type"/>
+                            <field name="s3_url" widget="url"/>
+                            <field name="file_name"/>
+                        </group>
+                        <group>
+                            <field name="mime_type"/>
+                            <field name="file_size"/>
+                            <field name="uploaded_at" readonly="1"/>
+                            <field name="uploaded_by_id" readonly="1"/>
+                            <field name="verified_at" readonly="1"/>
+                            <field name="verification_confidence" widget="progressbar"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Verification Details" name="verification">
+                            <group>
+                                <field name="ocr_matched_keywords" readonly="1"/>
+                                <field name="verification_error" readonly="1"/>
+                            </group>
+                            <field name="ocr_text" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+</odoo>

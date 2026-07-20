@@ -9,13 +9,19 @@
                 <field name="title"/>
                 <field name="documenso_id"/>
                 <field name="user_email"/>
+                <field name="job_id"/>
                 <filter string="Active" name="filter_active" domain="[('active', '=', True)]"/>
                 <filter string="Archived" name="filter_archived" domain="[('active', '=', False)]"/>
+                <separator/>
+                <filter string="Published" name="filter_published" domain="[('is_published', '=', True)]"/>
+                <filter string="Unpublished" name="filter_unpublished" domain="[('is_published', '=', False)]"/>
                 <separator/>
                 <filter string="Contract" name="filter_contract" domain="[('doc_class', '=', 'contract')]"/>
                 <filter string="Compliance" name="filter_compliance" domain="[('doc_class', '=', 'compliance')]"/>
                 <group>
                     <filter string="Document Class" name="group_doc_class" context="{'group_by': 'doc_class'}"/>
+                    <filter string="Job Position" name="group_job" context="{'group_by': 'job_id'}"/>
+                    <filter string="Published" name="group_published" context="{'group_by': 'is_published'}"/>
                     <filter string="Owner" name="group_user_email" context="{'group_by': 'user_email'}"/>
                     <filter string="Visibility" name="group_visibility" context="{'group_by': 'visibility'}"/>
                 </group>
@@ -28,9 +34,18 @@
         <field name="model">documenso.template</field>
         <field name="arch" type="xml">
             <list string="Templates">
+                <header>
+                    <button name="%(action_documenso_create_template_wizard)d"
+                            type="action" string="Create Template"
+                            class="btn-primary"/>
+                </header>
                 <field name="title"/>
                 <field name="doc_class"/>
+                <field name="job_id" optional="show"/>
+                <field name="salary_bracket" optional="hide"/>
+                <field name="is_published" widget="boolean_toggle"/>
                 <field name="documenso_id"/>
+                <field name="template_type" optional="show"/>
                 <field name="recipient_count"/>
                 <field name="field_count"/>
                 <field name="visibility" optional="hide"/>
@@ -47,28 +62,53 @@
         <field name="arch" type="xml">
             <form string="Template">
                 <header>
-                    <button name="action_refresh_one" type="object" string="Refresh from Documenso" class="btn-primary"/>
+                    <button name="action_open_designer" type="object"
+                            string="Edit in Documenso" class="btn-primary"
+                            invisible="not documenso_id"/>
+                    <button name="action_publish" type="object"
+                            string="Publish" class="btn-primary"
+                            invisible="is_published or not documenso_id"/>
+                    <button name="action_unpublish" type="object"
+                            string="Unpublish" class="btn-secondary"
+                            invisible="not is_published"/>
+                    <button name="action_refresh_one" type="object"
+                            string="Refresh from Documenso" class="btn-secondary"
+                            invisible="not documenso_id"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
-                        <h1><field name="title" readonly="1"/></h1>
+                        <h1><field name="title" placeholder="Template Title"/></h1>
                     </div>
                     <group>
-                        <group>
+                        <group string="Metadata">
                             <field name="documenso_id" readonly="1"/>
                             <field name="doc_class"/>
-                            <field name="external_id" readonly="1"/>
-                            <field name="visibility" readonly="1"/>
+                            <field name="is_published" widget="boolean_toggle"/>
+                            <field name="job_id" options="{'no_quick_create': True}"/>
+                            <field name="salary_bracket"/>
+                            <field name="template_type"
+                                   widget="selection"
+                                   options="{'no_create_edit': True}"/>
+                            <field name="visibility"
+                                   widget="selection"
+                                   options="{'no_create_edit': True}"/>
+                            <field name="external_id"/>
+                            <field name="folder_id"/>
                             <field name="user_email" readonly="1"/>
                             <field name="active"/>
                         </group>
-                        <group>
+                        <group string="Timestamps">
                             <field name="documenso_created_at" readonly="1"/>
                             <field name="documenso_updated_at" readonly="1"/>
                             <field name="last_synced_at" readonly="1"/>
                             <field name="recipient_count" readonly="1"/>
                             <field name="field_count" readonly="1"/>
                         </group>
+                    </group>
+                    <group string="Public Details"
+                           invisible="template_type != 'PUBLIC'">
+                        <field name="public_title"/>
+                        <field name="public_description"/>
                     </group>
                     <notebook>
                         <page string="Recipients" name="recipients">

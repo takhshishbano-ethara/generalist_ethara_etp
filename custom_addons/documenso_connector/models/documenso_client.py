@@ -158,6 +158,164 @@ class DocumensoClient:
             body['override'] = {'title': title_override}
         return self._request('POST', '/template/use', json=body)
 
+    def create_template(self, title, pdf_bytes, filename=None,
+                        visibility=None, template_type=None, external_id=None,
+                        folder_id=None, public_title=None, public_description=None):
+        if not title:
+            raise UserError(_("Template title is required."))
+        if not pdf_bytes:
+            raise UserError(_("PDF content is required to create a template."))
+        body = {'title': title}
+        if visibility:
+            body['visibility'] = visibility
+        if template_type:
+            body['type'] = template_type
+        if external_id:
+            body['externalId'] = external_id
+        if folder_id:
+            body['folderId'] = folder_id
+        if public_title:
+            body['publicTitle'] = public_title
+        if public_description:
+            body['publicDescription'] = public_description
+        payload = self._request('POST', '/template/create/beta', json=body)
+        upload_url = payload.get('uploadUrl') if isinstance(payload, dict) else None
+        template = payload.get('template') if isinstance(payload, dict) else None
+        if not upload_url:
+            raise UserError(_("Documenso did not return an upload URL for the new template."))
+        try:
+            put_resp = requests.put(
+                upload_url,
+                data=pdf_bytes,
+                headers={'Content-Type': 'application/pdf'},
+                timeout=DOWNLOAD_TIMEOUT,
+            )
+        except requests.exceptions.RequestException as exc:
+            raise UserError(_("Failed to upload PDF to Documenso storage: %s") % exc) from exc
+        if put_resp.status_code >= 400:
+            _logger.error("Documenso template PDF upload -> %s: %s",
+                          put_resp.status_code, put_resp.text[:500])
+            raise UserError(_(
+                "PDF upload failed (%(status)s): %(body)s"
+            ) % {'status': put_resp.status_code, 'body': put_resp.text[:500]})
+        return template or payload
+
+    def update_template(self, template_id, data=None, meta=None):
+        if not template_id:
+            raise UserError(_("Template ID is required to update a template."))
+        try:
+            numeric_id = int(template_id)
+        except (TypeError, ValueError) as exc:
+            raise UserError(_("Documenso template ID must be numeric: %s") % template_id) from exc
+        body = {'templateId': numeric_id}
+        clean_data = {k: v for k, v in (data or {}).items() if v is not None}
+        if clean_data:
+            body['data'] = clean_data
+        clean_meta = {k: v for k, v in (meta or {}).items() if v is not None}
+        if clean_meta:
+            body['meta'] = clean_meta
+        if 'data' not in body and 'meta' not in body:
+            raise UserError(_("Nothing to update on the Documenso template."))
+        return self._request('POST', '/template/update', json=body)
+
+    @staticmethod
+    def _coerce_int_id(value, label):
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise UserError(_("Documenso %(label)s ID must be numeric: %(value)s") % {
+                'label': label, 'value': value,
+            }) from exc
+
+    def create_template_fields(self, template_id, fields_payload):
+        numeric_id = self._coerce_int_id(template_id, 'template')
+        if not fields_payload:
+            return {}
+        body = {'templateId': numeric_id, 'fields': fields_payload}
+        return self._request('POST', '/template/field/create-many', json=body)
+
+    def update_template_fields(self, template_id, fields_payload):
+        numeric_id = self._coerce_int_id(template_id, 'template')
+        if not fields_payload:
+            return {}
+        body = {'templateId': numeric_id, 'fields': fields_payload}
+        return self._request('POST', '/template/field/update-many', json=body)
+
+    def delete_template_fields(self, template_id, field_ids):
+        numeric_id = self._coerce_int_id(template_id, 'template')
+        numeric_field_ids = [self._coerce_int_id(fid, 'field') for fid in field_ids if fid]
+        if not numeric_field_ids:
+            return {}
+        body = {'templateId': numeric_id, 'fieldIds': numeric_field_ids}
+        return self._request('POST', '/template/field/delete', json=body)
+
+    def create_template_recipients(self, template_id, recipients_payload):
+        numeric_id = self._coerce_int_id(template_id, 'template')
+        if not recipients_payload:
+            return {}
+        body = {'templateId': numeric_id, 'recipients': recipients_payload}
+        return self._request('POST', '/template/recipient/create-many', json=body)
+
+    def update_template_recipients(self, template_id, recipients_payload):
+        numeric_id = self._coerce_int_id(template_id, 'template')
+        if not recipients_payload:
+            return {}
+        body = {'templateId': numeric_id, 'recipients': recipients_payload}
+        return self._request('POST', '/template/recipient/update-many', json=body)
+
+    def delete_template_recipients(self, template_id, recipient_ids):
+        numeric_id = self._coerce_int_id(template_id, 'template')
+        numeric_rec_ids = [self._coerce_int_id(rid, 'recipient') for rid in recipient_ids if rid]
+        if not numeric_rec_ids:
+            return {}
+        body = {'templateId': numeric_id, 'recipientIds': numeric_rec_ids}
+        return self._request('POST', '/template/recipient/delete', json=body)
+
+    def download_template_pdf(self, template_id):
+        payload = self.get_template(template_id)
+        document_data = None
+        if isinstance(payload, dict):
+            document_data = (
+                payload.get('templateDocumentData')
+                or payload.get('documentData')
+                or (payload.get('template') or {}).get('templateDocumentData')
+                or (payload.get('template') or {}).get('documentData')
+            )
+        if not isinstance(document_data, dict):
+            raise UserError(_("Documenso template has no document data attached."))
+        data_type = (document_data.get('type') or '').upper()
+        data_value = document_data.get('data') or document_data.get('initialData')
+        if not data_value:
+            raise UserError(_("Documenso template document data is empty."))
+        if data_type in ('S3_PATH', 'S3'):
+            try:
+                response = requests.get(data_value, timeout=DOWNLOAD_TIMEOUT)
+            except requests.exceptions.RequestException as exc:
+                raise UserError(_("Failed to download template PDF: %s") % exc) from exc
+            if response.status_code >= 400:
+                raise UserError(_(
+                    "Template PDF download failed (%(status)s): %(body)s"
+                ) % {'status': response.status_code, 'body': response.text[:200]})
+            return response.content
+        if data_type == 'BYTES_64' or data_type == 'BYTES':
+            import base64 as _b64
+            try:
+                return _b64.b64decode(data_value)
+            except (TypeError, ValueError) as exc:
+                raise UserError(_("Template PDF data is not valid base64: %s") % exc) from exc
+        if isinstance(data_value, str) and (
+                data_value.startswith('http://') or data_value.startswith('https://')):
+            try:
+                response = requests.get(data_value, timeout=DOWNLOAD_TIMEOUT)
+            except requests.exceptions.RequestException as exc:
+                raise UserError(_("Failed to download template PDF: %s") % exc) from exc
+            if response.status_code >= 400:
+                raise UserError(_(
+                    "Template PDF download failed (%(status)s): %(body)s"
+                ) % {'status': response.status_code, 'body': response.text[:200]})
+            return response.content
+        raise UserError(_("Unsupported template document data type: %s") % data_type)
+
     def list_documents(self, page=1, per_page=DEFAULT_PAGE_SIZE, status=None,
                        order_by='createdAt', order_dir='desc'):
         params = {
@@ -378,6 +536,30 @@ def map_employee_fields(employee):
         value = getattr(employee, extra, None)
         if value:
             mapping[extra.replace('_', ' ')] = str(value)
+    return {k: v for k, v in mapping.items() if v}
+
+
+def map_applicant_fields(applicant):
+    if not applicant:
+        return {}
+    job = applicant.job_id if applicant.job_id else None
+    department = applicant.department_id.name if applicant.department_id else ''
+    position = job.name if job else ''
+    salary_bracket = getattr(job, 'salary_bracket', '') if job else ''
+
+    mapping = {
+        'name': applicant.partner_name or (applicant.partner_id.name if applicant.partner_id else ''),
+        'full name': applicant.partner_name or '',
+        'candidate name': applicant.partner_name or '',
+        'applicant name': applicant.partner_name or '',
+        'email': applicant.email_from or '',
+        'phone': applicant.partner_phone or '',
+        'department': department,
+        'position': position,
+        'job title': position,
+        'salary bracket': salary_bracket or '',
+        'salary': salary_bracket or '',
+    }
     return {k: v for k, v in mapping.items() if v}
 
 

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_create_template_wizard_form" model="ir.ui.view">
+        <field name="name">documenso.create.template.wizard.form</field>
+        <field name="model">documenso.create.template.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Documenso Template">
+                <group>
+                    <group string="Template">
+                        <field name="title"/>
+                        <field name="filename"/>
+                        <field name="file_data" filename="filename"/>
+                    </group>
+                    <group string="Classification">
+                        <field name="job_id" options="{'no_quick_create': True}"/>
+                        <field name="doc_class"/>
+                        <field name="visibility"/>
+                        <field name="template_type"/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_create" type="object" string="Create Template"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_documenso_create_template_wizard" model="ir.actions.act_window">
+        <field name="name">Create Documenso Template</field>
+        <field name="res_model">documenso.create.template.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

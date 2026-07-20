@@ -6,80 +6,28 @@
               web_icon="documenso_connector,static/description/icon.png"
               sequence="90"/>
 
-    <menuitem id="menu_documenso_contracts"
-              name="Contracts"
-              parent="menu_documenso_root"
-              action="action_documenso_contract"
-              sequence="5"/>
-
-    <menuitem id="menu_documenso_send_contract"
-              name="Send Contract"
-              parent="menu_documenso_root"
-              action="action_documenso_send_contract_wizard"
-              sequence="7"/>
-
-    <menuitem id="menu_documenso_signed_repo"
-              name="Signed Documents"
-              parent="menu_documenso_root"
-              sequence="8"/>
-
-    <menuitem id="menu_documenso_signed_all"
-              name="All Signed"
-              parent="menu_documenso_signed_repo"
-              action="action_documenso_signed_profile"
-              sequence="1"/>
-
-    <menuitem id="menu_documenso_signed_contracts"
-              name="Signed Contracts"
-              parent="menu_documenso_signed_repo"
-              action="action_documenso_signed_profile_contracts"
-              sequence="2"/>
-
-    <menuitem id="menu_documenso_signed_compliance"
-              name="Signed Compliance"
-              parent="menu_documenso_signed_repo"
-              action="action_documenso_signed_profile_compliance"
-              sequence="3"/>
-
     <menuitem id="menu_documenso_templates"
               name="Templates"
               parent="menu_documenso_root"
               action="action_documenso_template"
-              sequence="9"/>
+              sequence="5"/>
 
-    <menuitem id="menu_documenso_documents"
-              name="Documents"
+    <menuitem id="menu_documenso_create_template"
+              name="Create Template"
               parent="menu_documenso_root"
-              action="action_documenso_document"
+              action="action_documenso_create_template_wizard"
               sequence="10"/>
 
-    <menuitem id="menu_documenso_recipients"
-              name="Recipients"
+    <menuitem id="menu_documenso_send_applicant"
+              name="Send"
               parent="menu_documenso_root"
-              action="action_documenso_recipient"
+              action="action_documenso_send_applicant_wizard"
+              sequence="15"/>
+
+    <menuitem id="menu_documenso_contracts"
+              name="Sent Documents"
+              parent="menu_documenso_root"
+              action="action_documenso_contract"
               sequence="20"/>
-
-    <menuitem id="menu_documenso_fields"
-              name="Fields"
-              parent="menu_documenso_root"
-              action="action_documenso_field"
-              sequence="30"/>
-
-    <menuitem id="menu_documenso_upload"
-              name="Upload Document"
-              parent="menu_documenso_root"
-              action="action_documenso_upload_documents"
-              sequence="35"/>
-
-    <menuitem id="menu_documenso_sync"
-              name="Sync Now"
-              parent="menu_documenso_root"
-              action="action_documenso_sync_documents"
-              sequence="40"/>
-
-    <menuitem id="menu_documenso_configuration"
-              name="Configuration"
-              parent="menu_documenso_root"
-              sequence="90"/>
 
 </odoo>

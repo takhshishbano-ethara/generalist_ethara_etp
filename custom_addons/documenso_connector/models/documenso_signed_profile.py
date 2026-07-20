@@ -16,6 +16,7 @@ _logger = logging.getLogger(__name__)
 DOC_CLASSES = [
     ('contract', 'Contract'),
     ('compliance', 'Compliance'),
+    ('offer', 'Offer'),
     ('other', 'Other'),
 ]
 
@@ -30,10 +31,15 @@ class DocumensoSignedProfile(models.Model):
 
     title = fields.Char(string='Title', required=True, index=True)
     employee_id = fields.Many2one(
-        'hr.employee', string='Employee', required=True, ondelete='restrict', index=True)
+        'hr.employee', string='Employee', ondelete='restrict', index=True)
     employee_email = fields.Char(related='employee_id.work_email', store=True, string='Employee Email')
+    applicant_id = fields.Many2one(
+        'hr.applicant', string='Applicant', ondelete='restrict', index=True)
+    applicant_email = fields.Char(related='applicant_id.email_from', store=True, string='Applicant Email')
+    recipient_name = fields.Char(string='Recipient', compute='_compute_recipient', store=True)
+    recipient_email = fields.Char(string='Recipient Email', compute='_compute_recipient', store=True)
     department_id = fields.Many2one(
-        related='employee_id.department_id', store=True, string='Department', index=True)
+        'hr.department', string='Department', compute='_compute_department', store=True, index=True)
 
     contract_id = fields.Many2one(
         'documenso.contract', string='Source Contract', ondelete='set null', index=True)
@@ -65,6 +71,37 @@ class DocumensoSignedProfile(models.Model):
         ('signed_profile_uniq', 'unique(documenso_id, envelope_item_id)',
          'A signed profile already exists for this Documenso document / envelope item.'),
     ]
+
+    @api.constrains('employee_id', 'applicant_id')
+    def _check_recipient_reference(self):
+        for record in self:
+            if bool(record.employee_id) == bool(record.applicant_id):
+                raise UserError(_(
+                    "Signed profile must reference exactly one of Employee or Applicant."))
+
+    @api.depends('employee_id.name', 'employee_id.work_email',
+                 'applicant_id.partner_name', 'applicant_id.email_from')
+    def _compute_recipient(self):
+        for record in self:
+            if record.employee_id:
+                record.recipient_name = record.employee_id.name
+                record.recipient_email = record.employee_id.work_email
+            elif record.applicant_id:
+                record.recipient_name = record.applicant_id.partner_name
+                record.recipient_email = record.applicant_id.email_from
+            else:
+                record.recipient_name = False
+                record.recipient_email = False
+
+    @api.depends('employee_id.department_id', 'applicant_id.department_id')
+    def _compute_department(self):
+        for record in self:
+            if record.employee_id and record.employee_id.department_id:
+                record.department_id = record.employee_id.department_id
+            elif record.applicant_id and record.applicant_id.department_id:
+                record.department_id = record.applicant_id.department_id
+            else:
+                record.department_id = False
 
     @api.model
     def _upsert_from_contract(self, contract):
@@ -116,7 +153,8 @@ class DocumensoSignedProfile(models.Model):
         record = self.search(domain, limit=1)
         vals = {
             'title': title,
-            'employee_id': contract.employee_id.id,
+            'employee_id': contract.employee_id.id if contract.employee_id else False,
+            'applicant_id': contract.applicant_id.id if contract.applicant_id else False,
             'contract_id': contract.id,
             'template_id': contract.template_id.id if contract.template_id else False,
             'template_documenso_id': contract.template_id.documenso_id if contract.template_id else False,
