@@ -22,9 +22,10 @@ End-to-end assessment flow for the recruitment pipeline:
         - mobile_phone (COCO object-detector match)
         - lip_movement (jawOpen blendshape oscillation)
   * On each debounced + cooled-down signal the browser uploads a
-    320px JPEG snapshot (multipart to Odoo) and a ~7 s webm clip
-    DIRECT to S3 via a presigned POST; a warning row is created for
-    scoring.
+    320px JPEG snapshot (multipart to Odoo) and a ~10 s webm clip
+    DIRECT to S3 via a presigned POST (server-side S3 upload, then
+    local ir.attachment storage, as fallbacks); a warning row is
+    created for scoring.
   * Browser also reports tab_switch / window_change / fullscreen_exit
     events and every media-upload failure to a diagnostics beacon.
   * On submit (or auto-submit on time / violation cap) the record moves
@@ -39,7 +40,7 @@ JSON events and thumbnails and scales linearly with S3 throughput.
     "website": "https://www.ethara.com",
     "license": "LGPL-3",
     "category": "Human Resources/Recruitment",
-    "version": "19.0.4.0.0",
+    "version": "19.0.4.3.0",
     "application": True,
     "installable": True,
     "depends": [

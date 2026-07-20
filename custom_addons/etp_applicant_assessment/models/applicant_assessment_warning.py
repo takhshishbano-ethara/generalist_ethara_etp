@@ -29,6 +29,15 @@ class EtpApplicantAssessmentWarning(models.Model):
 
     s3_url = fields.Char(string="Clip URL")
     s3_key = fields.Char(string="S3 Key")
+    attachment_id = fields.Many2one(
+        "ir.attachment", ondelete="set null",
+        help="Local ir.attachment holding the clip when S3 is not "
+             "configured or the S3 upload failed.",
+    )
+    signed_url = fields.Char(
+        compute="_compute_signed_urls",
+        help="Short-lived presigned GET for reviewer playback (S3 only).",
+    )
     raw_meta_json = fields.Text(string="Detector Meta")
 
     penalty_percent = fields.Float(
@@ -42,6 +51,29 @@ class EtpApplicantAssessmentWarning(models.Model):
         help="320px JPEG evidence thumbnail captured at the signal moment.",
     )
     snapshot_key = fields.Char(string="Snapshot S3 Key")
+    snapshot_signed_url = fields.Char(
+        compute="_compute_signed_urls",
+        help="Short-lived presigned GET for the snapshot (S3 only).",
+    )
+
+    def _compute_signed_urls(self):
+        from ..services import s3_service
+        env = self.env
+        s3_ready = s3_service.is_configured(env)
+        client = s3_service._client(env) if s3_ready else None
+        for rec in self:
+            if s3_ready and rec.s3_key:
+                rec.signed_url = s3_service.presigned_get_url(
+                    env, rec.s3_key, expires=3600, client=client,
+                ) or rec.s3_url
+            else:
+                rec.signed_url = rec.s3_url or ""
+            if s3_ready and rec.snapshot_key:
+                rec.snapshot_signed_url = s3_service.presigned_get_url(
+                    env, rec.snapshot_key, expires=3600, client=client,
+                ) or rec.snapshot_url
+            else:
+                rec.snapshot_signed_url = rec.snapshot_url or ""
 
     _PENALTY_FIELD = {
         "other_person": "penalty_other_person",

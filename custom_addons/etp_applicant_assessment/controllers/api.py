@@ -196,8 +196,12 @@ def _serialize_warning(w):
         "chunk_end_at": _dt(w.chunk_end_at),
         "s3_url": w.s3_url or "",
         "s3_key": w.s3_key or "",
+        # Presigned GETs so the reviewer app can play clips from a
+        # private bucket (fall back to the raw URLs otherwise).
+        "signed_url": w.signed_url or w.s3_url or "",
         "snapshot_url": w.snapshot_url or "",
         "snapshot_key": w.snapshot_key or "",
+        "snapshot_signed_url": w.snapshot_signed_url or w.snapshot_url or "",
     }
 
 

@@ -17,9 +17,9 @@
                 <!-- ?v= busts the 7-day browser cache on static files; bump it
                      whenever portal.css / portal.js change. -->
                 <link rel="stylesheet" type="text/css"
-                      href="/etp_applicant_assessment/static/src/portal/portal.css?v=20260716-s3-fix"/>
+                      href="/etp_applicant_assessment/static/src/portal/portal.css?v=20260720-phone-v3"/>
                 <script type="module"
-                        src="/etp_applicant_assessment/static/src/portal/portal.js?v=20260716-s3-fix"/>
+                        src="/etp_applicant_assessment/static/src/portal/portal.js?v=20260720-phone-v3"/>
             </head>
             <body class="eaa-body">
                 <div class="eaa-shell">
