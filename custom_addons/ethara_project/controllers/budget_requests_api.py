@@ -1734,6 +1734,9 @@ class EtharaBudgetRequestController(http.Controller):
             req.message_post(
                 body='<br/>'.join(body_lines),
                 subject=f'{step.upper()} review acknowledged',
+                subtype_xmlid='mail.mt_note',
+                message_type='notification',
+                partner_ids=[],
             )
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})

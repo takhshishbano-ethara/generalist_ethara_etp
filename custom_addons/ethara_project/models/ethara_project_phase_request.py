@@ -653,12 +653,15 @@ class EtharaProjectPhaseRequest(models.Model):
                             if not proj:
                                 continue
                             try:
-                                proj.message_post(
-                                    body=body_str,
-                                    subtype_xmlid='mail.mt_note',
-                                    message_type='notification',
-                                    partner_ids=targets,
-                                )
+                                kwargs = {
+                                    'body': body_str,
+                                    'subtype_xmlid': 'mail.mt_note',
+                                    'message_type': 'notification',
+                                    'partner_ids': targets,
+                                }
+                                kwargs = proj._ethara_thread_post_kwargs(kwargs)
+                                message = proj.message_post(**kwargs)
+                                proj._ethara_capture_root(message)
                             except Exception:
                                 _logger.exception(
                                     'Deferred phase-request chatter post failed for %s',

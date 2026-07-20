@@ -352,12 +352,15 @@ class EtharaProjectBudget(models.Model):
                             if not proj:
                                 continue
                             try:
-                                proj.message_post(
-                                    body=body_str,
-                                    subtype_xmlid='mail.mt_comment',
-                                    message_type='comment',
-                                    partner_ids=targets,
-                                )
+                                kwargs = {
+                                    'body': body_str,
+                                    'subtype_xmlid': 'mail.mt_comment',
+                                    'message_type': 'comment',
+                                    'partner_ids': targets,
+                                }
+                                kwargs = proj._ethara_thread_post_kwargs(kwargs)
+                                message = proj.message_post(**kwargs)
+                                proj._ethara_capture_root(message)
                             except Exception:
                                 _logger.exception(
                                     'Deferred chatter post failed for budget %s',
@@ -366,6 +369,56 @@ class EtharaProjectBudget(models.Model):
                         new_cr.commit()
                 except Exception:
                     _logger.exception('Deferred budget chatter setup failed')
+            threading.Thread(target=_run, daemon=True).start()
+
+        self.env.cr.postcommit.add(_launch)
+
+    def _ethara_send_budget_approval_mail(self):
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        ctx = dict(self.env.context)
+        if ctx.get('ethara_skip_notify'):
+            return
+        payloads = []
+        for rec in self:
+            project = rec.ethara_project_id
+            if not project:
+                continue
+            approver_partner_ids = list({
+                pid for pid in rec.approver_user_ids.mapped('partner_id').ids
+                if pid
+            })
+            if not approver_partner_ids:
+                continue
+            payloads.append((project.id, rec.id, approver_partner_ids))
+        if not payloads:
+            return
+
+        def _launch():
+            def _run():
+                try:
+                    registry = Registry(dbname)
+                    with registry.cursor() as new_cr:
+                        new_env = api.Environment(new_cr, uid, ctx)
+                        for project_id, budget_id, partners in payloads:
+                            proj = new_env['ethara.project'].sudo().browse(project_id).exists()
+                            bud = new_env['ethara.project.budget'].sudo().browse(budget_id).exists()
+                            if not proj or not bud:
+                                continue
+                            try:
+                                proj._ethara_post_thread_message(
+                                    'ethara_project.mail_template_ethara_project_budget_created',
+                                    bud,
+                                    partners,
+                                )
+                            except Exception:
+                                _logger.exception(
+                                    'Deferred budget approval mail failed for budget %s',
+                                    budget_id,
+                                )
+                        new_cr.commit()
+                except Exception:
+                    _logger.exception('Deferred budget approval mail setup failed')
             threading.Thread(target=_run, daemon=True).start()
 
         self.env.cr.postcommit.add(_launch)
@@ -412,6 +465,7 @@ class EtharaProjectBudget(models.Model):
                 dict(BUDGET_STATE_SELECTION).get(rec.state, rec.state or ''),
             )
             rec._post_project_thread_note(body)
+        records._ethara_send_budget_approval_mail()
         return records
 
     def _log_fetch(self, provider, status, created, updated, error=None):

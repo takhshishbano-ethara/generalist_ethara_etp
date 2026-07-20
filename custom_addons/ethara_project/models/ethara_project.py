@@ -1,3 +1,4 @@
+import ast
 import logging
 import threading
 
@@ -76,6 +77,19 @@ class EtharaProject(models.Model):
         inverse_name='project_id',
         string='Attachments',
         copy=True,
+    )
+
+    email_thread_root_message_id = fields.Many2one(
+        comodel_name='mail.message',
+        string='Email Thread Root',
+        readonly=True,
+        copy=False,
+        index=True,
+        ondelete='set null',
+        help='First mail.message posted for this project. Every subsequent '
+             'project email is posted with parent_id=this so mail clients '
+             'thread them under one conversation via References / '
+             'In-Reply-To headers.',
     )
 
     assigned_tpm_ids = fields.Many2many(
@@ -193,6 +207,50 @@ class EtharaProject(models.Model):
             if partner_ids:
                 rec.sudo().message_subscribe(partner_ids=partner_ids)
 
+    def _ethara_thread_post_kwargs(self, base_kwargs):
+        self.ensure_one()
+        root = self.email_thread_root_message_id
+        if root and root.id:
+            base_kwargs['parent_id'] = root.id
+            root_subject = (root.subject or '').strip()
+            if root_subject:
+                thread_subject = (
+                    root_subject
+                    if root_subject.lower().startswith('re:')
+                    else 'Re: ' + root_subject
+                )
+                base_kwargs['subject'] = thread_subject
+        return base_kwargs
+
+    def _ethara_capture_root(self, message):
+        self.ensure_one()
+        if message and not self.email_thread_root_message_id:
+            self.sudo().write({'email_thread_root_message_id': message.id})
+            _logger.info(
+                "[ETHARA-THREAD] Captured root message %s (message_id=%s) "
+                "for project %s(%s).",
+                message.id, message.message_id, self.name, self.id,
+            )
+
+    def _notify_by_email_get_base_mail_values(self, message, recipients_data, additional_values=None):
+        base_mail_values = super()._notify_by_email_get_base_mail_values(
+            message, recipients_data, additional_values=additional_values,
+        )
+        self.ensure_one()
+        root_msg = self.email_thread_root_message_id
+        if root_msg and root_msg.message_id and root_msg.id != message.id:
+            try:
+                headers = ast.literal_eval(base_mail_values.get('headers') or '{}')
+            except (ValueError, SyntaxError):
+                headers = {}
+            headers.setdefault('In-Reply-To', root_msg.message_id)
+            refs = base_mail_values.get('references') or ''
+            if root_msg.message_id not in refs:
+                refs = (root_msg.message_id + ' ' + refs).strip()
+            base_mail_values['references'] = refs
+            base_mail_values['headers'] = repr(headers)
+        return base_mail_values
+
     def _ethara_post_thread_message(
         self, template_xmlid, record, partner_ids, email_values=None,
     ):
@@ -252,14 +310,19 @@ class EtharaProject(models.Model):
         if attachment_ids:
             post_kwargs['attachment_ids'] = attachment_ids
 
+        post_kwargs = self._ethara_thread_post_kwargs(post_kwargs)
+
+        message = False
         try:
-            self.message_post(**post_kwargs)
+            message = self.message_post(**post_kwargs)
         except Exception:
             _logger.exception(
                 "Failed to post ethara project notification on %s(%s) "
                 "(template %s).", self._name, self.id, template_xmlid,
             )
             return False
+
+        self._ethara_capture_root(message)
 
         if record._name != self._name or record.id != self.id:
             try:
@@ -274,13 +337,14 @@ class EtharaProject(models.Model):
                     body=audit_body,
                     subtype_xmlid='mail.mt_note',
                     message_type='notification',
+                    partner_ids=[],
                 )
             except Exception:
                 _logger.exception(
                     "Failed to log audit note on %s(%s).",
                     record._name, record.id,
                 )
-        return True
+        return message
 
     def _ethara_send_welcome_email(self):
         self.ensure_one()
