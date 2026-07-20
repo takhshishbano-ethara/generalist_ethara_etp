@@ -55,6 +55,10 @@ SUBSCRIPTION_MODEL = 'ethara.project.subscription'
 
 VALID_BUDGET_TYPES = ('rnd', 'operations')
 VALID_PRIORITIES = ('low', 'normal', 'high', 'urgent')
+# R&D budgets are split into sub-types; uniqueness is scoped per sub-type so a
+# project can hold one budget per (type, sub-type) — e.g. rnd/testing AND
+# rnd/sampling side by side. Only meaningful when budget_type == 'rnd'.
+VALID_RND_SUB_TYPES = ('testing', 'sampling')
 VALID_COST_TYPES = ('per_task', 'per_trajectory')
 
 CONFIG_PARAM_DEFAULT_APPROVERS = 'ethara_project.default_approver_user_ids'
@@ -942,9 +946,14 @@ class EtharaBudgetController(http.Controller):
             and first_phase.end_date
             and first_phase.end_date >= first_phase.start_date
         ):
+            # Inclusive of the end date (+1), matching the phase model's
+            # `_compute_estimated_cost` (ethara_project_phase.py) and the
+            # Flutter estimate (`_phaseDays`). Without the +1 the request's
+            # infra requested_amount was one day short of the phase_budget,
+            # e.g. a Jul 20 → Jul 30 window billed 10 days here vs 11 there.
             duration_days = (
                 first_phase.end_date - first_phase.start_date
-            ).days
+            ).days + 1
 
         req_total_tasks = first_phase.total_tasks or 0
         req_buffer_pct = first_phase.buffer_pct or 0.0
@@ -1087,6 +1096,22 @@ class EtharaBudgetController(http.Controller):
                 )
             is_rnd = (budget_type == 'rnd')
 
+            # R&D budgets carry a sub-type (testing|sampling); it scopes the
+            # duplicate check below so a project can hold one budget per
+            # sub-type. Required and validated for R&D; ignored otherwise.
+            sub_type = (jdata.get('budget_sub_type') or '').strip().lower()
+            if is_rnd:
+                if sub_type not in VALID_RND_SUB_TYPES:
+                    return return_Response(
+                        message=(
+                            'budget_sub_type must be one of '
+                            f'{list(VALID_RND_SUB_TYPES)} for R&D budgets.'
+                        ),
+                        status=400, data={},
+                    )
+            else:
+                sub_type = ''
+
             initial_budget = _coerce_float(jdata.get('budget_amount'), 0.0)
             if is_rnd and initial_budget <= 0.0:
                 return return_Response(
@@ -1117,14 +1142,21 @@ class EtharaBudgetController(http.Controller):
                     status=400, data={},
                 )
 
-            dup = request.env[BUDGET_MODEL].sudo().search([
+            # Uniqueness is per (project, type) for operations, but per
+            # (project, type, sub-type) for R&D — so rnd/testing and
+            # rnd/sampling can coexist while a second rnd/testing is blocked.
+            dup_domain = [
                 ('ethara_project_id', '=', project_id),
                 ('project_type', '=', budget_type),
-            ], limit=1)
+            ]
+            if is_rnd:
+                dup_domain.append(('budget_sub_type', '=', sub_type))
+            dup = request.env[BUDGET_MODEL].sudo().search(dup_domain, limit=1)
             if dup:
+                label = f'{budget_type} ({sub_type})' if is_rnd else budget_type
                 return return_Response(
                     message=(
-                        f'A {budget_type} budget already exists for project '
+                        f'A {label} budget already exists for project '
                         f'{project.name!r}.'
                     ),
                     status=400, data={},
@@ -1252,9 +1284,9 @@ class EtharaBudgetController(http.Controller):
             if sub_cmds:
                 vals['subscription_line_ids'] = sub_cmds
 
-            # R&D sub-type (testing | sampling) — only stored for R&D budgets.
-            sub_type = (jdata.get('budget_sub_type') or '').strip().lower()
-            if budget_type == 'rnd' and sub_type in ('testing', 'sampling'):
+            # R&D sub-type (testing | sampling) — validated above; only stored
+            # for R&D budgets (empty string for operations).
+            if is_rnd and sub_type:
                 vals['budget_sub_type'] = sub_type
 
             budget = request.env[BUDGET_MODEL].sudo().with_context(

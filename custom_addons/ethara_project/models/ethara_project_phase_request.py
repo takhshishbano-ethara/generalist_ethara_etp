@@ -470,6 +470,25 @@ class EtharaProjectPhaseRequest(models.Model):
                 "approve the full requested total."
             ) % {'approved': approved_total, 'floor': floor})
 
+    def _check_infra_cost_floor(self):
+        """Infrastructure-only floor. Used when the CFO edits line amounts
+        directly (models + subscriptions are editable, so only infrastructure
+        remains a protected fixed cost). The approved total may not drop below
+        the infrastructure requested cost."""
+        self.ensure_one()
+        infra_req = sum(
+            (line.requested_amount or 0.0) for line in self.infra_line_ids
+        )
+        if infra_req <= 0.0:
+            return
+        approved_total = self.approved_total or 0.0
+        if approved_total + 1e-6 < infra_req:
+            raise UserError(_(
+                "Approved amount (USD %(approved).2f) must be at least the "
+                "infrastructure cost (USD %(floor).2f), which cannot be "
+                "reduced."
+            ) % {'approved': approved_total, 'floor': infra_req})
+
     def _check_can_submit(self):
         self.ensure_one()
         if not self.phase_id:
@@ -819,19 +838,37 @@ class EtharaProjectPhaseRequest(models.Model):
         }
 
     def action_cfo_approve(self):
+        # When the CFO edits individual line amounts (models + subscriptions;
+        # infrastructure stays locked), the caller sets `cfo_line_override` in
+        # the context. In that mode the per-line `approved_amount` figures are
+        # authoritative: the approved total is their sum and we DON'T
+        # auto-redistribute (which would overwrite the CFO's line edits). Only
+        # infrastructure is a hard floor there — subscriptions are editable, so
+        # they no longer count toward the fixed-cost floor.
+        line_override = bool(self.env.context.get('cfo_line_override'))
         for rec in self:
             if rec.state != 'cfo_review':
                 raise UserError(_(
                     'Only requests in CFO Approval can be approved by the CFO.'
                 ))
             rec._check_can_cfo_approve()
+            if line_override:
+                rec.approved_total = (
+                    sum(rec.model_line_ids.mapped('approved_amount'))
+                    + sum(rec.infra_line_ids.mapped('approved_amount'))
+                    + sum(rec.subscription_line_ids.mapped('approved_amount'))
+                )
             if (rec.approved_total or 0.0) <= 0.0:
                 raise UserError(_(
                     "Approved total must be greater than zero. Use "
                     "'Request Changes' if the request is not acceptable."
                 ))
-            rec._check_fixed_cost_floor()
-            rec._distribute_approved_amount()
+            if line_override:
+                # Trust the CFO's per-line figures — infra is the only floor.
+                rec._check_infra_cost_floor()
+            else:
+                rec._check_fixed_cost_floor()
+                rec._distribute_approved_amount()
             # Persist the buffer reserve, derived from the base approved total.
             # It is stored apart and NOT added into approved_total.
             rec.buffer_amount = (
@@ -846,6 +883,11 @@ class EtharaProjectPhaseRequest(models.Model):
                 or any(
                     (line.approved_amount or 0.0) < (line.requested_amount or 0.0)
                     for line in rec.infra_line_ids
+                )
+                or any(
+                    (line.approved_amount or 0.0)
+                    < (line.requested_amount or line.final_amount or 0.0)
+                    for line in rec.subscription_line_ids
                 )
             )
             # An explicit decision from the caller (the CFO's Approve vs Partial

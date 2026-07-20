@@ -1484,27 +1484,35 @@ class EtharaBudgetRequestController(http.Controller):
 
         total_tasks_eff = vals.get('total_tasks', req.total_tasks)
 
-        if 'model_lines' in jdata:
-            cmds, _sub, err = _build_request_model_cmds(
-                jdata.get('model_lines') or [], total_tasks_eff, replace=True,
-            )
-            if err:
-                return return_Response(message=err, status=400, data={})
-            vals['model_line_ids'] = cmds
-        if 'infra_lines' in jdata:
-            cmds, _sub, err = _build_request_infra_cmds(
-                jdata.get('infra_lines') or [], replace=True,
-            )
-            if err:
-                return return_Response(message=err, status=400, data={})
-            vals['infra_line_ids'] = cmds
-        if 'subscription_lines' in jdata:
-            cmds, _sub, err = _build_request_subscription_cmds(
-                jdata.get('subscription_lines') or [], replace=True,
-            )
-            if err:
-                return return_Response(message=err, status=400, data={})
-            vals['subscription_line_ids'] = cmds
+        # The line arrays REPLACE the request's lines (with new requested
+        # amounts) only at the CTO step, where the CTO forwards a revised
+        # request. At the CFO step the same keys carry per-line APPROVED-amount
+        # overrides ({id, approved_amount}) applied by `_apply_line_overrides`
+        # below — so skip the replace block for CFO to avoid clobbering line ids
+        # (and rejecting override rows that omit ai_model_id / infra_type_id).
+        if step == 'cto':
+            if 'model_lines' in jdata:
+                cmds, _sub, err = _build_request_model_cmds(
+                    jdata.get('model_lines') or [], total_tasks_eff,
+                    replace=True,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                vals['model_line_ids'] = cmds
+            if 'infra_lines' in jdata:
+                cmds, _sub, err = _build_request_infra_cmds(
+                    jdata.get('infra_lines') or [], replace=True,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                vals['infra_line_ids'] = cmds
+            if 'subscription_lines' in jdata:
+                cmds, _sub, err = _build_request_subscription_cmds(
+                    jdata.get('subscription_lines') or [], replace=True,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                vals['subscription_line_ids'] = cmds
 
         if 'requested_total' in jdata:
             vals['requested_total'] = _coerce_float(
@@ -1561,14 +1569,22 @@ class EtharaBudgetRequestController(http.Controller):
                             jdata.get('approved_amount'), 0.0,
                         ),
                     })
+                # Per-line override mode: the CFO edited individual model /
+                # subscription line amounts (infra stays locked). When those
+                # arrays are present the per-line `approved_amount` figures are
+                # authoritative — `action_cfo_approve` recomputes the total from
+                # the lines and skips auto-redistribution.
+                cfo_line_override = (
+                    'model_lines' in jdata or 'subscription_lines' in jdata
+                )
+                ctx = {}
+                if cfo_line_override:
+                    ctx['cfo_line_override'] = True
                 # Explicit Approve (full) vs Partial decision from the CFO. When
                 # `is_partial` is absent, the model infers it from the amounts.
                 if 'is_partial' in jdata:
-                    req.with_context(
-                        force_partial=_coerce_bool(jdata.get('is_partial')),
-                    ).action_cfo_approve()
-                else:
-                    req.action_cfo_approve()
+                    ctx['force_partial'] = _coerce_bool(jdata.get('is_partial'))
+                req.with_context(**ctx).action_cfo_approve()
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})
         except Exception as e:
@@ -1762,5 +1778,92 @@ class EtharaBudgetRequestController(http.Controller):
             )
         return return_Response(
             message=f'{step.upper()} review noted.', status=200,
+            data={'data': payload},
+        )
+
+    @http.route(
+        '/api/v1/ethara_project/budget/requests/set_buffer',
+        type='http', auth='none', methods=['POST'], csrf=False, cors='*',
+    )
+    @validate_token
+    def set_buffer_budget_request(self, **params):
+        """Persist the CFO's confidential buffer reserve on a request under CFO
+        review — WITHOUT approving it. Stores `buffer_pct` and the derived
+        `buffer_amount` (a % of the current approved line total). CFO-only; the
+        buffer stays redacted for every other role (see `_request_to_detail`)."""
+        jdata, _files = _read_multipart_or_json()
+        req_id = _coerce_int(jdata.get('id'))
+        if not req_id:
+            return return_Response(
+                message='id is required.', status=400, data={},
+            )
+        if 'buffer_pct' not in jdata:
+            return return_Response(
+                message='buffer_pct is required.', status=400, data={},
+            )
+        pct = _coerce_float(jdata.get('buffer_pct'), 0.0)
+        if pct < 0.0 or pct > 100.0:
+            return return_Response(
+                message='buffer_pct must be between 0 and 100.',
+                status=400, data={},
+            )
+        # The buffer is CFO-confidential — only the CFO may allocate it.
+        if not _caller_is_cfo():
+            return return_Response(
+                message='Only the CFO can allocate the confidential buffer.',
+                status=403, data={},
+            )
+        req = request.env[REQUEST_MODEL].sudo().browse(req_id).exists()
+        if not req:
+            return return_Response(
+                message='Budget request not found.', status=404, data={},
+            )
+        if req.state != 'cfo_review':
+            return return_Response(
+                message=(
+                    'Buffer can only be allocated while the request is in CFO '
+                    f'review (state \'{req.state}\').'
+                ),
+                status=400, data={},
+            )
+        # Base = the current CFO working total (sum of line approved amounts),
+        # falling back to the requested total. Matches the Flutter card and the
+        # figure `action_cfo_approve` finalises the buffer on at approval.
+        base = (
+            sum(req.model_line_ids.mapped('approved_amount'))
+            + sum(req.infra_line_ids.mapped('approved_amount'))
+            + sum(req.subscription_line_ids.mapped('approved_amount'))
+        ) or (req.requested_total or 0.0)
+        amount = base * pct / 100.0
+        try:
+            req.write({'buffer_pct': pct, 'buffer_amount': amount})
+            req.message_post(
+                body=(
+                    '<strong>Buffer reserve updated</strong><br/>'
+                    f'Reserved {pct:.2f}% (USD {amount:,.2f}) by '
+                    f'{request.env.user.display_name}'
+                ),
+                subject='Buffer reserve updated',
+            )
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            _logger.exception('set_buffer_budget_request failed')
+            return return_Response(
+                message='Something went wrong.', status=400,
+                data={'errors': [str(e)]},
+            )
+        try:
+            payload = _request_to_detail(req)
+        except Exception as e:
+            _logger.exception(
+                'set_buffer serialization failed for id=%s', req.id,
+            )
+            return return_Response(
+                message=f'Buffer saved but response could not be built: {e}',
+                status=400, data={'errors': [str(e)]},
+            )
+        return return_Response(
+            message='Buffer reserve saved.', status=200,
             data={'data': payload},
         )
