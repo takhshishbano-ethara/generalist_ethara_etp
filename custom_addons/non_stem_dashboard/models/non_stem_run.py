@@ -35,6 +35,10 @@ class NonStemRun(models.Model):
         string="Resource Sheet CSV", attachment=True,
     )
     resource_sheet_filename = fields.Char(string="Resource Sheet Filename")
+    pipeline_mode = fields.Selection(
+        [("normal", "Normal Mode"), ("rs", "RS Mode")],
+        string="Pipeline Mode", default="normal", required=True,
+    )
     state = fields.Selection(
         [("draft", "Draft"), ("running", "Running"),
          ("done", "Done"), ("error", "Error")],
@@ -112,8 +116,11 @@ class NonStemRun(models.Model):
             # Build command
             cmd = [PYTHON_PATH, SCRIPT_PATH, cons_path]
 
-            # Write resource sheet if provided
-            if self.resource_sheet_csv:
+            # Add --rs flag when RS Mode is selected
+            if self.pipeline_mode == "rs":
+                if not self.resource_sheet_csv:
+                    self.write({"state": "draft"})
+                    raise UserError("RS Mode requires a Resource Sheet CSV. Please upload one.")
                 rs_path = os.path.join(tmpdir, self.resource_sheet_filename or "resource_sheet.csv")
                 with open(rs_path, "wb") as f:
                     f.write(base64.b64decode(self.resource_sheet_csv))
