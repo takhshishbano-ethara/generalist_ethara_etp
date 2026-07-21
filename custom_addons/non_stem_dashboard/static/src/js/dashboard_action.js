@@ -9,6 +9,7 @@ class NonStemDashboardView extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
+        this.notification = useService("notification");
         this.state = useState({
             runs: [],
             selectedRun: null,
@@ -58,6 +59,13 @@ class NonStemDashboardView extends Component {
     }
 
     openNewRun() {
+        if (this.state.role !== "admin") {
+            this.notification.add(
+                "You don't have access to create a new run. Please contact your administrator.",
+                { type: "danger", sticky: false }
+            );
+            return;
+        }
         this.action.doAction({
             type: "ir.actions.act_window",
             res_model: "non.stem.run",

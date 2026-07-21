@@ -13,14 +13,14 @@
                             string="Run Pipeline"
                             class="btn-primary"
                             invisible="state != 'draft'"
-                            groups="non_stem_dashboard.group_user"
+                            groups="non_stem_dashboard.group_admin"
                             confirm="This will run the performance pipeline. Continue?"/>
                     <button name="action_run_pipeline"
                             type="object"
                             string="Re-run Pipeline"
                             class="btn-secondary"
                             invisible="state not in ('done', 'error')"
-                            groups="non_stem_dashboard.group_user"
+                            groups="non_stem_dashboard.group_admin"
                             confirm="This will re-run the pipeline. Continue?"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,running,done"/>
@@ -31,7 +31,7 @@
                     </div>
                     <group>
                         <group string="Input Files"
-                               groups="non_stem_dashboard.group_user">
+                               groups="non_stem_dashboard.group_admin">
                             <field name="consolidated_csv" filename="consolidated_filename"/>
                             <field name="consolidated_filename" invisible="1"/>
                             <field name="resource_sheet_csv" filename="resource_sheet_filename"/>
@@ -39,14 +39,14 @@
                         </group>
                         <group string="Output" invisible="state != 'done'">
                             <field name="output_dir"
-                                   groups="non_stem_dashboard.group_user"/>
+                                   groups="non_stem_dashboard.group_admin"/>
                             <div colspan="2">
                                 <button type="object"
                                         name="action_view_tasker_dashboard"
                                         string="View Tasker Dashboard"
                                         class="btn-primary me-2"
                                         icon="fa-bar-chart"
-                                        groups="non_stem_dashboard.group_user"/>
+                                        invisible="current_user_role == 'viewer'"/>
                                 <button type="object"
                                         name="action_copy_public_link"
                                         string="Copy Public Link"
@@ -58,14 +58,15 @@
                                         string="View Management Dashboard"
                                         class="btn-success"
                                         icon="fa-dashboard"
-                                        groups="non_stem_dashboard.group_viewer,base.group_system"/>
+                                        invisible="current_user_role == 'user'"/>
                             </div>
                             <field name="public_url" invisible="1"/>
                             <field name="is_current_user_manager" invisible="1"/>
+                            <field name="current_user_role" invisible="1"/>
                         </group>
                     </group>
                     <notebook invisible="state == 'draft'"
-                             groups="non_stem_dashboard.group_user">
+                             groups="non_stem_dashboard.group_admin">
                         <page string="Pipeline Log" invisible="not log_output">
                             <field name="log_output" readonly="1"/>
                         </page>

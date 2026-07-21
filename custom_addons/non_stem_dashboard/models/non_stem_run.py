@@ -58,6 +58,10 @@ class NonStemRun(models.Model):
     is_current_user_manager = fields.Boolean(
         compute="_compute_is_current_user_manager",
     )
+    current_user_role = fields.Selection(
+        [("viewer", "Viewer"), ("user", "User"), ("admin", "Admin")],
+        compute="_compute_current_user_role",
+    )
 
     @api.depends("public_token")
     def _compute_public_url(self):
@@ -73,6 +77,17 @@ class NonStemRun(models.Model):
         is_mgr = user._is_admin() or user.has_group("non_stem_dashboard.group_admin")
         for rec in self:
             rec.is_current_user_manager = is_mgr
+
+    def _compute_current_user_role(self):
+        user = self.env.user
+        if user._is_admin() or user.has_group("non_stem_dashboard.group_admin"):
+            role = "admin"
+        elif user.has_group("non_stem_dashboard.group_user"):
+            role = "user"
+        else:
+            role = "viewer"
+        for rec in self:
+            rec.current_user_role = role
 
     @api.model_create_multi
     def create(self, vals_list):

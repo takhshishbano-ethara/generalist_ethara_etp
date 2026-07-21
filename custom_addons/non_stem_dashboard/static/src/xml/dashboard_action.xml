@@ -32,7 +32,7 @@
                 </button>
             </t>
 
-            <t t-if="state.role === 'admin' or state.role === 'user'">
+            <t t-if="state.role === 'admin'">
                 <button class="btn btn-primary" t-on-click="openNewRun">
                     <i class="fa fa-plus"/> New Run
                 </button>
@@ -51,7 +51,7 @@
                 <div class="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
                     <i class="fa fa-bar-chart fa-4x mb-3"/>
                     <h4>No dashboard runs yet</h4>
-                    <t t-if="state.role === 'admin' or state.role === 'user'">
+                    <t t-if="state.role === 'admin'">
                         <p>Create a new run by uploading your CSV files.</p>
                         <button class="btn btn-primary" t-on-click="openNewRun">
                             <i class="fa fa-plus"/> Create First Run
