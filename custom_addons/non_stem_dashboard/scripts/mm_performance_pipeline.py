@@ -2177,7 +2177,7 @@ def load_resource_sheet(rs_path):
         reader.fieldnames = deduped_header
         for row in reader:
             email    = row.get('Email', '').strip().lower()
-            pl_raw   = row.get('PL', '').strip()
+            pl_raw   = (row.get('PL') or row.get('POD Lead') or '').strip()
             pod_name = row.get('Pod Name/Location', '').strip()
             proj     = row.get('Current Project', '').strip()
             if not email or not pl_raw:
