@@ -319,7 +319,7 @@
 
     .etp-hero-title {
         color: #fff;
-        font-size: clamp(1.9rem, calc(3.4vw + 0.6rem), 2.6rem);
+        font-size: clamp(1.9rem, 4.5vw, 2.6rem);
         font-weight: 780;
         line-height: 1.08;
         letter-spacing: -0.02em;
@@ -2215,7 +2215,11 @@ body.etp-zoom-lock { overflow: hidden; }
     left: 50%;
     transform: translateX(-50%);
     z-index: 1080;
-    max-width: min(90vw, 32rem);
+    // Interpolated so libsass emits a literal CSS min() (browser-evaluated)
+    // instead of trying to reconcile 90vw vs 32rem itself, which fails with
+    // "Incompatible units" and kills the whole frontend bundle. Line comment
+    // (not block) so the interpolation token is not re-parsed inside a comment.
+    max-width: unquote("min(90vw, 32rem)");
     margin: 0;
     box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .18);
 }

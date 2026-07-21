@@ -29,10 +29,10 @@
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="5"/>
 
-    <menuitem id="menu_etp_assessment_pro_pending_approvals"
-              name="Pending Approvals"
+    <menuitem id="menu_etp_assessment_pro_tags_top"
+              name="Tags"
               parent="menu_etp_assessment_pro_root"
-              action="action_etp_assessment_pro_prompt_question_pending"
+              action="action_etp_assessment_pro_tag"
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="10"/>
 
@@ -50,6 +50,13 @@
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="45"/>
 
+    <menuitem id="menu_etp_assessment_pro_sop_ranking"
+              name="SOP Rankings"
+              parent="menu_etp_assessment_pro_root"
+              action="action_etp_assessment_pro_sop_ranking"
+              groups="etp_assessment_pro.group_assessment_manager"
+              sequence="46"/>
+
     <menuitem id="menu_etp_assessment_pro_config_root"
               name="Configuration"
               parent="menu_etp_assessment_pro_root"
@@ -63,13 +70,6 @@
               action="action_etp_assessment_pro_config"
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="10"/>
-
-    <menuitem id="menu_etp_assessment_pro_tags"
-              name="Tags"
-              parent="menu_etp_assessment_pro_config_root"
-              action="action_etp_assessment_pro_tag"
-              groups="etp_assessment_pro.group_assessment_manager"
-              sequence="20"/>
 
     <menuitem id="menu_etp_assessment_pro_llm_budget"
               name="LLM Budget"

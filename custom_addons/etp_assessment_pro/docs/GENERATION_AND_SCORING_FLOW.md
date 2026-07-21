@@ -14,6 +14,18 @@
 - **Scoring is v10, not v6.** The grader still returns one JSON object per submission, but the score is **re-derived deterministically** by `_recompute_v10` (`scoring.py:764`) from structured verdicts (`golden_claims` / `elements` / `clarity`) - the judge's own arithmetic is not trusted. Weights: `key_closeness = 0.70·deciding + 0.30·supporting`; `score = 0.60·key_closeness + 0.25·sop_coverage + 0.15·clarity`.
 - **Tag extraction is inline (no cron).** `action_extract_tags` → `_run_tag_extract_inline` runs on the web request; migration 98.0 removed `ir_cron_extract_tags`.
 
+## Generation self-heal + authoring-harness import (v122.0)
+
+Two harness-aligned additions layer on top of the base generation run in `generate_questions_from_sop` (`services/vertex.py`). Both are opt-out via `ir.config_parameter` and never change the persisted-draft schema.
+
+- **Self-heal robustness layer** (`_selfheal_generation`, runs after the base batch + terse-retry, before the create loop). Three best-effort stages, each wrapped so a failure keeps the base batch intact:
+  - **Top-up** (`_topup_items`): when a run comes up short of the requested `count` (early truncation), request only the shortfall - passing the already-authored titles so the model does not duplicate, and targeting `required_elements` no item covers yet (`_uncovered_elements`, read from the generator's `required_elements_json`). Loops up to 3 times.
+  - **Backfill** (`_backfill_solutions`): solutions are emitted LAST in the envelope, so a big-metadata SOP that truncates drops them first. This regenerates answer keys from the finalized questions on a dedicated bounded call, so every item ends with a key.
+  - **Critique** (`_critique_revise`): a strict second-opinion pass on the assembled answer keys against the SOP; only a fully 1:1-aligned correction set is auto-applied (never a partial remap that could mis-key), and item/prompt issues are logged. This is the discipline that catches a wrong/ambiguous or keyless objective question (H-11 class) *before* candidates sit it.
+  - Config: `etp_assessment_pro.gen_selfheal` (default `1`; `0` disables top-up + backfill) and `etp_assessment_pro.gen_critique` (default `1`; `0` disables the critique pass). Each stage logs to `usageMetadata` under `operation=generate_questions` with a `note` of `topup`/`backfill_solutions`/`critique`.
+
+- **Authoring-harness import** (`import_bank_harness`, `models/bank_import.py`). The standalone harness (`/Users/cj/Developer/harness`) is an offline authoring twin using the SAME Vertex models. It emits a run folder in the Opus seed-prompt schema (`questions.json` + `solutions.json`, or a combined `output.json`). `import_bank_harness` maps that into review **drafts** on a generator (never live questions), attaching answer keys from the harness solutions and surfacing image/video assets by URL when fetchable (local run-folder files are reported in warnings for a manual upload). The **Import Question Bank** wizard fingerprints a harness upload (`_try_harness_payload`) and routes to it ahead of the CSV / native round-trip paths.
+
 ---
 
 ## 1. Overview

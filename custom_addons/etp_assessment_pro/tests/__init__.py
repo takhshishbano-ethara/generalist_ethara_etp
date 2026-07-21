@@ -14,6 +14,7 @@ from . import test_phase4_dom_capture
 from . import test_phase4_dom_rules
 from . import test_phase5_admin_visibility
 from . import test_sop_gen_directive_bugs
+from . import test_generation_selfheal
 from . import test_phase1_three_prompt_flaw
 from . import test_phase2_relaxed_flaw
 from . import test_phase3_verify_regenerate

@@ -346,7 +346,7 @@ class EtpAssessment(models.Model):
             # H-11 + M-13: refuse to start if any objective (mcq/msq) OR image_ab
             # question has dimensions but NO correct option marked. Such a
             # question scores 0 for EVERY candidate (an authoring bug) with no
-            # error — surface it now, before candidates sit, not after results
+            # error - surface it now, before candidates sit, not after results
             # look wrong.
             def _is_keyless(q):
                 if q.question_type not in ("mcq", "msq", "image_ab"):
@@ -1028,6 +1028,12 @@ class EtpAssessmentEvaluator(models.Model):
             scored = need.filtered(lambda r: r.llm_state == "scored")
             rec.llm_total_score = sum(scored.mapped("llm_score"))
             rec.llm_max_score = sum(need.mapped("llm_max_score"))
+            # A terminal 'error' (e.g. a Vertex outage, not the candidate's
+            # fault) is counted as UNRESOLVED on purpose: it holds the result on
+            # 'pending' so an admin can Reset & Re-score, rather than silently
+            # finalizing a wrongful 0/FAIL. The '!' scoring_error_flag surfaces it
+            # in the candidate list. (Audit H-9 proposed auto-releasing on error;
+            # we deliberately do NOT, to avoid mis-failing on infra faults.)
             rec.subjective_pending = len(need.filtered(
                 lambda r: r.llm_state in (
                     "pending", "queued", "failed", "error")))
@@ -1718,8 +1724,13 @@ class EtpAssessmentResponse(models.Model):
             objective_dims = rec.question_id.question_dimension_ids.filtered(
                 lambda qd: qd.option_line_ids.filtered("is_correct"))
             if not objective_dims:
+                # Keyless objective question (no correct option on any dimension):
+                # an authoring bug that action_start refuses to launch. If one
+                # slips in at runtime (key cleared after start, or a legacy
+                # in-flight assessment), score it 0/0 so it drops OUT of the
+                # denominator instead of silently costing every candidate a mark.
                 rec.score = 0
-                rec.max_score = 1
+                rec.max_score = 0
                 continue
             all_correct = True
             for qd in objective_dims:
@@ -1797,7 +1808,7 @@ class EtpAssessmentResponse(models.Model):
             # text has not changed. Without this, a candidate re-submitting a
             # scored subjective answer (while still in-progress on other
             # questions, with llm_auto_score on) forces the cron to grade the
-            # same text again and again — a candidate-driven cost loop. A genuine
+            # same text again and again - a candidate-driven cost loop. A genuine
             # edit changes the hash and DOES re-queue (once), and an exhausted
             # attempt budget is left alone.
             cur_hash = hashlib.sha256(

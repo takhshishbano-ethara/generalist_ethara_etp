@@ -284,6 +284,31 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             })
         return images
 
+    def _try_harness_payload(self):
+        """Return the parsed authoring-harness run dict/list if the upload is one,
+        else None. The harness emits questions.json (a list of {id, instruction,
+        fields, assets}) or output.json ({questions:[...], solutions:{...}}). We
+        fingerprint on those shapes so it routes to import_bank_harness and not the
+        CSV or native round-trip paths."""
+        try:
+            data = json.loads(self._decode().decode("utf-8-sig"))
+        except Exception as exc:  # noqa: BLE001
+            _logger.debug("Harness-payload parse failed, trying next path: %s", exc)
+            return None
+
+        def _looks_harness(q):
+            return isinstance(q, dict) and (
+                "fields" in q or ("instruction" in q and "id" in q))
+
+        if isinstance(data, list) and data and _looks_harness(data[0]):
+            return data
+        if isinstance(data, dict) and isinstance(data.get("questions"), list) \
+                and not data.get("etp_assessment_pro_bank"):
+            qs = data["questions"]
+            if qs and _looks_harness(qs[0]):
+                return data
+        return None
+
     def _try_native_payload(self):
         """Return the parsed native round-trip export dict if the upload is one,
         else None (so the CSV path runs)."""
@@ -304,6 +329,29 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         self.ensure_one()
         if not self.data_file:
             raise UserError("Please attach a file first.")
+        harness = self._try_harness_payload()
+        if harness is not None:
+            res = self.env["etp.assessment.pro.bank.import"].import_bank_harness(
+                harness,
+                generator_name=(self.generator_name
+                                or ("Harness: %s" % (self.data_filename
+                                                     or "run"))))
+            warns = res.get("warnings") or []
+            msg = "Imported %s draft question(s) from the authoring harness." \
+                % res.get("questions_created", 0)
+            if warns:
+                msg += " %d note(s) - see logs for asset follow-ups." % len(warns)
+                for w in warns[:20]:
+                    _logger.info("harness import: %s", w)
+            return {
+                "type": "ir.actions.act_window",
+                "name": "Imported Question Bank",
+                "res_model": "etp.assessment.pro.prompt",
+                "view_mode": "form",
+                "res_id": res.get("generator_id"),
+                "target": "current",
+                "context": {},
+            }
         native = self._try_native_payload()
         if native is not None:
             res = self.env["etp.assessment.pro.bank.import"].import_bank_native(

@@ -1,6 +1,6 @@
 {
     "name": "ETP Assessment Pro",
-    "version": "19.0.1.121.0",
+    "version": "19.0.1.122.0",
     "summary": "SOP-direct Question Bank + Assessment lifecycle (LLM-driven, Vertex AI)",
     "author": "Ethara",
     "website": "https://www.ethara.com",
@@ -20,6 +20,7 @@
         "views/hr_applicant_views.xml",
         "views/analytics_views.xml",
         "views/dashboard_views.xml",
+        "views/sop_ranking_views.xml",
         "views/llm_dashboard_views.xml",
         "views/tag_views.xml",
         "views/portal_templates.xml",

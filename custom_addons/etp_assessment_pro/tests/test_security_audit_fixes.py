@@ -32,7 +32,7 @@ from .test_scoring_v6 import _ScoringBase
 
 
 # --------------------------------------------------------------------------- #
-# Pure-function tests (no DB) — fast and deterministic.
+# Pure-function tests (no DB) - fast and deterministic.
 # --------------------------------------------------------------------------- #
 class TestInjectionGateBypasses(TransactionCase):
     """H-4 + M-9: the pre-LLM injection gate must survive unicode evasion and
@@ -142,7 +142,7 @@ class TestVertexCostGuards(TransactionCase):
 
 
 # --------------------------------------------------------------------------- #
-# ORM tests — mocked Vertex, no billing.
+# ORM tests - mocked Vertex, no billing.
 # --------------------------------------------------------------------------- #
 class TestJustificationSizeCap(_ScoringBase):
     """C-1: an oversized justification is truncated before storage/scoring."""
@@ -218,3 +218,36 @@ class TestRescoreLoopGuard(_ScoringBase):
         resp._enqueue_subjective_scoring()
         resp.invalidate_recordset()
         self.assertEqual(resp.llm_state, "pending")
+
+
+class TestKeylessObjectiveScore(_ScoringBase):
+    """H-11 / M-13: a keyless mcq/msq (dimensions but no correct option) must
+    score 0/0 at runtime so it drops OUT of the denominator, never silently
+    costing every candidate a mark. action_start blocks this at author time;
+    _compute_score is the runtime backstop for a key cleared after start."""
+
+    def test_keyless_mcq_scores_zero_over_zero(self):
+        q = self.Question.create({
+            "name": "Keyless", "prompt": "Pick.", "question_type": "mcq"})
+        # A dimension whose options exist but NONE is is_correct (correct_label
+        # matches no option) -> keyless.
+        self._attach_dim(q, "Axis", correct_label="__none__",
+                         options=["A", "B", "C"])
+        ev, app, ass = self._evaluator()
+        resp = self._resp(ev, app, ass, q)
+        resp._compute_score()
+        self.assertEqual(resp.max_score, 0,
+                         "keyless objective question must not add to the "
+                         "denominator (was 1 -> silent penalty for everyone)")
+        self.assertEqual(resp.score, 0)
+
+    def test_keyed_mcq_still_scores_one(self):
+        q = self.Question.create({
+            "name": "Keyed", "prompt": "Pick.", "question_type": "mcq"})
+        self._attach_dim(q, "Axis", correct_label="A", options=["A", "B"])
+        ev, app, ass = self._evaluator()
+        resp = self._resp(ev, app, ass, q)
+        resp._compute_score()
+        self.assertEqual(resp.max_score, 1,
+                         "a properly keyed question still counts in the total")
+

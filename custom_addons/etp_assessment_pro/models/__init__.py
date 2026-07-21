@@ -13,4 +13,5 @@ from . import llm_usage
 from . import hr_applicant
 from . import assessment
 from . import dashboard
+from . import sop_ranking
 from . import llm_dashboard

@@ -586,7 +586,7 @@ class TestExportResults(_Base):
 
 class TestResultSummary(_Base):
     """The per-candidate Result Summary card must reflect the SAME scored
-    values shown in the detailed breakdown — objective correct/total,
+    values shown in the detailed breakdown - objective correct/total,
     subjective pass/total, totals, percent, and pass/fail badge."""
 
     def _submitted_mixed(self, mcq_correct=True, subj_score=0.9):
@@ -690,7 +690,7 @@ class TestResultSummary(_Base):
 
 class TestCsvImportAnswerKeyIntegrity(_Base):
     """The CSV importer must materialize each question's answer key EXACTLY
-    as declared — never lose a correct flag, never flag a wrong option, and
+    as declared - never lose a correct flag, never flag a wrong option, and
     never let two questions sharing a dimension label contaminate each other.
     """
 
@@ -726,7 +726,7 @@ class TestCsvImportAnswerKeyIntegrity(_Base):
 
     def test_shared_label_questions_do_not_contaminate(self):
         # Two image_ab rows share identical dimension labels but DIFFER on the
-        # 3rd axis's correct answer — the real adversarial case from the
+        # 3rd axis's correct answer - the real adversarial case from the
         # reference bank. Each must keep its OWN key.
         dims_a = json.dumps([
             {"label": "Edit correct?", "options": ["Aligned", "No"],
@@ -770,7 +770,7 @@ class TestCsvImportAnswerKeyIntegrity(_Base):
 
 class TestManagerApplicantAccess(_Base):
     """BUG-009 regression: an assessment Manager who is NOT separately granted
-    a recruitment role must still be able to read hr.applicant — every
+    a recruitment role must still be able to read hr.applicant - every
     assessment/evaluator view dereferences applicant_id, so without this the
     admin hits 'You are not allowed to access Applicant (hr.applicant)'.
     The manager group implies hr_recruitment.group_hr_recruitment_user to
@@ -801,3 +801,75 @@ class TestManagerApplicantAccess(_Base):
         # The view path: read the evaluator and dereference the candidate name.
         name = ev.with_user(user).applicant_id.partner_name
         self.assertTrue(name is not None)
+
+
+class TestSopRanking(_Base):
+    """SOP Rankings dashboard: each generator ranked by its candidates' real,
+    stored score_percent. Builds two SOPs with opposite outcomes and asserts the
+    high performer ranks first, with correct per-SOP counts."""
+
+    def _sop_with_outcome(self, name, correct):
+        """One generator + one MCQ + one candidate who answers correctly or not,
+        submitted through the real scoring path so score_percent is stored."""
+        cat = self._make_category(name)
+        q, _dim, master = self._make_mcq(
+            "%s_Q" % name, correct_idx=0, category=cat)
+        emp = self._make_applicant("%s_cand" % name)
+        a = self.Assessment.create({
+            "name": "%s_A" % name, "generator_id": cat.id,
+            "question_limit": 1, "duration_minutes": 30,
+            "evaluator_ids": [(6, 0, [emp.id])]})
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
+        pick = master[0].id if correct else master[1].id
+        qd = q.question_dimension_ids[0]
+        resp = self.Response.create({
+            "assessment_id": a.id,
+            "assessment_evaluator_id": ev.id,
+            "evaluator_id": ev.applicant_id.id,
+            "question_id": q.id,
+            "line_ids": [(0, 0, {
+                "question_dimension_id": qd.id,
+                "selected_option_id": pick})],
+        })
+        resp.action_submit()
+        ev.write({"state": "submitted"})
+        ev.invalidate_recordset()
+        return cat, ev
+
+    def test_ranking_orders_by_score_and_counts(self):
+        Ranking = self.env["etp.assessment.pro.sop.ranking"]
+        good_gen, good_ev = self._sop_with_outcome("Alpha", correct=True)
+        bad_gen, _bad_ev = self._sop_with_outcome("Beta", correct=False)
+        self.assertAlmostEqual(good_ev.score_percent, 100.0, places=1)
+
+        rows = Ranking._build_ranking_rows(
+            self.env["etp.assessment.pro.evaluator"])
+        by_id = {r["id"]: r for r in rows}
+        self.assertIn(good_gen.id, by_id)
+        self.assertIn(bad_gen.id, by_id)
+        # High performer must rank strictly above the low performer.
+        order = [r["id"] for r in rows]
+        self.assertLess(order.index(good_gen.id), order.index(bad_gen.id))
+        self.assertEqual(by_id[good_gen.id]["avg"], 100.0)
+        self.assertEqual(by_id[good_gen.id]["pass_rate"], 100.0)
+        self.assertEqual(by_id[good_gen.id]["submitted"], 1)
+        self.assertEqual(by_id[good_gen.id]["candidates"], 1)
+        self.assertEqual(by_id[good_gen.id]["questions"], 1)
+
+    def test_default_get_renders_rows_and_kpis(self):
+        Ranking = self.env["etp.assessment.pro.sop.ranking"]
+        self._sop_with_outcome("Gamma", correct=True)
+        vals = Ranking.default_get(
+            ["total_sops", "total_submitted", "overall_avg", "ranking_html"])
+        self.assertGreaterEqual(vals["total_sops"], 1)
+        self.assertGreaterEqual(vals["total_submitted"], 1)
+        self.assertIn("etp-brk-row", vals["ranking_html"])
+
+    def test_empty_state_when_no_submissions(self):
+        Ranking = self.env["etp.assessment.pro.sop.ranking"]
+        # A generator with no submitted attempts yields the empty state.
+        self._make_category("Lonely")
+        vals = Ranking.default_get(["ranking_html"])
+        self.assertIn("etp-brk-empty", vals["ranking_html"])
+
