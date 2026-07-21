@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kang_dashboard.KangShowcase">
+        <div class="kj-showcase">
+            <header class="kj-showcase-header">
+                <span class="kj-tag">HEDGE-BENCH 1.0 &#xB7; FINANCIAL-REASONING BENCHMARK</span>
+                <h1 class="kj-title">KANG</h1>
+                <p class="kj-subtitle">
+                    Hedge-Fund Analyst Reasoning &#xB7; Deterministic 0-4 Grading &#xB7; 102 Tasks
+                </p>
+                <p class="kj-byline">
+                    by <strong>Ethara AI</strong> &#xB7;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="kj-section kj-description">
+                <p>
+                    Kang is Hedge-Bench 1.0, a financial-reasoning benchmark of 102 on-the-job
+                    tasks grounded in the explicit reasoning traces of professional hedge-fund
+                    analysts. Each task casts an agent as an analyst with a corpus of primary
+                    documents and an open-ended theme, then grades its reasoning deterministically
+                    against verified expert moves on a dense 0-4 rubric. Eight frontier models were
+                    tested across 6,528 trials; the best captures under half the rubric.
+                </p>
+            </section>
+
+            <section class="kj-section kj-capabilities">
+                <ul class="kj-capabilities-list">
+                    <li><span class="kj-cap-arrow">&#x2192;</span> Realistic: on-the-job tasks from working hedge-fund analysts</li>
+                    <li><span class="kj-cap-arrow">&#x2192;</span> Deterministic: open-ended reasoning graded against verified expert moves</li>
+                    <li><span class="kj-cap-arrow">&#x2192;</span> Reasoning-first: argument and judgement, not recall or retrieval</li>
+                    <li><span class="kj-cap-arrow">&#x2192;</span> Uncontaminated: proprietary traces no model saw in pretraining</li>
+                    <li><span class="kj-cap-arrow">&#x2192;</span> Dense 0-4 rubric scored on grounding, coverage, and synthesis</li>
+                </ul>
+            </section>
+
+            <section class="kj-section kj-metrics">
+                <div class="kj-metric-grid">
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">102</span>
+                        <span class="kj-metric-label">Benchmark Tasks</span>
+                        <span class="kj-metric-detail">5,112 curated &#xB7; 20,448 sub-tasks</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">6,528</span>
+                        <span class="kj-metric-label">Evaluation Trials</span>
+                        <span class="kj-metric-detail">8 models &#xB7; 8 trials each</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">6</span>
+                        <span class="kj-metric-label">Topic Categories</span>
+                        <span class="kj-metric-detail">valuation, growth, M&amp;A, risk</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">&lt; 16%</span>
+                        <span class="kj-metric-label">Best pass@1</span>
+                        <span class="kj-metric-detail">far from saturated</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="kj-section kj-phases">
+                <div class="kj-phases-row">
+                    <div class="kj-phase-card">
+                        <div class="kj-phase-number">1</div>
+                        <h3>Grounding</h3>
+                        <p>
+                            Extract every factual claim and verify it against its cited source.
+                            A move resting on a flagged fact is forfeited.
+                        </p>
+                    </div>
+                    <div class="kj-phase-arrow">&#x2192;</div>
+                    <div class="kj-phase-card">
+                        <div class="kj-phase-number">2</div>
+                        <h3>Coverage</h3>
+                        <p>
+                            Per theme, count the lettered required moves the answer hits,
+                            matched by concept rather than vocabulary.
+                        </p>
+                    </div>
+                    <div class="kj-phase-arrow">&#x2192;</div>
+                    <div class="kj-phase-card">
+                        <div class="kj-phase-number">3</div>
+                        <h3>Synthesis</h3>
+                        <p>
+                            One explicit reconciliation of opposing data unlocks the top score.
+                            Pass is a perfect 4.0 / 4.0.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="kj-section kj-links">
+                <a class="kj-btn" t-att-href="state.trajectoriesUrl"
+                   target="_blank" rel="noopener">
+                    Repository
+                </a>
+                <a class="kj-btn kj-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Dataset
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>
