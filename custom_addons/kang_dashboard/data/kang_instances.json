@@ -1,0 +1,10 @@
+[
+  {"model": "Claude-Sonnet-4.6", "provider": "Anthropic", "dense": 1.92, "themes": 56.4, "moves": 54.9, "rank": 1},
+  {"model": "Claude-Opus-4.7", "provider": "Anthropic", "dense": 1.84, "themes": 53.6, "moves": 53.9, "rank": 2},
+  {"model": "GPT-5.5", "provider": "OpenAI", "dense": 1.68, "themes": 48.1, "moves": 49.7, "rank": 3},
+  {"model": "Gemini-3.5-Flash", "provider": "Google", "dense": 1.68, "themes": 48.0, "moves": 49.8, "rank": 4},
+  {"model": "Claude-Opus-4.8", "provider": "Anthropic", "dense": 1.62, "themes": 47.3, "moves": 49.1, "rank": 5},
+  {"model": "Claude-Haiku-4.5", "provider": "Anthropic", "dense": 1.14, "themes": 32.5, "moves": 36.9, "rank": 6},
+  {"model": "Gemini-3.1-Pro", "provider": "Google", "dense": 1.12, "themes": 30.5, "moves": 37.6, "rank": 7},
+  {"model": "GPT-5.4-Mini", "provider": "OpenAI", "dense": 0.75, "themes": 19.8, "moves": 26.1, "rank": 8}
+]
