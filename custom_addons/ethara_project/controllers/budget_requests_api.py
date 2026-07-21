@@ -181,6 +181,24 @@ def _budget_sub_type_label(req):
     return selection.get(value, value.title())
 
 
+def _budget_team_type_value(req):
+    """Owning team (`generalist`/`technical`/`rnd`) off the parent budget,
+    guarded so the controller survives a code reload preceding the `-u`."""
+    budget = req.budget_id
+    if not budget or 'team_type' not in budget._fields:
+        return ''
+    return budget.team_type or ''
+
+
+def _budget_team_type_label(req):
+    value = _budget_team_type_value(req)
+    if not value:
+        return ''
+    budget = req.budget_id
+    selection = dict(budget._fields['team_type'].selection)
+    return selection.get(value, value.title())
+
+
 def _role_brief(role):
     if not role:
         return None
@@ -547,6 +565,8 @@ def _request_to_summary(req):
         } if req.budget_id else None,
         'project_budget_id': req.budget_id.id if req.budget_id else None,
         'project_type': _budget_project_type(req),
+        'team_type': _budget_team_type_value(req),
+        'team_type_label': _budget_team_type_label(req),
         'budget_sub_type': _budget_sub_type_value(req),
         'budget_sub_type_label': _budget_sub_type_label(req),
         'total_tasks': req.total_tasks,

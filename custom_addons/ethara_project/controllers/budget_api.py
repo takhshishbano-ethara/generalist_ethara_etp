@@ -54,6 +54,10 @@ INFRA_PROVIDER_MODEL = 'ethara.project.infra.provider'
 SUBSCRIPTION_MODEL = 'ethara.project.subscription'
 
 VALID_BUDGET_TYPES = ('rnd', 'operations')
+# Owning team, chosen first in the create flow. Generalist/Technical produce
+# an 'operations' (Production) budget; R&D produces an 'rnd' budget with a
+# sub-type. Per-project uniqueness is keyed on (team_type, budget_sub_type).
+VALID_TEAM_TYPES = ('generalist', 'technical', 'rnd')
 VALID_PRIORITIES = ('low', 'normal', 'high', 'urgent')
 # R&D budgets are split into sub-types; uniqueness is scoped per sub-type so a
 # project can hold one budget per (type, sub-type) — e.g. rnd/testing AND
@@ -1112,6 +1116,35 @@ class EtharaBudgetController(http.Controller):
             else:
                 sub_type = ''
 
+            # Team that owns the budget (chosen first in the create flow).
+            # Generalist/Technical => Production (operations); R&D => rnd. We
+            # enforce consistency with budget_type/sub_type so the
+            # (team_type, sub_type) uniqueness key below can't be spoofed.
+            team_type = (jdata.get('team_type') or '').strip().lower()
+            if team_type not in VALID_TEAM_TYPES:
+                return return_Response(
+                    message=(
+                        f'team_type must be one of {list(VALID_TEAM_TYPES)}.'
+                    ),
+                    status=400, data={},
+                )
+            if team_type == 'rnd' and not is_rnd:
+                return return_Response(
+                    message=(
+                        'R&D team_type requires an R&D budget_type '
+                        '(testing|sampling).'
+                    ),
+                    status=400, data={},
+                )
+            if team_type in ('generalist', 'technical') and is_rnd:
+                return return_Response(
+                    message=(
+                        'Generalist/Technical teams must use the Production '
+                        'budget_type, not R&D.'
+                    ),
+                    status=400, data={},
+                )
+
             initial_budget = _coerce_float(jdata.get('budget_amount'), 0.0)
             if is_rnd and initial_budget <= 0.0:
                 return return_Response(
@@ -1142,18 +1175,18 @@ class EtharaBudgetController(http.Controller):
                     status=400, data={},
                 )
 
-            # Uniqueness is per (project, type) for operations, but per
-            # (project, type, sub-type) for R&D — so rnd/testing and
-            # rnd/sampling can coexist while a second rnd/testing is blocked.
+            # Uniqueness is per (project, team_type, sub-type). For
+            # Generalist/Technical (Production) sub_type is '' so team_type
+            # separates them; for R&D, testing/sampling coexist while a second
+            # budget of the same sub-type is blocked.
             dup_domain = [
                 ('ethara_project_id', '=', project_id),
-                ('project_type', '=', budget_type),
+                ('team_type', '=', team_type),
+                ('budget_sub_type', '=', sub_type),
             ]
-            if is_rnd:
-                dup_domain.append(('budget_sub_type', '=', sub_type))
             dup = request.env[BUDGET_MODEL].sudo().search(dup_domain, limit=1)
             if dup:
-                label = f'{budget_type} ({sub_type})' if is_rnd else budget_type
+                label = f'{team_type} / {sub_type or "production"}'
                 return return_Response(
                     message=(
                         f'A {label} budget already exists for project '
@@ -1270,6 +1303,7 @@ class EtharaBudgetController(http.Controller):
             vals = {
                 'ethara_project_id': project_id,
                 'project_type': budget_type,
+                'team_type': team_type,
                 'budget_amount': initial_budget,
                 'total_tasks': total_tasks,
                 'buffer_pct': buffer_pct,
@@ -1382,6 +1416,7 @@ class EtharaBudgetController(http.Controller):
                     'project_id': project.id,
                     'project_name': project.name or '',
                     'budget_type': budget.project_type,
+                    'team_type': budget.team_type or '',
                     'state': budget.state,
                     'budget_amount': budget.budget_amount or 0.0,
                     'total_tasks': budget.total_tasks or 0,

@@ -125,6 +125,7 @@ class EtharaBudgetReadController(http.Controller):
             message='Budget field options fetched.', status=200,
             data={
                 'budget_types': opts('project_type'),
+                'team_types': opts('team_type'),
                 'states': opts('state'),
                 'priorities': opts('priority'),
             },
@@ -168,6 +169,16 @@ class EtharaBudgetReadController(http.Controller):
                     status=400, data={},
                 )
             vals['project_type'] = bt
+
+        if 'team_type' in jdata:
+            tt = (jdata.get('team_type') or '').strip()
+            valid = [v for v, _ in Model._fields['team_type'].selection]
+            if tt not in valid:
+                return return_Response(
+                    message=f'team_type must be one of {valid}.',
+                    status=400, data={},
+                )
+            vals['team_type'] = tt
 
         if 'state' in jdata:
             st = (jdata.get('state') or '').strip()

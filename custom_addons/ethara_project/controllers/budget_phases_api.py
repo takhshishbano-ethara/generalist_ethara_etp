@@ -480,6 +480,19 @@ class EtharaBudgetPhasesController(http.Controller):
         if params.get("active_batch") in [1, "1"]:
             domain.append(("state", "in", ["approved", "in_progress"]))
 
+        # Opt-in: only phases whose budget request cleared approval (fully or
+        # partially). Keyed off the request state — the source of truth for
+        # "Approved" / "Partially Approved" — so phases still pending / in
+        # CTO-CFO review, `rejected`, or `withdrawn` are never serialized into
+        # the response at all (not merely hidden client-side). Used by the
+        # Tasks-tab batch selector so an un-approved phase can't be logged
+        # against. `request_ids.state` traverses the phase's requests: a match
+        # means at least one request reached a terminal-approved state.
+        if params.get("approved_only") in (1, "1", "true", "True"):
+            domain.append(
+                ("request_ids.state", "in", ["approved", "partially_approved"])
+            )
+
         requester_id = _coerce_int(params.get("requester_id"))
         if requester_id:
             domain.append(("requester_id", "=", requester_id))

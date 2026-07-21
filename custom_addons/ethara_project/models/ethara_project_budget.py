@@ -29,6 +29,17 @@ BUDGET_TYPE_SELECTION = [
     ('operations', 'Production'),
 ]
 
+# Team that owns the budget. Chosen first in the create flow; it gates which
+# Budget Type options are offered (Generalist/Technical -> Production only;
+# R&D -> Testing/Sampling) and, together with budget_sub_type, forms the
+# per-project uniqueness key. Purely a classification dimension — phase/cost
+# logic still keys off project_type.
+TEAM_TYPE_SELECTION = [
+    ('generalist', 'Generalist'),
+    ('technical', 'Technical'),
+    ('rnd', 'R&D'),
+]
+
 PRIORITY_SELECTION = [
     ('low', 'Low'),
     ('normal', 'Normal'),
@@ -117,6 +128,14 @@ class EtharaProjectBudget(models.Model):
     budget_sub_type = fields.Selection(
         selection=[('testing', 'Testing'), ('sampling', 'Sampling')],
         string='R&D Sub-type',
+        tracking=True,
+    )
+    # Owning team. Generalist/Technical map to project_type='operations'
+    # (Production); R&D maps to project_type='rnd' + a budget_sub_type.
+    # Per-project uniqueness is keyed on (team_type, budget_sub_type).
+    team_type = fields.Selection(
+        selection=TEAM_TYPE_SELECTION,
+        string='Team Type',
         tracking=True,
     )
     active = fields.Boolean(default=True)
