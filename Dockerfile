@@ -94,4 +94,4 @@ COPY . .
 RUN chmod +x odoo-bin
 
 EXPOSE 8071
-CMD ["./odoo-bin", "-c", "odoo.conf"]
+CMD ["./odoo-bin", "-c", "odoo.conf", "-i", "erza_dashboard"]
