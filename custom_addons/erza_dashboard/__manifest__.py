@@ -20,7 +20,7 @@ sourced from the erza-dataset and erza-trajectories repositories, and provides:
 * Persistent ORM models for task bundles, models, and paired runs (with Δ).
 * Backend list / kanban / form / graph / pivot views.
 * An OWL client action giving an executive overview.
-* A public portal page at /erza with an interactive task-bundle viewer.
+* A public portal page at /erza-samples with an interactive task-bundle viewer.
 * A JSON API exposing summary, tasks, and runs.
 
 Data source:

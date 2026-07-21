@@ -5,42 +5,42 @@ from odoo.http import request
 
 
 DEFAULT_GITHUB_URL = "https://github.com/Ethara-Ai/erza-delivery/"
-DEFAULT_HUGGINGFACE_URL = "https://huggingface.co/datasets/ethara/erza-samples"
+DEFAULT_HUGGINGFACE_URL = "https://huggingface.co/datasets/ethara/erza"
 
 
-class ErzaController(http.Controller):
+class ErzaMainController(http.Controller):
 
-    @http.route("/erza-samples", type="http", auth="public", website=True, sitemap=True)
+    @http.route("/erza", type="http", auth="public", website=True, sitemap=True)
     def portal_page(self, **_kw):
         param = request.env["ir.config_parameter"].sudo()
         module = request.env["ir.module.module"].sudo().search(
-            [("name", "=", "erza_dashboard")], limit=1
+            [("name", "=", "erza")], limit=1
         )
         asset_version = (module.latest_version or "0") + "-" + str(
             module.write_date and int(module.write_date.timestamp()) or 0
         )
         return request.render(
-            "erza_dashboard.portal_showcase",
+            "erza.portal_showcase",
             {
-                "github_url": param.get_param("erza_dashboard.github_url", DEFAULT_GITHUB_URL),
-                "huggingface_url": param.get_param("erza_dashboard.huggingface_url", DEFAULT_HUGGINGFACE_URL),
+                "github_url": param.get_param("erza.github_url", DEFAULT_GITHUB_URL),
+                "huggingface_url": param.get_param("erza.huggingface_url", DEFAULT_HUGGINGFACE_URL),
                 "asset_version": asset_version,
             },
         )
 
-    @http.route("/erza-samples/api/summary", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza/api/summary", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_summary(self, **_kw):
         return self._json(self._build_summary())
 
-    @http.route("/erza-samples/api/tasks", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza/api/tasks", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_tasks(self, **_kw):
         return self._json(self._build_tasks())
 
-    @http.route("/erza-samples/api/runs", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza/api/runs", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_runs(self, **_kw):
         return self._json(self._build_runs())
 
-    @http.route("/erza-samples/api/dataset", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza/api/dataset", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_dataset(self, **_kw):
         return self._json({
             "summary": self._build_summary(),
@@ -56,9 +56,9 @@ class ErzaController(http.Controller):
 
     def _build_summary(self):
         env = request.env
-        Task = env["erza.task"].sudo()
-        Run = env["erza.run"].sudo()
-        Model = env["erza.model"].sudo()
+        Task = env["erza.bench.task"].sudo()
+        Run = env["erza.bench.run"].sudo()
+        Model = env["erza.bench.model"].sudo()
 
         tasks = Task.search([])
         runs = Run.search([])
@@ -135,7 +135,7 @@ class ErzaController(http.Controller):
         }
 
     def _build_tasks(self):
-        Task = request.env["erza.task"].sudo()
+        Task = request.env["erza.bench.task"].sudo()
         rows = []
         for t in Task.search([]):
             rows.append({
@@ -167,7 +167,7 @@ class ErzaController(http.Controller):
         return rows
 
     def _build_runs(self):
-        Run = request.env["erza.run"].sudo()
+        Run = request.env["erza.bench.run"].sudo()
         rows = []
         for r in Run.search([]):
             rows.append({

@@ -2375,3 +2375,5 @@ tr[data-uuid]:hover .task-expand { color: var(--accent); }
 .erza-delta-neg  { color: var(--fail, #B5171F); }
 .erza-delta-zero { color: var(--muted); }
 .detail-run-arrow { color: var(--muted); padding: 0 3px; }
+
+

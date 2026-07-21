@@ -16,7 +16,7 @@
   const currentTheme = () => {
     const explicit = root.getAttribute('data-theme');
     if (explicit === 'light' || explicit === 'dark') return explicit;
-    return 'dark';
+    return prefersDark.matches ? 'dark' : 'light';
   };
 
   const syncButtonLabel = () => {
@@ -40,10 +40,12 @@
   }
 
   // If user has NOT made an explicit choice, follow OS changes live.
-  const osChangeHandler = () => {
+  const osChangeHandler = (e) => {
     try {
       if (localStorage.getItem(THEME_KEY)) return; // user overrode — ignore OS
-    } catch (e) { /* noop */ }
+    } catch (err) { /* noop */ }
+    const sysDark = e && typeof e.matches === 'boolean' ? e.matches : prefersDark.matches;
+    root.setAttribute('data-theme', sysDark ? 'dark' : 'light');
     syncButtonLabel();
   };
   if (prefersDark.addEventListener) {
@@ -288,7 +290,7 @@
   var evalAllData = [];
   var evalFilteredData = [];
   var evalCurrentPage = 1;
-  var evalCurrentSort = "glm_pass";
+  var evalCurrentSort = "opus_pass";
   var evalCurrentSortDir = -1;
   var evalExpandedId = null;
 
@@ -375,8 +377,9 @@
   }
 
   function evalRenderRow(d, isExpanded) {
-    var glm = d.models && d.models["GLM 5"] ? d.models["GLM 5"] : {};
-    var kimi = d.models && d.models["Kimi K2.5"] ? d.models["Kimi K2.5"] : {};
+    var opus = d.models && d.models["Claude Opus 4.8"] ? d.models["Claude Opus 4.8"] : {};
+    var gpt = d.models && d.models["GPT-5.5"] ? d.models["GPT-5.5"] : {};
+    var gemini = d.models && d.models["Gemini 3.1 Pro"] ? d.models["Gemini 3.1 Pro"] : {};
 
     return (
       '<tr class="matrix-row' + (isExpanded ? ' row-expanded' : '') + '" data-eval-id="' + esc(d.instance_id) + '">' +
@@ -385,8 +388,9 @@
         '</td>' +
         '<td class="au-etd-prrange"><span class="au-eval-prrange-badge">' + esc(d.pr_range || "N/A") + '</span></td>' +
         '<td class="au-etd-lang"><span class="au-lang-badge ' + langClass(d.language) + '">' + esc(d.language || "N/A") + '</span></td>' +
-        '<td class="au-etd-glm">' + evalPassCell(glm.pass_at_3) + '</td>' +
-        '<td class="au-etd-kimi">' + evalPassCell(kimi.pass_at_3) + '</td>' +
+        '<td class="au-etd-opus">' + evalPassCell(opus.pass_at_3) + '</td>' +
+        '<td class="au-etd-gpt">' + evalPassCell(gpt.pass_at_3) + '</td>' +
+        '<td class="au-etd-gemini">' + evalPassCell(gemini.pass_at_3) + '</td>' +
         '<td class="au-etd-repo">' +
           (d.repo_url ? '<a class="au-pr-link" href="' + esc(d.repo_url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">View</a>' : '<span class="au-text-muted">—</span>') +
         '</td>' +
@@ -396,8 +400,9 @@
   }
 
   function evalRenderDetailRow(d) {
-    var glm = d.models && d.models["GLM 5"] ? d.models["GLM 5"] : {};
-    var kimi = d.models && d.models["Kimi K2.5"] ? d.models["Kimi K2.5"] : {};
+    var opus = d.models && d.models["Claude Opus 4.8"] ? d.models["Claude Opus 4.8"] : {};
+    var gpt = d.models && d.models["GPT-5.5"] ? d.models["GPT-5.5"] : {};
+    var gemini = d.models && d.models["Gemini 3.1 Pro"] ? d.models["Gemini 3.1 Pro"] : {};
 
     function modelBlock(name, m) {
       return (
@@ -414,7 +419,7 @@
 
     return (
       '<tr class="au-detail-row" data-eval-detail-for="' + esc(d.instance_id) + '">' +
-        '<td colspan="7">' +
+        '<td colspan="8">' +
           '<div class="au-detail-content">' +
             '<div class="au-eval-detail-grid">' +
               '<div class="au-detail-block">' +
@@ -428,8 +433,9 @@
                 '<div class="au-detail-row-item"><span class="au-detail-key">Est. Time (min)</span><span class="au-detail-val">' + (d.estimated_time || 0).toFixed(1) + '</span></div>' +
                 '<div class="au-detail-row-item"><span class="au-detail-key">PRs</span><span class="au-detail-val">' + ((d.pr_urls || []).length) + '</span></div>' +
               '</div>' +
-              modelBlock("GLM 5", glm) +
-              modelBlock("Kimi K2.5", kimi) +
+              modelBlock("Claude Opus 4.8", opus) +
+              modelBlock("GPT-5.5", gpt) +
+              modelBlock("Gemini 3.1 Pro", gemini) +
             '</div>' +
             (d.repo_url ? '<div class="au-detail-links"><a class="au-detail-link" href="' + esc(d.repo_url) + '" target="_blank" rel="noopener"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a></div>' : '') +
           '</div>' +
@@ -522,14 +528,19 @@
     evalFilteredData.sort(function (a, b) {
       var av, bv;
 
-      if (key === "glm_pass") {
-        av = evalParsePass(a.models && a.models["GLM 5"] ? a.models["GLM 5"].pass_at_3 : "0");
-        bv = evalParsePass(b.models && b.models["GLM 5"] ? b.models["GLM 5"].pass_at_3 : "0");
+      if (key === "opus_pass") {
+        av = evalParsePass(a.models && a.models["Claude Opus 4.8"] ? a.models["Claude Opus 4.8"].pass_at_3 : "0");
+        bv = evalParsePass(b.models && b.models["Claude Opus 4.8"] ? b.models["Claude Opus 4.8"].pass_at_3 : "0");
         return (av - bv) * dir;
       }
-      if (key === "kimi_pass") {
-        av = evalParsePass(a.models && a.models["Kimi K2.5"] ? a.models["Kimi K2.5"].pass_at_3 : "0");
-        bv = evalParsePass(b.models && b.models["Kimi K2.5"] ? b.models["Kimi K2.5"].pass_at_3 : "0");
+      if (key === "gpt_pass") {
+        av = evalParsePass(a.models && a.models["GPT-5.5"] ? a.models["GPT-5.5"].pass_at_3 : "0");
+        bv = evalParsePass(b.models && b.models["GPT-5.5"] ? b.models["GPT-5.5"].pass_at_3 : "0");
+        return (av - bv) * dir;
+      }
+      if (key === "gemini_pass") {
+        av = evalParsePass(a.models && a.models["Gemini 3.1 Pro"] ? a.models["Gemini 3.1 Pro"].pass_at_3 : "0");
+        bv = evalParsePass(b.models && b.models["Gemini 3.1 Pro"] ? b.models["Gemini 3.1 Pro"].pass_at_3 : "0");
         return (av - bv) * dir;
       }
       if (key === "pr_range") {
@@ -648,4 +659,187 @@
   } else {
     init();
   }
+})();
+
+/* ============================================================
+   §11 — DATA CHARTS (Chart.js), ported from milobench_dashboard.
+   Combined Pass@3 by PR horizon (3 models) + Pass@3 by difficulty
+   tier. Static PNG remains commented in the template as backup.
+   ============================================================ */
+(function auCharts() {
+  "use strict";
+  if (typeof window.Chart === "undefined") return; // Chart.js CDN not loaded
+
+  function cssVar(name, fallback) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+  function palette() {
+    return {
+      opus:    cssVar("--chart-opus",   "#EA9A3C"),
+      gemini:  cssVar("--chart-gemini", "#4A9AE0"),
+      gpt:     cssVar("--chart-gpt",    "#57B85C"),
+      ink:     cssVar("--ink",    "#0B0E14"),
+      muted:   cssVar("--muted",  "#8a8fa5"),
+      grid:    cssVar("--border", "rgba(0,0,0,0.10)"),
+      surface: cssVar("--bg-2",   "#151a28"),
+    };
+  }
+  function lineDataset(label, color, data) {
+    return {
+      label: label, data: data, borderColor: color, backgroundColor: color,
+      borderDash: [8, 6], borderWidth: 2.5, fill: false, spanGaps: true, tension: 0,
+      pointRadius: 6, pointHoverRadius: 8, pointBackgroundColor: color,
+      pointBorderColor: color, pointBorderWidth: 2,
+    };
+  }
+  function tooltip(p) {
+    return {
+      enabled: true, backgroundColor: p.surface, titleColor: p.ink, bodyColor: p.ink,
+      borderColor: p.grid, borderWidth: 1, padding: 10, cornerRadius: 8,
+      callbacks: {
+        label: function (ctx) {
+          var v = ctx.parsed && (ctx.parsed.y !== undefined ? ctx.parsed.y : ctx.parsed);
+          if (typeof v !== "number") return ctx.dataset.label + ": —";
+          return ctx.dataset.label + ": " + v.toFixed(1) + "%";
+        },
+      },
+    };
+  }
+
+  // Per-point value labels: within each x-column the highest value sits above
+  // its point, the lowest below, middle to the right (fans out ties cleanly).
+  var valueLabelPlugin = {
+    id: "auValueLabels",
+    afterDatasetsDraw: function (chart, args, pluginOpts) {
+      var opts = pluginOpts || {};
+      var format = opts.format || function (v) { return String(v); };
+      var ctx = chart.ctx;
+      var groups = {};
+      chart.data.datasets.forEach(function (ds, di) {
+        var meta = chart.getDatasetMeta(di);
+        if (!meta || meta.hidden || !meta.data) return;
+        meta.data.forEach(function (elem, i) {
+          var raw = ds.data[i];
+          var val = (raw && typeof raw === "object") ? raw.y : raw;
+          if (val === null || val === undefined || typeof val !== "number" || isNaN(val)) return;
+          (groups[i] || (groups[i] = [])).push({ x: elem.x, y: elem.y, val: val, color: ds.borderColor || "#000" });
+        });
+      });
+      ctx.save();
+      ctx.font = "700 11px 'DM Sans', system-ui, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.lineJoin = "round";
+      var haloColor = cssVar("--bg-2", "#151a28");
+      var DX = 18, DY_UP = 18, DY_DN = 20, MIN_GAP = 18;
+      var lastCol = (chart.data.labels || []).length - 1;
+      var placement = opts.placement || "fan";
+      Object.keys(groups).forEach(function (key) {
+        var colIdx = +key;
+        var pts = groups[key];
+        pts.sort(function (a, b) { return a.y - b.y; });
+        var labels;
+        if (placement === "trail") {
+          var toRight = (colIdx === lastCol);
+          labels = pts.map(function (pt) {
+            return { text: format(pt.val), x: pt.x + (toRight ? DX : -DX), y: pt.y, align: toRight ? "left" : "right", color: pt.color };
+          });
+        } else {
+          labels = pts.map(function (pt, idx) {
+            var lx, ly, align;
+            if (idx === 0) { lx = pt.x; ly = pt.y - DY_UP; align = "center"; }
+            else if (idx === pts.length - 1) { lx = pt.x; ly = pt.y + DY_DN; align = "center"; }
+            else { lx = pt.x + DX; ly = pt.y; align = "left"; }
+            return { text: format(pt.val), x: lx, y: ly, align: align, color: pt.color };
+          });
+        }
+        labels.sort(function (a, b) { return a.y - b.y; });
+        var before = labels.reduce(function (s, L) { return s + L.y; }, 0) / labels.length;
+        for (var i = 1; i < labels.length; i++) {
+          if (labels[i].y - labels[i - 1].y < MIN_GAP) labels[i].y = labels[i - 1].y + MIN_GAP;
+        }
+        var after = labels.reduce(function (s, L) { return s + L.y; }, 0) / labels.length;
+        var shift = before - after;
+        if (shift) labels.forEach(function (L) { L.y += shift; });
+        labels.forEach(function (L) {
+          ctx.textAlign = L.align;
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = haloColor;
+          ctx.strokeText(L.text, L.x, L.y);
+          ctx.fillStyle = L.color;
+          ctx.fillText(L.text, L.x, L.y);
+        });
+      });
+      ctx.restore();
+    },
+  };
+
+  function options(p, title, xTitle, yTitle, placement) {
+    return {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 30, right: 52, left: 10, bottom: 6 } },
+      plugins: {
+        legend: { display: true, position: "top", align: "end", labels: { color: p.ink, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: "circle", font: { family: "'DM Sans', sans-serif", size: 12 }, padding: 14 } },
+        tooltip: tooltip(p),
+        title: { display: true, text: title, color: p.ink, font: { family: "'DM Sans', sans-serif", size: 15, weight: "600" }, padding: { bottom: 12 } },
+        auValueLabels: { placement: placement, format: function (v) { return Math.round(v) + "%"; } },
+      },
+      scales: {
+        x: { offset: true, grid: { display: false, drawBorder: false }, ticks: { color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 } }, title: { display: true, text: xTitle, color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+        y: { min: 0, max: 100, grid: { color: p.grid, drawBorder: false }, ticks: { stepSize: 20, color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 } }, title: { display: true, text: yTitle, color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+      },
+    };
+  }
+
+  var charts = {};
+  function build() {
+    var p = palette();
+    var elPR = document.getElementById("au-chart-pass-rate");
+    var elTier = document.getElementById("au-chart-pass-tier");
+    if (elPR && !charts.pr) {
+      charts.pr = new window.Chart(elPR, {
+        type: "line",
+        data: {
+          labels: ["2-5", "6-10", "11-20", "21-40", "41-100", "100+"],
+          datasets: [
+            lineDataset("Claude Opus 4.8", p.opus, [58, 44, 27, 21, 6, 2]),
+            lineDataset("GPT-5.5", p.gpt, [51.1, 28.2, 16.7, 16.7, 0, 0]),
+            lineDataset("Gemini 3.1 Pro", p.gemini, [40, 38.5, 22.2, 12.5, 0, 0]),
+          ],
+        },
+        options: options(p, "Combined Pass@3 by PR Horizon", "Number of PRs", "Success Rate (%)", "trail"),
+        plugins: [valueLabelPlugin],
+      });
+    }
+    if (elTier && !charts.tier) {
+      charts.tier = new window.Chart(elTier, {
+        type: "line",
+        data: {
+          labels: ["Trivial", "Easy", "Medium", "Hard", "Expert"],
+          datasets: [
+            lineDataset("Claude Opus 4.8", p.opus, [100, 50, 42, 22, 0]),
+            lineDataset("GPT-5.5", p.gpt, [100, 89, 25, 15, 0]),
+            lineDataset("Gemini 3.1 Pro", p.gemini, [100, 72, 33, 4, 0]),
+          ],
+        },
+        options: options(p, "Pass@3 by Difficulty Tier", "Difficulty tier", "Pass@3 (%)", "fan"),
+        plugins: [valueLabelPlugin],
+      });
+    }
+  }
+
+  // Rebuild on theme change so axis/label colours follow the active palette.
+  function rebuild() {
+    Object.keys(charts).forEach(function (k) { if (charts[k]) { charts[k].destroy(); charts[k] = null; } });
+    build();
+  }
+  try {
+    var mo = new MutationObserver(function (muts) {
+      for (var i = 0; i < muts.length; i++) { if (muts[i].attributeName === "data-theme") { rebuild(); break; } }
+    });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  } catch (e) { /* noop */ }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build);
+  else build();
 })();

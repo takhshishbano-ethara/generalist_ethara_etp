@@ -3,8 +3,9 @@
   <!--
     Erza Showcase: public single-page editorial view.
 
-    Mounted at /erza-samples by controllers/main.py. The client-side JS fetches
-    /erza-samples/api/dataset for the task-bundle viewer and headline KPIs.
+    Mounted at /erza by controllers/main.py (the erza module). The client-side JS
+    fetches /erza/api/dataset for the seeded paired-Δ data (glance, tiers, model
+    table, matrix, and the dataset viewer with its headline KPIs).
 
     Erza measures Agent-Skills efficacy via PAIRED evaluation: the same task
     is run twice on the same model / harness / container - once with the
@@ -17,7 +18,7 @@
       <head>
         <meta charset="UTF-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>erza-samples - Agent-Skills Efficacy Benchmark</title>
+        <title>erza - Agent-Skills Efficacy Benchmark</title>
         <meta name="description" content="Erza measures how much curated Agent Skills change what an autonomous agent actually does - paired, with-Skills vs no-Skills, scored over deterministic verifiers."/>
         <!-- Inline theme sync BEFORE stylesheet loads (no FOUC).
            System preference is authoritative (read prefers-color-scheme before
@@ -40,12 +41,12 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&amp;family=Roboto:wght@300;400;500;700&amp;display=swap"/>
         <!-- Portal CSS -->
-        <link rel="stylesheet" t-attf-href="/erza_dashboard/static/src/portal/css/erza_portal.css?v=#{asset_version or ''}"/>
+        <link rel="stylesheet" t-attf-href="/erza/static/src/portal/css/erza_portal.css?v=#{asset_version or ''}"/>
         <!-- Deferred JS: GSAP + ScrollTrigger + Chart.js + portal script -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" integrity="sha512-7eHRwcbYkK4d9g/6tD/mhkf++eoTHwpNM9woBxtPUBWm67zeAfFC+HrdoE2GanKeocly/VxeLvIqwvCdk7qScg==" crossorigin="anonymous" referrerpolicy="no-referrer" defer="defer"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" integrity="sha512-onMTRKJBKz8M1TnqqDuGBlowlH0ohFzMXYRNebz+yOcc5TQr/zAKsthzhuv0hiyUKEiQEQXEynnXCvNTOk50dg==" crossorigin="anonymous" referrerpolicy="no-referrer" defer="defer"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer" defer="defer"></script>
-        <script t-attf-src="/erza_dashboard/static/src/portal/js/erza_portal.js?v=#{asset_version or ''}" defer="defer"></script>
+        <script t-attf-src="/erza/static/src/portal/js/erza_portal.js?v=#{asset_version or ''}" defer="defer"></script>
       </head>
       <body>
         <a class="skip-link" href="#erza-main">Skip to content</a>
@@ -65,9 +66,9 @@
         <div id="erza-portal">
           <!-- ================= MASTHEAD ================= -->
           <header class="masthead">
-            <div class="wordmark"><span class="wordmark-mark">erza-samples</span></div>
+            <div class="wordmark"><span class="wordmark-mark">erza</span></div>
             <div class="badge">Agent-Skills efficacy · Δ measured</div>
-            <p class="thesis">Measuring Agent-Skill efficacy at the granularity of paired tasks.</p>
+            <p class="thesis">The measurable effect of a Skill on an agent's behavior.</p>
             <div class="byline">by
 
               
@@ -429,6 +430,22 @@
               Filter and search the delivery. Expand a row to see per-model no-Skills vs with-Skills
               runs and the resulting Δ, plus links to the raw trajectory and task file.
             </p>
+              <!-- Headline KPIs (hardcoded placeholders pending the first public run).
+                   Uses the theme's native .kpi-card / .kpi-big component. -->
+              <div class="kpi-row">
+                <div class="kpi-card">
+                  <div class="kpi-label">Total instances</div>
+                  <div class="kpi-big">10,000</div></div>
+                <div class="kpi-card">
+                  <div class="kpi-label">Models</div>
+                  <div class="kpi-big">3</div></div>
+                <div class="kpi-card">
+                  <div class="kpi-label">Total runs</div>
+                  <div class="kpi-big">90,000</div></div>
+                <div class="kpi-card kpi-card--accent">
+                  <div class="kpi-label">Mean pass rate</div>
+                  <div class="kpi-big">41.7%</div></div>
+              </div>
               <div class="eval-controls">
                 <div class="eval-search">
                   <svg class="eval-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -499,7 +516,7 @@
           </main>
           <footer class="erza-footer">
             <div class="erza-footer-inner">
-              <span class="erza-footer-note">Ethara.ai · erza-samples</span></div>
+              <span class="erza-footer-note">Ethara.ai · erza</span></div>
           </footer></div>
       </body>
     </html>

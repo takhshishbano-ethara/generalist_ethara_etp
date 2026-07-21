@@ -46,9 +46,9 @@
                         <span class="au-metric-detail">1&#x2013;100+ consecutive PRs each</span>
                     </div>
                     <div class="au-metric-card">
-                        <span class="au-metric-value">2</span>
+                        <span class="au-metric-value">3</span>
                         <span class="au-metric-label">Frontier Models</span>
-                        <span class="au-metric-detail">Kimi K2.5, GLM 5</span>
+                        <span class="au-metric-detail">Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro</span>
                     </div>
                     <div class="au-metric-card">
                         <span class="au-metric-value">8</span>
