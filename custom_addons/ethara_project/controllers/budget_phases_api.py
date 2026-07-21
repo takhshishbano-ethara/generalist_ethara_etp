@@ -370,6 +370,12 @@ def _phase_to_dict(phase):
         "closed_remaining": phase.closed_remaining or 0.0,
         "rejection_reason": phase.rejection_reason or "",
         "completion_description": phase.completion_description or "",
+        "est_trajectories_per_task": phase.est_trajectories_per_task or 0,
+        "submitted_task_count": phase.submitted_task_count or 0,
+        "delivered_per_task_cost": phase.delivered_per_task_cost or 0.0,
+        "submitted_trajectories": phase.submitted_trajectories or 0,
+        "submitted_batch_total": phase.submitted_batch_total or 0.0,
+        "models_used": phase.models_used or "",
         "project_budget": {
             "id": pb.id,
             "name": pb.name or "",
@@ -1028,6 +1034,12 @@ class EtharaBudgetPhasesController(http.Controller):
             jdata.get("completion_description") or ""
         ).strip()
         label = (jdata.get("label") or "").strip() or "Completion Link"
+        submitted_task_count = _coerce_int(jdata.get("submitted_task_count"))
+        delivered_per_task_cost = _coerce_float(
+            jdata.get("delivered_per_task_cost")
+        )
+        submitted_trajectories = _coerce_int(jdata.get("submitted_trajectories"))
+        models_used = (jdata.get("models_used") or "").strip()
 
         if not batch_id:
             return return_Response(
@@ -1040,6 +1052,26 @@ class EtharaBudgetPhasesController(http.Controller):
         if not completion_description:
             return return_Response(
                 message="completion_description is required.",
+                status=400, data={},
+            )
+        if not submitted_task_count or submitted_task_count <= 0:
+            return return_Response(
+                message="submitted_task_count is required and must be > 0.",
+                status=400, data={},
+            )
+        if not delivered_per_task_cost or delivered_per_task_cost <= 0.0:
+            return return_Response(
+                message="delivered_per_task_cost is required and must be > 0.",
+                status=400, data={},
+            )
+        if not submitted_trajectories or submitted_trajectories <= 0:
+            return return_Response(
+                message="submitted_trajectories is required and must be > 0.",
+                status=400, data={},
+            )
+        if not models_used:
+            return return_Response(
+                message="models_used is required.",
                 status=400, data={},
             )
 
@@ -1059,7 +1091,13 @@ class EtharaBudgetPhasesController(http.Controller):
             )
 
         try:
-            phase.write({"completion_description": completion_description})
+            phase.write({
+                "completion_description": completion_description,
+                "submitted_task_count": submitted_task_count,
+                "delivered_per_task_cost": delivered_per_task_cost,
+                "submitted_trajectories": submitted_trajectories,
+                "models_used": models_used,
+            })
             request.env[PHASE_INFO_LINK_MODEL].sudo().create({
                 "phase_id": phase.id,
                 "label": label,

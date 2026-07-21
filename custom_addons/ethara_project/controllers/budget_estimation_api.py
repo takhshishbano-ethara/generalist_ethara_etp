@@ -311,6 +311,9 @@ def _batch_view_brief(phase):
         "done_task_count": phase.done_tasks or 0,
         "remaining_task_count": phase.remaining_tasks or 0,
         "avg_qc": None,
+        "models": ", ".join(
+            name for name in phase.model_line_ids.mapped("ai_model_name") if name
+        ),
         "created_date": _dt_to_string(phase.create_date),
         "requests": [_batch_view_request_brief(r) for r in requests],
     }

@@ -91,6 +91,49 @@ class EtharaProjectPhase(models.Model):
     completion_description = fields.Text(string='Completion Description')
     connected_model = fields.Char(string='Source Model')
     total_tasks = fields.Integer(string='Total Tasks', tracking=True)
+    est_trajectories_per_task = fields.Integer(
+        string='Est. Trajectories / Task',
+        default=0,
+        tracking=True,
+        copy=False,
+        help='Snapshot copied from the parent budget at phase creation. '
+             'Used to compute submitted trajectories at delivery time.',
+    )
+    submitted_task_count = fields.Integer(
+        string='Submitted Task Count',
+        default=0,
+        tracking=True,
+        copy=False,
+        help='Actual task count submitted by R&D at phase delivery.',
+    )
+    delivered_per_task_cost = fields.Float(
+        string='Delivered $/Task',
+        default=0.0,
+        tracking=True,
+        copy=False,
+        help='Actual per-task cost declared by R&D at phase delivery.',
+    )
+    submitted_trajectories = fields.Integer(
+        string='Submitted Trajectories',
+        default=0,
+        tracking=True,
+        copy=False,
+        help='Trajectories declared by R&D at phase delivery. '
+             'Free integer input, independent of the budget-side estimate.',
+    )
+    models_used = fields.Char(
+        string='Models Used',
+        default='',
+        tracking=True,
+        copy=False,
+        help='Free-text list of AI models used, entered by R&D at delivery '
+             "(e.g. 'Opus 4.8, Sonnet 4.6').",
+    )
+    submitted_batch_total = fields.Float(
+        string='Submitted Batch Total (USD)',
+        compute='_compute_submitted_totals',
+        store=True,
+    )
     daily_task_ids = fields.One2many(
         'ethara.project.phase.daily.task',
         'phase_id',
@@ -212,6 +255,12 @@ class EtharaProjectPhase(models.Model):
             done = sum(rec.daily_task_ids.mapped('done_count'))
             rec.done_tasks = done
             rec.remaining_tasks = max((rec.total_tasks or 0) - done, 0)
+
+    @api.depends('submitted_task_count', 'delivered_per_task_cost')
+    def _compute_submitted_totals(self):
+        for rec in self:
+            submitted = rec.submitted_task_count or 0
+            rec.submitted_batch_total = submitted * (rec.delivered_per_task_cost or 0.0)
 
     @api.depends(
         'total_tasks',
@@ -366,6 +415,9 @@ class EtharaProjectPhase(models.Model):
                     self.env['ir.sequence'].next_by_code('ethara.project.phase')
                     or 'New'
                 )
+            if 'est_trajectories_per_task' not in vals and vals.get('budget_id'):
+                budget = self.env['ethara.project.budget'].browse(vals['budget_id'])
+                vals['est_trajectories_per_task'] = budget.est_trajectories_per_task or 0
         records = super().create(vals_list)
         for rec in records:
             if rec.budget_id and not rec.model_line_ids:
@@ -380,6 +432,11 @@ class EtharaProjectPhase(models.Model):
                     })
                     for line in rec.budget_id.model_line_ids
                 ]
+            if rec.budget_id and not rec.carried_over_amount:
+                pool = rec.budget_id.batch_budget_remain or 0.0
+                if pool > 0.0:
+                    rec.carried_over_amount = pool
+                    rec.budget_id.batch_budget_remain = 0.0
             body = _(
                 '<p><strong>Phase created:</strong> %s '
                 '(Project Budget: %s, Estimated: %.2f USD)</p>'
@@ -472,6 +529,10 @@ class EtharaProjectPhase(models.Model):
                     next_phase.carried_over_amount = (
                         next_phase.carried_over_amount or 0.0
                     ) + remaining
+                else:
+                    rec.budget_id.batch_budget_remain = (
+                        rec.budget_id.batch_budget_remain or 0.0
+                    ) + remaining
             rec._post_project_thread(_(
                 '<p><strong>Phase delivered:</strong> %s '
                 '(Returned: %.2f USD)</p>'
@@ -494,11 +555,18 @@ class EtharaProjectPhase(models.Model):
                 raise UserError(_(
                     'Only Delivered phases can be restarted.'
                 ))
+            budget = rec.budget_id
+            pool = (budget.batch_budget_remain or 0.0) if budget else 0.0
+            if pool < 0.0:
+                pool = 0.0
             rec.write({
                 'state': 'in_progress',
                 'delivered_date': False,
                 'closed_remaining': 0.0,
+                'carried_over_amount': (rec.carried_over_amount or 0.0) + pool,
             })
+            if budget and pool > 0.0:
+                budget.batch_budget_remain = 0.0
 
     def _threshold_partner_ids(self):
         self.ensure_one()
