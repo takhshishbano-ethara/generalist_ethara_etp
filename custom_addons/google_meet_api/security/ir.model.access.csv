@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_google_meet_schedule_wizard,access.google.meet.schedule.wizard,model_google_meet_schedule_wizard,base.group_user,1,1,1,1
+access_google_meet_reschedule_wizard,access.google.meet.reschedule.wizard,model_google_meet_reschedule_wizard,base.group_user,1,1,1,1
+access_google_meet_cancel_wizard,access.google.meet.cancel.wizard,model_google_meet_cancel_wizard,base.group_user,1,1,1,1

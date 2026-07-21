@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_google_meet_schedule_wizard_form" model="ir.ui.view">
+        <field name="name">google.meet.schedule.wizard.form</field>
+        <field name="model">google.meet.schedule.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Schedule Interview">
+                <sheet>
+                    <group>
+                        <field name="title" placeholder="e.g. Round 1 - Backend Engineer"/>
+                        <field name="mode" widget="radio" options="{'horizontal': true}"/>
+                        <field name="scheduled_at"/>
+                        <field name="duration_minutes"/>
+                        <field name="location" required="mode == 'offline'" placeholder="e.g. HQ Room 502 (required for offline)"/>
+                    </group>
+                    <group string="Interviewee — the candidate being interviewed">
+                        <field name="candidate_id" string="Candidate" options="{'no_create': True}"/>
+                        <field name="job_id" string="Applied for (Job Position)" options="{'no_create': True}"/>
+                        <field name="resume_url" string="Resume" widget="url" readonly="1" invisible="not resume_url"/>
+                    </group>
+                    <group string="Interviewer(s) — who will conduct the interview">
+                        <field name="attendee_ids" string="Interviewers" widget="many2many_tags" options="{'no_create_edit': True}" placeholder="Add one or more interviewers..."/>
+                    </group>
+                    <group string="Extras (optional)">
+                        <field name="job_link" placeholder="Extra link (docs, sheets, etc.)"/>
+                        <label for="attachment_ids" string="Extra Attachments"/>
+                        <field name="attachment_ids" widget="many2many_binary" nolabel="1"/>
+                    </group>
+                    <group string="Details">
+                        <field name="reminder_minutes"/>
+                        <field name="notes" nolabel="1" placeholder="Agenda, focus areas, links..."/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button string="Schedule" name="action_schedule" type="object" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_google_meet_schedule_wizard" model="ir.actions.act_window">
+        <field name="name">Schedule Interview</field>
+        <field name="res_model">google.meet.schedule.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_google_meet_schedule_interview"
+              name="Schedule Interview"
+              parent="calendar.mail_menu_calendar"
+              action="action_google_meet_schedule_wizard"
+              sequence="20"/>
+</odoo>
