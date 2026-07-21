@@ -890,11 +890,11 @@
     }
 
     function mbBuildCostTierChart(canvas, p) {
-        // Real agent cost per run for the pilot bundle (claude-opus-4-8,
-        // local-magnitude-seismology task): the with-Skills arm is both cheaper AND passes.
+        // Real agent cost per run for the sample bundle (claude-opus-4-8,
+        // erza-rb1-robust-consensus task): the with-Skills arm is both far cheaper AND passes.
         var labels = ['run_1', 'run_2', 'run_3'];
-        var noSkill = mbLineDataset('No-Skills', p.noskill, [0.393, 0.613, 0.543]);
-        var withSkill = mbLineDataset('With-Skills', p.withskill, [0.156, 0.141, 0.160]);
+        var noSkill = mbLineDataset('No-Skills', p.noskill, [1.268, 1.590, 0.376]);
+        var withSkill = mbLineDataset('With-Skills', p.withskill, [0.145, 0.148, 0.124]);
         withSkill.borderDash = [];
         withSkill.borderWidth = 3;
         return new Chart(canvas, {
@@ -912,7 +912,7 @@
                 },
                 scales: {
                     x: { offset: true, grid: { display: false, drawBorder: false }, ticks: { color: p.ink, font: { family: "'DM Sans', sans-serif", size: 12 } }, title: { display: true, text: 'Trial', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
-                    y: { min: 0, max: 0.7, grid: { color: p.grid, drawBorder: false }, ticks: { stepSize: 0.1, color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 } }, title: { display: true, text: 'Cost per run (USD)', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
+                    y: { min: 0, max: 1.8, grid: { color: p.grid, drawBorder: false }, ticks: { stepSize: 0.3, color: p.ink, font: { family: "'DM Sans', sans-serif", size: 11 } }, title: { display: true, text: 'Cost per run (USD)', color: p.muted, font: { family: "'DM Sans', sans-serif", size: 11 } } },
                 },
             },
             plugins: [mbValueLabelPlugin],

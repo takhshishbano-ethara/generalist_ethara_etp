@@ -180,11 +180,11 @@
               <div class="section-label">02 · Baseline difficulty</div>
               <h2 class="section-title">One hard bundle, in context</h2>
               <p class="section-desc">
-              The first published Erza bundle sits in the 
+              The first published Erza bundle sits in the
                 <b>hard</b> tier - a Natural-Science
-              seismology task the model solves only 1 run in 3 unaided, and 3 of 3 with the curated
-              Skill. Below: how Skills move pass rates across Erza domains, and this bundle's
-              real agent cost per run.
+              interlaboratory-metrology task (ERZA-RB1 robust consensus) the model solves 0 of 3 runs
+              unaided, and 3 of 3 with the curated Skill. Below: how Skills move pass rates across Erza
+              domains, and this bundle's real agent cost per run.
             </p>
               <!-- Tier grid: JS-populated (empty tiers skipped). Preserve id. -->
               <div id="erza-tier-grid" class="erza-tier-grid" aria-live="polite"></div>
