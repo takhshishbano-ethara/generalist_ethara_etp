@@ -15,6 +15,7 @@ _MEDIA_ERROR_STEPS = frozenset({
     "s3-post-error", "s3-post-failed", "commit-error", "capture-error",
     "snapshot-not-ready", "snapshot-empty", "snapshot-not-stored", "snapshot-error",
     "detector-error", "consent-error",
+    "face-detector-error", "object-detector-error", "object-model-fallback",
 })
 _MEDIA_ERROR_CAP = 50
 

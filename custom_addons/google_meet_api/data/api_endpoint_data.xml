@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="endpoint_google_meet_config" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/config</field>
+            <field name="note">Google Meet OAuth credentials + token status (GET/POST)</field>
+        </record>
+        <record id="endpoint_google_meet_authenticate" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/authenticate</field>
+            <field name="note">Return the Google OAuth consent URL to open in a browser</field>
+        </record>
+        <record id="endpoint_google_meet_refresh_token" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/refresh_token</field>
+            <field name="note">Refresh the Google API access token using the stored refresh token</field>
+        </record>
+        <record id="endpoint_google_meet_events" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/events</field>
+            <field name="note">Calendar events with Google Meet (GET list / POST create)</field>
+        </record>
+        <record id="endpoint_google_meet_events_by_eid" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/events/&lt;int:eid&gt;</field>
+            <field name="note">Calendar event detail (GET / PUT / DELETE)</field>
+        </record>
+        <record id="endpoint_google_meet_interviews_schedule" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/interviews/schedule</field>
+            <field name="note">Schedule an interview: creates event, generates Meet link, sends invite mails</field>
+        </record>
+        <record id="endpoint_google_meet_interview_reschedule" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/interviews/&lt;int:eid&gt;/reschedule</field>
+            <field name="note">Reschedule an interview: update start/stop, notify attendees</field>
+        </record>
+        <record id="endpoint_google_meet_interview_cancel" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/interviews/&lt;int:eid&gt;/cancel</field>
+            <field name="note">Cancel an interview: notify attendees + delete event (also removes from Google Calendar)</field>
+        </record>
+        <record id="endpoint_google_meet_candidates" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/candidates</field>
+            <field name="note">List hr.applicant candidates (default: shortlisted via resume scan)</field>
+        </record>
+        <record id="endpoint_google_meet_interviewees" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/interviewees</field>
+            <field name="note">List candidates who PASSED the assessment (ready for personal interview)</field>
+        </record>
+        <record id="endpoint_google_meet_interviewers" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/interviewers</field>
+            <field name="note">List employees eligible to conduct interviews (filters: department_id, search)</field>
+        </record>
+    </data>
+</odoo>

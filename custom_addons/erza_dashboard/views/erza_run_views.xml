@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_erza_run_list" model="ir.ui.view">
+        <field name="name">erza.run.list</field>
+        <field name="model">erza.run</field>
+        <field name="arch" type="xml">
+            <list string="Erza Runs" default_order="task_id, model_id, run_number">
+                <field name="task_id"/>
+                <field name="model_id"/>
+                <field name="run_number"/>
+                <field name="difficulty"/>
+                <field name="language"/>
+                <field name="no_skill_score" widget="progressbar" string="No-Skills"/>
+                <field name="score" widget="progressbar" string="With-Skills"/>
+                <field name="score_binary" widget="boolean_toggle"/>
+                <field name="delta" string="Δ"/>
+                <field name="recall" optional="hide"/>
+                <field name="regression_factor" optional="hide"/>
+                <field name="cost_usd" sum="Total Cost"/>
+                <field name="tokens_input" sum="Total Input" optional="hide"/>
+                <field name="tokens_output" sum="Total Output" optional="hide"/>
+                <field name="n_episodes"/>
+                <field name="duration_sec" optional="hide"/>
+                <field name="status"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_erza_run_form" model="ir.ui.view">
+        <field name="name">erza.run.form</field>
+        <field name="model">erza.run</field>
+        <field name="arch" type="xml">
+            <form string="Erza Run">
+                <header>
+                    <button name="action_open_trajectory" type="object" string="Open Trajectory on GitHub" class="oe_highlight" invisible="not trajectory_url"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="task_id"/>
+                            <field name="model_id"/>
+                            <field name="run_number"/>
+                            <field name="status"/>
+                        </group>
+                        <group>
+                            <field name="no_skill_score" widget="progressbar" string="No-Skills score"/>
+                            <field name="no_skill_binary" widget="boolean_toggle" string="No-Skills solved"/>
+                            <field name="score" widget="progressbar" string="With-Skills score"/>
+                            <field name="score_binary" widget="boolean_toggle" string="With-Skills solved"/>
+                            <field name="delta" string="Δ efficacy"/>
+                            <field name="recall"/>
+                            <field name="regression_factor"/>
+                        </group>
+                    </group>
+                    <group string="Verifier Diagnostics" col="4">
+                        <field name="targets_total"/>
+                        <field name="targets_hit"/>
+                        <field name="preserve_set_total"/>
+                        <field name="broken_preserve_count"/>
+                    </group>
+                    <group string="Agent Metrics" col="4">
+                        <field name="cost_usd"/>
+                        <field name="n_episodes"/>
+                        <field name="duration_sec"/>
+                        <field name="tokens_input"/>
+                        <field name="tokens_cache"/>
+                        <field name="tokens_output"/>
+                    </group>
+                    <group string="Timestamps" col="2">
+                        <field name="started_at"/>
+                        <field name="finished_at"/>
+                    </group>
+                    <group string="Source">
+                        <field name="result_url" widget="url"/>
+                        <field name="trajectory_url" widget="url"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_erza_run_search" model="ir.ui.view">
+        <field name="name">erza.run.search</field>
+        <field name="model">erza.run</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="task_id"/>
+                <field name="model_id"/>
+                <filter string="Passed" name="passed" domain="[('score_binary','=',True)]"/>
+                <filter string="Failed" name="failed" domain="[('score_binary','=',False)]"/>
+                <separator/>
+                <filter string="Trivial" name="tier_trivial" domain="[('difficulty','=','trivial')]"/>
+                <filter string="Easy" name="tier_easy" domain="[('difficulty','=','easy')]"/>
+                <filter string="Medium" name="tier_medium" domain="[('difficulty','=','medium')]"/>
+                <filter string="Hard" name="tier_hard" domain="[('difficulty','=','hard')]"/>
+                <filter string="Expert" name="tier_expert" domain="[('difficulty','=','expert')]"/>
+                <separator/>
+                <group>
+                    <filter string="Model" name="group_model" context="{'group_by':'model_id'}"/>
+                    <filter string="Task" name="group_task" context="{'group_by':'task_id'}"/>
+                    <filter string="Difficulty" name="group_difficulty" context="{'group_by':'difficulty'}"/>
+                    <filter string="Language" name="group_language" context="{'group_by':'language'}"/>
+                    <filter string="Status" name="group_status" context="{'group_by':'status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_erza_run_graph" model="ir.ui.view">
+        <field name="name">erza.run.graph</field>
+        <field name="model">erza.run</field>
+        <field name="arch" type="xml">
+            <graph string="Runs" type="bar" sample="1">
+                <field name="model_id"/>
+                <field name="difficulty"/>
+                <field name="delta" type="measure"/>
+                <field name="score" type="measure"/>
+                <field name="cost_usd" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_erza_run_pivot" model="ir.ui.view">
+        <field name="name">erza.run.pivot</field>
+        <field name="model">erza.run</field>
+        <field name="arch" type="xml">
+            <pivot string="Runs by Model x Difficulty">
+                <field name="model_id" type="row"/>
+                <field name="difficulty" type="col"/>
+                <field name="delta" type="measure"/>
+                <field name="score" type="measure"/>
+                <field name="cost_usd" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_erza_run" model="ir.actions.act_window">
+        <field name="name">Runs</field>
+        <field name="res_model">erza.run</field>
+        <field name="view_mode">list,form,graph,pivot</field>
+        <field name="search_view_id" ref="view_erza_run_search"/>
+    </record>
+</odoo>

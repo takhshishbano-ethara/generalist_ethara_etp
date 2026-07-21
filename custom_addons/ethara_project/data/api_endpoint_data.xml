@@ -205,6 +205,16 @@
             <field name="url_pattern">/api/v1/ethara_project/budget/requests/mark_review</field>
             <field name="note">POST - mark request under review (no state change).</field>
         </record>
+        <record id="ep_ethara_budget_requests_set_buffer" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/requests/set_buffer</field>
+            <field name="note">POST - CFO-only: persist the confidential buffer reserve (buffer_pct) on a request under CFO review.</field>
+        </record>
+        <!-- Grant the CFO-only buffer endpoint to the CFO role. -->
+        <record id="grant_cfo_ethara_budget_requests_set_buffer" model="api.role.endpoint">
+            <field name="role_id" ref="api_auth_gateway.role_cfo_technical"/>
+            <field name="api_end_point_id" ref="ep_ethara_budget_requests_set_buffer"/>
+            <field name="method">POST</field>
+        </record>
 
         <!-- Group F: top-ups -->
         <record id="ep_ethara_budget_topup_reasons" model="api.endpoint">

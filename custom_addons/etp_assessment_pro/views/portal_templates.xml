@@ -266,6 +266,16 @@
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
                 <div class="etp-exam-card etp-result-hero etp-result-status">
+                    <div t-if="evaluator.is_violated" class="alert alert-danger etp-violation-notice" role="alert">
+                        <i class="fa fa-exclamation-triangle me-2"/>
+                        <strong>Proctoring violation recorded.</strong>
+                        This assessment was flagged
+                        <t t-if="evaluator.violation_count"> after
+                            <t t-out="evaluator.violation_count"/> violation(s)</t><t t-if="assessment.violation_action == 'auto_submit'"> and auto-submitted</t>.
+                        <span t-if="evaluator.violation_reason">
+                            Reason: <span t-out="evaluator.violation_reason"/>.
+                        </span>
+                    </div>
                     <t t-if="evaluator.results_released">
                         <span class="etp-result-eyebrow">Your result</span>
                         <div t-attf-class="etp-acard-ring is-#{evaluator.result or 'pending'}"
@@ -419,16 +429,21 @@
                                     <li t-if="assessment.rule_block_screenshot">Screenshots are not allowed.</li>
                                     <li t-if="assessment.rule_block_right_click">Right-click is disabled.</li>
                                     <li t-if="assessment.rule_block_devtools">Developer tools are detected.</li>
-                                    <li t-if="assessment.rule_fullscreen">Fullscreen is required.</li>
-                                    <li t-if="assessment.rule_webcam">Webcam access may be required.</li>
+                                    <li t-if="assessment.rule_fullscreen">The exam runs in fullscreen; leaving fullscreen is recorded.</li>
+                                    <li t-if="assessment.rule_webcam">Webcam access is required for proctoring.</li>
+                                    <li t-if="assessment.rule_watermark">Your name and email are watermarked on each page.</li>
                                     <li>Answers are saved as you move between questions.</li>
                                 </ul>
-                                <p t-if="assessment.max_violations" class="etp-warn">
+                                <p t-if="assessment.violation_action == 'auto_submit'" class="etp-warn">
                                     <i class="fa fa-exclamation-triangle mt-1"/>
-                                    <span>
+                                    <span t-if="assessment.max_violations">
                                         Maximum violations allowed:
                                         <strong t-out="assessment.max_violations"/>.
                                         Exceeding this auto-submits your assessment.
+                                    </span>
+                                    <span t-else="">
+                                        Proctoring is active: the <strong>first</strong>
+                                        violation will auto-submit your assessment.
                                     </span>
                                 </p>
                                 <p t-if="preview" class="etp-warn">
@@ -450,6 +465,21 @@
     <template id="portal_question_page" name="ETP Assessment - Question Page">
         <t t-call="etp_assessment_pro.portal_exam_layout">
             <t t-set="exam_body">
+                <div id="etp-violation-banner" class="alert alert-danger d-none etp-violation-banner"
+                     role="alert" aria-live="assertive">
+                    <i class="fa fa-exclamation-triangle me-2"/>
+                    <span id="etp-violation-msg"></span>
+                </div>
+                <div id="etp-fs-prompt" class="alert alert-info d-none etp-fs-prompt"
+                     role="alert">
+                    <i class="fa fa-expand me-2"/>
+                    <span>This exam runs in fullscreen. Leaving fullscreen is
+                        recorded as a proctoring violation.</span>
+                    <button type="button" id="etp-fs-btn"
+                            class="btn btn-sm btn-primary ms-2">Enter fullscreen</button>
+                </div>
+                <div id="etp-webcam-note" class="alert alert-info d-none etp-webcam-note"
+                     role="status" aria-live="polite"/>
                 <div class="etp-exam-sticky">
                     <div class="etp-exam-header">
                         <div>
@@ -757,23 +787,104 @@
                                     </fieldset>
                                 </t>
                                 <t t-if="label_boxes">
-                                    <div class="etp-field">
-                                        <label class="form-label">Label each numbered box</label>
-                                        <div class="etp-label-list">
+                                    <div class="etp-field etp-label-block"
+                                         data-page-size="8">
+                                        <div class="etp-label-head">
+                                            <label class="form-label mb-0">Label each numbered box</label>
+                                            <span class="etp-label-counter" id="etp-label-counter"/>
+                                        </div>
+                                        <div class="etp-label-list" id="etp-label-list">
                                         <t t-foreach="label_boxes" t-as="box_num">
-                                            <div class="etp-label-row mb-2">
+                                            <div class="etp-label-row" t-att-data-box="box_num">
                                                 <label class="form-label"
                                                        t-att-for="'label_%d' % box_num"
-                                                       t-out="'Label for box %d' % box_num"/>
+                                                       t-out="'Box %d' % box_num"/>
                                                 <input type="text"
                                                        class="form-control etp-input"
+                                                       autocomplete="off"
+                                                       placeholder="Describe this box…"
                                                        t-att-name="'label_%d' % box_num"
                                                        t-att-id="'label_%d' % box_num"
                                                        t-att-value="label_answers.get(str(box_num)) or ''"/>
                                             </div>
                                         </t>
                                         </div>
+                                        <div class="etp-label-pager" id="etp-label-pager" hidden="hidden">
+                                            <button type="button" class="btn btn-outline-secondary btn-sm"
+                                                    id="etp-label-prev">
+                                                <i class="fa fa-chevron-left me-1"/>Prev
+                                            </button>
+                                            <span class="etp-label-pageinfo" id="etp-label-pageinfo"/>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm"
+                                                    id="etp-label-next">
+                                                Next<i class="fa fa-chevron-right ms-1"/>
+                                            </button>
+                                        </div>
                                     </div>
+                                    <script type="text/javascript">
+                                        (function () {
+                                            var block = document.querySelector('.etp-label-block');
+                                            var list = document.getElementById('etp-label-list');
+                                            if (!block) { return; }
+                                            if (!list) { return; }
+                                            var rows = Array.prototype.slice.call(
+                                                list.querySelectorAll('.etp-label-row'));
+                                            var counter = document.getElementById('etp-label-counter');
+                                            var pager = document.getElementById('etp-label-pager');
+                                            var pageInfo = document.getElementById('etp-label-pageinfo');
+                                            var prevBtn = document.getElementById('etp-label-prev');
+                                            var nextBtn = document.getElementById('etp-label-next');
+                                            var pageSize = parseInt(block.dataset.pageSize, 10) || 8;
+                                            var total = rows.length;
+                                            var pageCount = Math.ceil(total / pageSize) || 1;
+                                            var page = 0;
+                                            function answered() {
+                                                var n = 0;
+                                                rows.forEach(function (row) {
+                                                    var inp = row.querySelector('input');
+                                                    if (inp) {
+                                                        if ((inp.value || '').trim() !== '') { n += 1; }
+                                                    }
+                                                });
+                                                return n;
+                                            }
+                                            function updateCounter() {
+                                                if (counter) {
+                                                    counter.textContent = answered() + ' / ' + total + ' labelled';
+                                                }
+                                            }
+                                            function render() {
+                                                var multi = (pageCount !== 1);
+                                                rows.forEach(function (row, i) {
+                                                    var onPage = (Math.floor(i / pageSize) === page);
+                                                    row.classList.toggle('d-none', multi ? !onPage : false);
+                                                });
+                                                if (pager) { pager.hidden = !multi; }
+                                                if (multi) {
+                                                    if (pageInfo) {
+                                                        var from = page * pageSize + 1;
+                                                        var to = Math.min((page + 1) * pageSize, total);
+                                                        pageInfo.textContent = 'Boxes ' + from + '\u2013' + to + ' of ' + total;
+                                                    }
+                                                    if (prevBtn) { prevBtn.disabled = (page === 0); }
+                                                    if (nextBtn) { nextBtn.disabled = (page + 1 === pageCount); }
+                                                }
+                                                updateCounter();
+                                            }
+                                            if (prevBtn) {
+                                                prevBtn.addEventListener('click', function () {
+                                                    if (page !== 0) { page -= 1; render(); block.scrollIntoView({block: 'nearest'}); }
+                                                });
+                                            }
+                                            if (nextBtn) {
+                                                nextBtn.addEventListener('click', function () {
+                                                    if (page + 1 !== pageCount) { page += 1; render(); block.scrollIntoView({block: 'nearest'}); }
+                                                });
+                                            }
+                                            list.addEventListener('input', updateCounter);
+                                            render();
+                                        })();
+                                    </script>
                                 </t>
                                 <t t-else="">
                                     <div class="etp-field">
@@ -843,7 +954,39 @@
                         var RULES = {};
                         try { RULES = JSON.parse(cfgEl.dataset.rules || '{}'); }
                         catch (e) { RULES = {}; }
+                        // Violation policy. cap === 0 means the FIRST violation
+                        // ends the exam (server: `not cap` branch). We show a live
+                        // running count so the candidate is never surprised.
+                        var vCap = parseInt(RULES.max_violations, 10) || 0;
+                        var vCount = parseInt(RULES.violation_count, 10) || 0;
+                        var vAuto = RULES.violation_action === 'auto_submit';
+                        var vBanner = document.getElementById('etp-violation-banner');
+                        var vMsg = document.getElementById('etp-violation-msg');
+                        function showViolationBanner(text) {
+                            if (!vBanner || !vMsg) { return; }
+                            vMsg.textContent = text;
+                            vBanner.classList.remove('d-none');
+                        }
+                        function violationText(n) {
+                            // n = the count INCLUDING the one just detected.
+                            if (vAuto &amp;&amp; (vCap === 0 || n >= vCap)) {
+                                return 'Proctoring violation detected. Your exam is being submitted.';
+                            }
+                            if (vCap > 0) {
+                                return 'Warning: proctoring violation ' + n + ' of ' +
+                                       vCap + '. Your exam auto-submits at ' + vCap + '.';
+                            }
+                            return 'Warning: proctoring violation recorded (' + n + ').';
+                        }
+                        // Persisted reminder: if the server already counted prior
+                        // violations for this attempt, surface them on load.
+                        if (vCount > 0) { showViolationBanner(violationText(vCount)); }
                         function reportViolation(reason) {
+                            // Live running count for the candidate banner (client
+                            // display only; the server stays the source of truth
+                            // for enforcement).
+                            vCount += 1;
+                            showViolationBanner(violationText(vCount));
                             // Use sendBeacon: a synchronous form POST fired from
                             // inside visibilitychange / unload is frequently
                             // DROPPED by the browser when the tab backgrounds, so
@@ -945,6 +1088,111 @@
                                     reportViolation('Screenshot key pressed');
                                 }
                             });
+                        }
+                        // ---- Watermark: faint identity overlay that deters
+                        // photographing the questions. Pointer-events:none so it
+                        // never blocks answering. textContent (not innerHTML) so
+                        // the label cannot inject markup.
+                        if (RULES.watermark &amp;&amp; RULES.watermark_label) {
+                            (function () {
+                                var layer = document.createElement('div');
+                                layer.className = 'etp-watermark-layer';
+                                layer.setAttribute('aria-hidden', 'true');
+                                for (var i = 0; i &lt; 60; i++) {
+                                    var cell = document.createElement('span');
+                                    cell.className = 'etp-watermark-cell';
+                                    cell.textContent = RULES.watermark_label;
+                                    layer.appendChild(cell);
+                                }
+                                document.body.appendChild(layer);
+                            })();
+                        }
+                        // ---- Fullscreen: prompt the candidate into fullscreen and
+                        // treat leaving it as a violation. Browsers only allow
+                        // requestFullscreen from a user gesture, so we cannot force
+                        // it silently - we show a dismissable prompt with a button,
+                        // and once in fullscreen, an exit fires reportViolation.
+                        if (RULES.fullscreen) {
+                            (function () {
+                                var docEl = document.documentElement;
+                                function isFs() {
+                                    return !!(document.fullscreenElement ||
+                                              document.webkitFullscreenElement);
+                                }
+                                function reqFs() {
+                                    var fn = docEl.requestFullscreen ||
+                                             docEl.webkitRequestFullscreen;
+                                    if (fn) {
+                                        try { fn.call(docEl); } catch (e) {}
+                                    }
+                                }
+                                var prompt = document.getElementById('etp-fs-prompt');
+                                var btn = document.getElementById('etp-fs-btn');
+                                function showPrompt() {
+                                    if (prompt) { prompt.classList.remove('d-none'); }
+                                }
+                                function hidePrompt() {
+                                    if (prompt) { prompt.classList.add('d-none'); }
+                                }
+                                if (btn) {
+                                    btn.addEventListener('click', function () {
+                                        reqFs();
+                                        hidePrompt();
+                                    });
+                                }
+                                // Flag an EXIT only after entering fullscreen at
+                                // least once, so declining the initial prompt is
+                                // not itself a violation (which would auto-submit
+                                // on load at cap 0).
+                                var everEntered = false;
+                                function onFsChange() {
+                                    if (isFs()) {
+                                        everEntered = true;
+                                        hidePrompt();
+                                    } else if (everEntered) {
+                                        reportViolation('Exited fullscreen');
+                                        showPrompt();
+                                    }
+                                }
+                                document.addEventListener('fullscreenchange', onFsChange);
+                                document.addEventListener('webkitfullscreenchange', onFsChange);
+                                showPrompt();
+                            })();
+                        }
+                        // ---- Webcam: request camera access on load. A denial or a
+                        // later track-ended (camera unplugged / permission revoked)
+                        // is a proctoring violation. The stream is kept open only to
+                        // detect loss; no frames are captured or uploaded.
+                        if (RULES.webcam) {
+                            (function () {
+                                var note = document.getElementById('etp-webcam-note');
+                                function showNote(msg) {
+                                    if (!note) { return; }
+                                    note.textContent = msg;
+                                    note.classList.remove('d-none');
+                                }
+                                if (!navigator.mediaDevices ||
+                                    !navigator.mediaDevices.getUserMedia) {
+                                    reportViolation('Webcam unavailable in browser');
+                                    showNote('This exam requires a webcam and your ' +
+                                             'browser does not provide one.');
+                                    return;
+                                }
+                                navigator.mediaDevices.getUserMedia({ video: true })
+                                    .then(function (stream) {
+                                        showNote('Webcam active for proctoring.');
+                                        stream.getVideoTracks().forEach(function (tr) {
+                                            tr.addEventListener('ended', function () {
+                                                reportViolation('Webcam disconnected');
+                                            });
+                                        });
+                                    })
+                                    .catch(function () {
+                                        reportViolation('Webcam access denied');
+                                        showNote('Webcam access was denied. This has ' +
+                                                 'been recorded for proctoring.');
+                                    });
+                            })();
                         }
                         // Countdown timer. data-deadline is UTC ISO 8601.
                         var t = document.getElementById('etp-timer');
@@ -1220,6 +1468,10 @@
                     <span t-else="" class="etp-acard-chip is-single">Single Test</span>
                     <span t-attf-class="etp-status is-#{item['status_kind']}"
                           t-out="item['state_label']"/>
+                    <span t-if="item.get('is_violated')" class="etp-status is-missed"
+                          t-attf-title="Proctoring violation#{(': ' + item['violation_reason']) if item.get('violation_reason') else ''}">
+                        <i class="fa fa-exclamation-triangle me-1"/>Violated
+                    </span>
                 </div>
                 <h3 class="etp-acard-title" t-out="item['name']"/>
                 <p t-if="item['skill']" class="etp-acard-sub" t-out="item['skill']"/>

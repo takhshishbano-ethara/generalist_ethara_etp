@@ -10,6 +10,8 @@ export class ClipRecorder {
         this.stream = stream;
         this.seconds = seconds;
         this._busy = false;
+        this._active = null;
+        this._stopTimer = null;
         this._mimeType = ClipRecorder._pickMime();
     }
 
@@ -29,6 +31,19 @@ export class ClipRecorder {
 
     get mimeType() { return this._mimeType; }
 
+    /* Finalize the in-flight recording immediately (partial clip) so the
+       page can submit/navigate without losing the evidence entirely. */
+    flush() {
+        if (this._stopTimer) {
+            clearTimeout(this._stopTimer);
+            this._stopTimer = null;
+        }
+        const rec = this._active;
+        if (rec && rec.state !== "inactive") {
+            try { rec.stop(); } catch (e) {}
+        }
+    }
+
     captureClip() {
         if (this._busy) return Promise.resolve(null);
         if (!this._mimeType) return Promise.resolve(null);
@@ -36,36 +51,40 @@ export class ClipRecorder {
         return new Promise((resolve) => {
             let recorder;
             const chunks = [];
+            const done = (blob) => {
+                this._busy = false;
+                this._active = null;
+                if (this._stopTimer) {
+                    clearTimeout(this._stopTimer);
+                    this._stopTimer = null;
+                }
+                resolve(blob);
+            };
             try {
                 recorder = new MediaRecorder(this.stream, { mimeType: this._mimeType });
             } catch (e) {
-                this._busy = false;
-                resolve(null);
+                done(null);
                 return;
             }
+            this._active = recorder;
             recorder.ondataavailable = (evt) => {
                 if (evt.data && evt.data.size > 0) chunks.push(evt.data);
             };
-            recorder.onerror = () => {
-                this._busy = false;
-                resolve(null);
-            };
+            recorder.onerror = () => done(null);
             recorder.onstop = () => {
-                this._busy = false;
-                if (!chunks.length) { resolve(null); return; }
+                if (!chunks.length) { done(null); return; }
                 const blob = new Blob(chunks, { type: this._mimeType });
-                resolve(blob.size > 0 ? blob : null);
+                done(blob.size > 0 ? blob : null);
             };
             try {
                 recorder.start();
-                setTimeout(() => {
+                this._stopTimer = setTimeout(() => {
                     if (recorder.state !== "inactive") {
                         try { recorder.stop(); } catch (e) {}
                     }
                 }, this.seconds * 1000);
             } catch (e) {
-                this._busy = false;
-                resolve(null);
+                done(null);
             }
         });
     }

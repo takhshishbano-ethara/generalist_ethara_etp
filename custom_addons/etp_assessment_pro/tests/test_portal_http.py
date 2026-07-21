@@ -9,7 +9,7 @@ status/redirect AND the resulting DB state (response rows + lines, evaluator
 
 Facts pinned against the real source (re-confirmed by reading portal.py):
   * ``/pro_assessment/<token>`` redirects a *public* (unauthenticated) visitor
-    to /web/login (portal.py) — an authenticated portal session is required;
+    to /web/login (portal.py) - an authenticated portal session is required;
     the token only scopes the evaluator.
   * ``.../begin`` / ``.../submit`` / ``.../finish`` / ``.../violation`` are
     csrf=True POST routes; ``url_open`` below auto-attaches the session csrf
@@ -18,7 +18,7 @@ Facts pinned against the real source (re-confirmed by reading portal.py):
     (required for subjective_*/image_prompt/image_label),
     ``dimension_<DIMENSION_ID>`` = the master option id, comma-separated for msq
     (required for mcq/msq/image_ab). Upsert = search-then-create-or-overwrite.
-  * Candidate-portal flow makes NO Vertex calls — subjective answers are only
+  * Candidate-portal flow makes NO Vertex calls - subjective answers are only
     ENQUEUED (``llm_state == 'pending'``) and scored later by cron.
 
 The candidate's linked portal user is created with a KNOWN password so
@@ -28,10 +28,25 @@ import base64
 import json
 import re
 from uuid import uuid4
+from unittest.mock import patch
 
 from odoo.tests.common import HttpCase, tagged
 
+from odoo.addons.etp_assessment_pro.controllers import portal as portal_ctrl
 from odoo.addons.etp_assessment_pro.tests.test_phase23_lifecycle import _Base
+
+
+class _FakeRequest:
+    """Minimal request stand-in for controller-level guard tests: carries env
+    plus redirect/render stubs and a dummy httprequest. Mirrors
+    test_concurrency._FakeRequest."""
+
+    class _HttpReq:
+        path = "/pro_assessment/x"
+
+    def __init__(self, env):
+        self.env = env
+        self.httprequest = self._HttpReq()
 
 
 def _valid_png_1px():
@@ -411,6 +426,146 @@ class TestPortalHttp(HttpCase, _Base):
         self.assertTrue(ev.is_locked)
         self.assertEqual(ev.state, "submitted")
 
+    def test_violation_notice_shown_on_complete_page(self):
+        # After a violation auto-submits, the candidate's complete page must
+        # surface the violation (reason + count), not hide it.
+        ev, _payload, login, pwd, _app = self._launched()
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        self.url_open(
+            "/pro_assessment/%s/violation" % token,
+            data={"violation_reason": "Developer tools detected"})
+        ev.invalidate_recordset()
+        self.assertTrue(ev.is_violated)
+        html = self.url_open("/pro_assessment/%s" % token).text
+        self.assertIn("Proctoring violation recorded", html)
+        self.assertIn("Developer tools detected", html)
+
+    def test_violation_route_rejects_non_candidate(self):
+        # BUG-1 guard: a non-candidate (manager) holding the token must NOT be
+        # able to record a violation. Reachable only when the evaluator has no
+        # provisioned candidate user (else _candidate_guard already blocks with
+        # wrong-candidate), so we null every candidate-user source. Driven at the
+        # controller level with a fake request whose env.user is the manager -
+        # the established pattern (test_concurrency._FakeRequest) - so the test
+        # exercises _is_real_candidate directly, not HTTP/CSRF plumbing.
+        ev, _payload, _login, _pwd, app = self._launched(name="GuardViol")
+        app.write({"candidate_user_id": False, "partner_id": False,
+                   "email_from": False})
+        ev.write({"state": "in_progress"})
+        before = ev.violation_count
+        mgr = self._make_portal_manager_user("ViolMgr")
+        blocked = self._call_route_as(
+            mgr, "assessment_violation_single", ev.access_token,
+            violation_reason="manager poking")
+        ev.invalidate_recordset()
+        self.assertTrue(blocked, "route must redirect (not process) a non-candidate")
+        self.assertEqual(ev.violation_count, before,
+                         "a non-candidate must not increment violation_count")
+        self.assertFalse(ev.is_violated,
+                         "a non-candidate must not flag the attempt as violated")
+        self.assertNotEqual(ev.state, "submitted",
+                            "a non-candidate must not trip auto-submit")
+
+    def test_finish_route_rejects_non_candidate(self):
+        # BUG-1 guard: a non-candidate must not finish (auto-submit) a real
+        # candidate's un-provisioned attempt.
+        ev, _payload, _login, _pwd, app = self._launched(name="GuardFin")
+        app.write({"candidate_user_id": False, "partner_id": False,
+                   "email_from": False})
+        ev.write({"state": "in_progress"})
+        mgr = self._make_portal_manager_user("FinMgr")
+        self._call_route_as(mgr, "assessment_finish_single", ev.access_token)
+        ev.invalidate_recordset()
+        self.assertNotEqual(ev.state, "submitted",
+                            "a non-candidate must not settle the attempt via /finish")
+        self.assertFalse(ev.is_locked)
+
+    def _make_portal_manager_user(self, name):
+        slug = name.lower().replace(" ", "_")
+        mgr = self.env.ref("etp_assessment_pro.group_assessment_manager")
+        return self.env["res.users"].with_context(no_reset_password=True).create({
+            "name": name, "login": "%s_%s@x.com" % (slug, uuid4().hex[:8]),
+            "email": "%s@x.com" % slug, "password": "mgrpass1",
+            "group_ids": [(6, 0, [mgr.id])]})
+
+    def _call_route_as(self, user, method, token, **form):
+        """Invoke a portal route handler with a fake request whose env.user is
+        `user`. Calls the UNDECORATED endpoint (``original_endpoint``, set by
+        @http.route at http.py:800) so Odoo's Response.load wrapper does not try
+        to serialise our stub return. Returns True if the handler short-circuited
+        with a redirect (the guard path), False if it rendered/processed."""
+        ctrl = portal_ctrl.EtpAssessmentPortal()
+        endpoint = getattr(type(ctrl), method).original_endpoint
+        req = _FakeRequest(self.env(user=user))
+        req.redirect = lambda *a, **k: ("REDIRECT", a, k)
+        req.render = lambda *a, **k: ("RENDER", a, k)
+        with patch.object(portal_ctrl, "request", req):
+            res = endpoint(ctrl, token, **form)
+        return isinstance(res, tuple) and res[0] == "REDIRECT"
+
+    def test_exam_page_carries_violation_policy(self):
+        # The question page's exam-config JSON must expose the violation policy
+        # so the client can show a live running-count warning.
+        ev, _payload, login, pwd, _app = self._launched()
+        ev.assessment_id.write(
+            {"violation_action": "auto_submit", "max_violations": 3})
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        html = self.url_open("/pro_assessment/%s" % token).text
+        self.assertIn("etp-violation-banner", html)
+        # Odoo escapes attribute quotes as numeric &#34; in the data-rules blob.
+        self.assertIn("max_violations", html)
+        self.assertIn("&#34;max_violations&#34;: 3", html)
+        self.assertIn("&#34;violation_action&#34;: &#34;auto_submit&#34;", html)
+
+    def test_exam_page_carries_proctoring_rules(self):
+        # Fullscreen / webcam / watermark must reach the client config AND the
+        # page must render the DOM hooks the proctoring JS drives, so the three
+        # rules actually enforce (they were previously inert switches).
+        ev, _payload, login, pwd, _app = self._launched()
+        ev.assessment_id.write({
+            "rule_fullscreen": True,
+            "rule_webcam": True,
+            "rule_watermark": True,
+        })
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        html = self.url_open("/pro_assessment/%s" % token).text
+        # Config flags present.
+        self.assertIn("&#34;fullscreen&#34;: true", html)
+        self.assertIn("&#34;webcam&#34;: true", html)
+        self.assertIn("&#34;watermark&#34;: true", html)
+        # Watermark label carries the candidate identity (name reaches the blob).
+        self.assertIn("watermark_label", html)
+        # DOM hooks + behaviour present.
+        self.assertIn("etp-fs-prompt", html)
+        self.assertIn("etp-webcam-note", html)
+        self.assertIn("requestFullscreen", html)
+        self.assertIn("getUserMedia", html)
+        self.assertIn("etp-watermark-layer", html)
+
+    def test_proctoring_rules_off_by_default_absent(self):
+        # When a rule is off, its enforcement must NOT run: flags false and the
+        # watermark label is empty (no identity leak when watermarking is off).
+        ev, _payload, login, pwd, _app = self._launched()
+        ev.assessment_id.write({
+            "rule_fullscreen": False,
+            "rule_webcam": False,
+            "rule_watermark": False,
+        })
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        html = self.url_open("/pro_assessment/%s" % token).text
+        self.assertIn("&#34;fullscreen&#34;: false", html)
+        self.assertIn("&#34;webcam&#34;: false", html)
+        self.assertIn("&#34;watermark&#34;: false", html)
+        self.assertIn("&#34;watermark_label&#34;: &#34;&#34;", html)
+
     # ---- 7. qimage route -------------------------------------------------
 
     def _launched_image_label(self, name="LabelCand", with_detections=True):
@@ -464,6 +619,75 @@ class TestPortalHttp(HttpCase, _Base):
             "/pro_assessment/qimage/%s/%d" % (token, bogus_id))
         self.assertEqual(resp.status_code, 404)
 
+    def test_admin_qimage_serves_to_manager_and_denies_others(self):
+        ev, _q_img, image, _login, _pwd = self._launched_image_label(
+            name="AdminImg")
+        mgr = self._make_portal_manager_user("AdminImgMgr")
+        # A manager may read the record, so the ACL-checked proxy serves bytes.
+        served = self._call_admin_proxy(
+            mgr, "serve_admin_question_image", image.id)
+        self.assertEqual(served, "SERVED",
+                         "a manager must be able to preview the question image")
+        # A plain internal user with no module grant cannot read, so 404 (the
+        # proxy never leaks existence). Portal users legitimately CAN read
+        # (they see exam images), so the boundary is the ungranted internal user.
+        plain = self.env["res.users"].with_context(
+            no_reset_password=True).create({
+                "name": "Nobody", "login": "nobody_%s@x.com" % uuid4().hex[:8],
+                "password": "x", "group_ids": [(6, 0, [
+                    self.env.ref("base.group_user").id])]})
+        denied = self._call_admin_proxy(
+            plain, "serve_admin_question_image", image.id)
+        self.assertEqual(denied, "NOTFOUND",
+                         "an ungranted internal user must get 404")
+        gone = self._call_admin_proxy(
+            mgr, "serve_admin_question_image", image.id + 999999)
+        self.assertEqual(gone, "NOTFOUND", "a missing image must 404")
+
+    def test_admin_qvideo_denies_missing_and_unprivileged(self):
+        mgr = self._make_portal_manager_user("AdminVidMgr")
+        gone = self._call_admin_proxy(
+            mgr, "serve_admin_question_video", 999999)
+        self.assertEqual(gone, "NOTFOUND", "a missing video must 404")
+
+    def _call_admin_proxy(self, user, method, rec_id):
+        """Invoke an admin S3 proxy route as `user`; classify the outcome as
+        SERVED / NOTFOUND without a live S3 backend. The proxy either returns a
+        not_found response (denied / missing) or reaches _serve_image, which we
+        stub to a sentinel so the ACL decision is what the test observes."""
+        ctrl = portal_ctrl.EtpAssessmentPortal()
+        endpoint = getattr(type(ctrl), method).original_endpoint
+        req = _FakeRequest(self.env(user=user))
+        req.not_found = lambda *a, **k: ("NOTFOUND", a, k)
+        with patch.object(portal_ctrl, "request", req), \
+                patch.object(type(ctrl), "_serve_image",
+                             lambda self, *a, **k: "SERVED"), \
+                patch.object(type(ctrl), "_serve_video",
+                             lambda self, *a, **k: "SERVED"):
+            res = endpoint(ctrl, rec_id)
+        if isinstance(res, tuple) and res[0] == "NOTFOUND":
+            return "NOTFOUND"
+        return res if res == "SERVED" else "OTHER"
+
+    def test_answers_route_gated_on_results_release(self):
+        ev, _payload, login, pwd, _app = self._launched(name="AnswersGate")
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        ev.write({"state": "submitted", "is_locked": True})
+        # Not released yet: the answers page must redirect back to the hub,
+        # never leak the submitted answers.
+        ev.write({"results_released": False})
+        resp = self.url_open("/pro_assessment/%s/answers" % token,
+                             allow_redirects=False)
+        self.assertIn(resp.status_code, (302, 303),
+                      "unreleased answers must redirect, not render")
+        # Once released, the review page renders.
+        ev.write({"results_released": True})
+        resp = self.url_open("/pro_assessment/%s/answers" % token)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("Answers", resp.text)
+
     # ---- 8. image_label per-box labelling --------------------------------
 
     def test_image_label_renders_annotated_and_numbered_inputs(self):
@@ -480,8 +704,9 @@ class TestPortalHttp(HttpCase, _Base):
             html, "annotated overlay image must be served to the candidate")
         self.assertIn('name="label_1"', html)
         self.assertIn('name="label_2"', html)
-        self.assertIn("Label for box 1", html)
-        self.assertIn("Label for box 2", html)
+        self.assertIn("Label each numbered box", html)
+        self.assertIn("Box 1", html)
+        self.assertIn("Box 2", html)
         self.assertNotIn("a red car", html)
         self.assertNotIn("detections_json", html)
 
@@ -519,6 +744,56 @@ class TestPortalHttp(HttpCase, _Base):
         self.assertIn(
             "/pro_assessment/qimage/%s/%d" % (token, image.id), html,
             "fallback must still show the plain source image")
+
+    def test_image_label_many_boxes_paginate(self):
+        # A dense image_label (>8 boxes) must render EVERY per-box input in the
+        # DOM (single-submit contract intact) AND expose the pager scaffolding so
+        # the client paginates instead of forcing an inner scroll.
+        cat = self._make_category("LabelDense")
+        q_img = self.Question.create({
+            "name": "LABEL_DENSE",
+            "question_type": "image_label",
+            "prompt": "Label each numbered box",
+            "difficulty": "medium",
+            "generator_id": cat.id,
+        })
+        dets = [{"number": n, "label": "x%d" % n, "description": "d%d" % n,
+                 "box_px": [0, 0, 1, 1]} for n in range(1, 11)]  # 10 boxes
+        self.env["etp.assessment.pro.question.image"].create({
+            "question_id": q_img.id, "label": "Single", "slot": "single",
+            "image": base64.b64encode(_PNG_1PX).decode("ascii"),
+            "annotated_image": base64.b64encode(_PNG_1PX).decode("ascii"),
+            "detections_json": json.dumps(dets),
+        })
+        applicant, login, pwd = self._portal_candidate("LabelDense")
+        a = self.Assessment.create({
+            "name": "LabelDenseA", "generator_id": cat.id, "question_limit": 0,
+            "duration_minutes": 30,
+            "evaluator_ids": [(6, 0, [applicant.id])]})
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
+        token = ev.access_token
+        self.authenticate(login, pwd)
+        self.url_open("/pro_assessment/%s/begin" % token, data={"_": "1"})
+        html = self.url_open("/pro_assessment/%s?q=1" % token).text
+        # All 10 inputs exist in the DOM (nothing lost to pagination).
+        for n in range(1, 11):
+            self.assertIn('name="label_%d"' % n, html)
+        # Pager scaffolding is present so the client can page (not inner-scroll).
+        self.assertIn("etp-label-pager", html)
+        self.assertIn("etp-label-block", html)
+
+        # And the single submit still captures boxes across all "pages".
+        answers = {"label_%d" % n: "ans%d" % n for n in range(1, 11)}
+        answers["question_id"] = str(q_img.id)
+        self.url_open("/pro_assessment/%s/submit" % token, data=answers)
+        r = self.Response.search([("assessment_evaluator_id", "=", ev.id),
+                                  ("question_id", "=", q_img.id)])
+        self.assertEqual(len(r), 1)
+        self.assertEqual(
+            json.loads(r.justification),
+            {str(n): "ans%d" % n for n in range(1, 11)},
+            "every paginated box must persist in one submit")
 
     # ---- sanity: token order is what we think it is ----------------------
 

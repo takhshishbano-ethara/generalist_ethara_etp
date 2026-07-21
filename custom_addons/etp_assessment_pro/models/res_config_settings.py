@@ -152,6 +152,36 @@ class ResConfigSettings(models.TransientModel):
              "into sub-batches of this size so no request overflows the token "
              "budget. Lower it if you see truncated scoring responses.",
     )
+    etp_assessment_pro_daily_llm_cap_usd = fields.Float(
+        string="Daily LLM Spend Cap (USD)",
+        config_parameter="etp_assessment_pro.daily_llm_cap_usd",
+        default=100.0,
+        help="H-5: refuse any Vertex call once same-day recorded LLM spend "
+             "reaches this. 0 disables the daily cap. Protects against a "
+             "cost-DoS (adversarial answers) draining the budget in one cycle.",
+    )
+    etp_assessment_pro_per_evaluator_llm_cap_usd = fields.Float(
+        string="Per-Candidate LLM Spend Cap (USD)",
+        config_parameter="etp_assessment_pro.per_evaluator_llm_cap_usd",
+        default=5.0,
+        help="H-5: refuse further Vertex calls for one candidate once their "
+             "recorded LLM spend reaches this. 0 disables the per-candidate "
+             "cap. Stops a single candidate consuming the whole budget.",
+    )
+
+    @api.constrains("etp_assessment_pro_llm_max_attempts",
+                    "etp_assessment_pro_scoring_batch_size")
+    def _check_llm_limits(self):
+        # H-5 hardening: a compromised/fat-fingered admin setting attempts=100 or
+        # batch=1000 would multiply spend / overflow the token budget. Clamp the
+        # accepted range at the write path.
+        for rec in self:
+            if not (1 <= (rec.etp_assessment_pro_llm_max_attempts or 3) <= 5):
+                raise UserError(
+                    "LLM Scoring Max Attempts must be between 1 and 5.")
+            if not (1 <= (rec.etp_assessment_pro_scoring_batch_size or 8) <= 32):
+                raise UserError(
+                    "Scoring Batch Size must be between 1 and 32.")
 
     etp_assessment_pro_question_prompt = fields.Char(
         string="Question Generation Prompt",

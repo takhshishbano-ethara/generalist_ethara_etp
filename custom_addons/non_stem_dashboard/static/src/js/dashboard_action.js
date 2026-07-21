@@ -9,18 +9,22 @@ class NonStemDashboardView extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
+        this.notification = useService("notification");
         this.state = useState({
             runs: [],
             selectedRun: null,
             dashboardType: "tasker",
             loading: true,
-            isManager: false,
+            role: false,
         });
 
         onWillStart(async () => {
-            this.state.isManager = await this.orm.call(
-                "non.stem.run", "check_is_manager", []
+            this.state.role = await this.orm.call(
+                "non.stem.run", "get_user_role", []
             );
+            if (this.state.role === "viewer") {
+                this.state.dashboardType = "management";
+            }
             await this.loadRuns();
         });
     }
@@ -55,6 +59,13 @@ class NonStemDashboardView extends Component {
     }
 
     openNewRun() {
+        if (this.state.role !== "admin") {
+            this.notification.add(
+                "You don't have access to create a new run. Please contact your administrator.",
+                { type: "danger", sticky: false }
+            );
+            return;
+        }
         this.action.doAction({
             type: "ir.actions.act_window",
             res_model: "non.stem.run",

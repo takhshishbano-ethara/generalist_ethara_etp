@@ -18,6 +18,7 @@ REQUEST_STATE_SELECTION = [
     ('changes_required', 'Changes Required'),
     ('approved', 'Approved'),
     ('partially_approved', 'Partially Approved'),
+    ('rejected', 'Rejected'),
     ('withdrawn', 'Withdrawn'),
 ]
 
@@ -207,6 +208,10 @@ class EtharaProjectPhaseRequest(models.Model):
     )
     total_tasks = fields.Integer(string='Total Tasks')
     buffer_pct = fields.Float(string='Buffer %', default=0.0)
+    # The buffer reserve (USD), persisted for reporting. Deliberately stored
+    # SEPARATELY from approved_total — the buffer is a confidential reserve and
+    # is NOT folded into the approved amount that propagates to the budget.
+    buffer_amount = fields.Float(string='Buffer Amount (USD)', default=0.0)
     model_line_ids = fields.One2many(
         comodel_name='ethara.project.phase.request.model.line',
         inverse_name='request_id',
@@ -227,6 +232,20 @@ class EtharaProjectPhaseRequest(models.Model):
     )
     requested_total = fields.Float(string='Requested Total (USD)')
     approved_total = fields.Float(string='Approved Total (USD)')
+    # Stable snapshots for the CFO "Financial overview" card. `requested_total`
+    # is overwritten when the CTO revises, and `approved_total` is overwritten
+    # by the CFO's own decision — so the original ask and the CTO-forwarded
+    # figure are captured once and kept apart.
+    original_requested_total = fields.Float(
+        string='Original Requested Total (USD)',
+        help='The raiser\'s requested total as it entered review, before any '
+             'CTO revision. Captured at submission.',
+    )
+    cto_forwarded_total = fields.Float(
+        string='CTO Forwarded Total (USD)',
+        help='The amount the CTO approved and forwarded to the CFO. Captured '
+             'at CTO approval, before the CFO settles a final amount.',
+    )
     remaining_amount = fields.Float(
         string='Remaining (USD)',
         compute='_compute_remaining_amount',
@@ -317,7 +336,10 @@ class EtharaProjectPhaseRequest(models.Model):
                 + sub_approved
             )
             rec.requested_total = requested_base * factor
-            rec.approved_total = approved_base * factor
+            # Buffer is NOT folded into the approved amount — approved_total is
+            # the base approved figure; the buffer reserve is tracked apart.
+            rec.approved_total = approved_base
+            rec.buffer_amount = approved_base * ((rec.buffer_pct or 0.0) / 100.0)
 
     @api.model
     def _resolve_role_ids(self, xmlids):
@@ -447,6 +469,26 @@ class EtharaProjectPhaseRequest(models.Model):
                 "Either raise the approved amount to cover fixed costs or "
                 "approve the full requested total."
             ) % {'approved': approved_total, 'floor': floor})
+
+    def _check_infra_cost_floor(self):
+        """Infrastructure floor. Used when the CFO edits line amounts directly
+        (models + subscriptions are editable). The approved total may not drop
+        below the infrastructure cost the CFO is committing to — i.e. the infra
+        lines' APPROVED amounts, which now track the CFO's editable instance
+        quantity (previously infra was locked, so approved == requested and this
+        floored on requested)."""
+        self.ensure_one()
+        infra_floor = sum(
+            (line.approved_amount or 0.0) for line in self.infra_line_ids
+        )
+        if infra_floor <= 0.0:
+            return
+        approved_total = self.approved_total or 0.0
+        if approved_total + 1e-6 < infra_floor:
+            raise UserError(_(
+                "Approved amount (USD %(approved).2f) must be at least the "
+                "infrastructure cost (USD %(floor).2f)."
+            ) % {'approved': approved_total, 'floor': infra_floor})
 
     def _check_can_submit(self):
         self.ensure_one()
@@ -631,12 +673,15 @@ class EtharaProjectPhaseRequest(models.Model):
                             if not proj:
                                 continue
                             try:
-                                proj.message_post(
-                                    body=body_str,
-                                    subtype_xmlid='mail.mt_note',
-                                    message_type='notification',
-                                    partner_ids=targets,
-                                )
+                                kwargs = {
+                                    'body': body_str,
+                                    'subtype_xmlid': 'mail.mt_note',
+                                    'message_type': 'notification',
+                                    'partner_ids': targets,
+                                }
+                                kwargs = proj._ethara_thread_post_kwargs(kwargs)
+                                message = proj.message_post(**kwargs)
+                                proj._ethara_capture_root(message)
                             except Exception:
                                 _logger.exception(
                                     'Deferred phase-request chatter post failed for %s',
@@ -696,6 +741,9 @@ class EtharaProjectPhaseRequest(models.Model):
                 raise UserError(_(
                     'Requested total must be greater than zero.'
                 ))
+            # Snapshot the raiser's ask as it enters review — the "Original
+            # request" figure on the CFO card. Kept stable through CTO revisions.
+            rec.original_requested_total = rec.requested_total or 0.0
             if not rec.budget_id.approver_user_ids:
                 raise UserError(_(
                     'Project Budget has no approvers configured.'
@@ -748,12 +796,26 @@ class EtharaProjectPhaseRequest(models.Model):
                     'Only requests in CTO Review can be approved by the CTO.'
                 ))
             rec._check_can_cto_review()
+            # The CTO may have revised the request down (or up). The modified
+            # requested_total IS the envelope being forwarded, so reseed
+            # approved_total from it (mirroring action_submit_for_approval)
+            # before distributing — otherwise a stale pre-revision approved_total
+            # would linger above requested_total and skew the waterfall.
+            rec.approved_total = rec.requested_total or 0.0
             rec._distribute_approved_amount()
             if (rec.approved_total or 0.0) <= 0.0:
                 raise UserError(_(
                     "Approved total must be greater than zero. Use "
                     "'Send Back for Changes' if the request is not acceptable."
                 ))
+            # Snapshot the CTO-forwarded figure (the approved line total at hand
+            # off) before the CFO overwrites approved_total with its own
+            # decision — this is the "CTO forwarded" figure on the CFO card.
+            rec.cto_forwarded_total = (
+                sum(rec.model_line_ids.mapped('approved_amount'))
+                + sum(rec.infra_line_ids.mapped('approved_amount'))
+                + sum(rec.subscription_line_ids.mapped('approved_amount'))
+            )
             rec.write({
                 'state': 'cfo_review',
                 'cto_reviewer_id': self.env.user.id,
@@ -783,20 +845,43 @@ class EtharaProjectPhaseRequest(models.Model):
         }
 
     def action_cfo_approve(self):
+        # When the CFO edits individual line amounts (models + subscriptions;
+        # infrastructure stays locked), the caller sets `cfo_line_override` in
+        # the context. In that mode the per-line `approved_amount` figures are
+        # authoritative: the approved total is their sum and we DON'T
+        # auto-redistribute (which would overwrite the CFO's line edits). Only
+        # infrastructure is a hard floor there — subscriptions are editable, so
+        # they no longer count toward the fixed-cost floor.
+        line_override = bool(self.env.context.get('cfo_line_override'))
         for rec in self:
             if rec.state != 'cfo_review':
                 raise UserError(_(
                     'Only requests in CFO Approval can be approved by the CFO.'
                 ))
             rec._check_can_cfo_approve()
+            if line_override:
+                rec.approved_total = (
+                    sum(rec.model_line_ids.mapped('approved_amount'))
+                    + sum(rec.infra_line_ids.mapped('approved_amount'))
+                    + sum(rec.subscription_line_ids.mapped('approved_amount'))
+                )
             if (rec.approved_total or 0.0) <= 0.0:
                 raise UserError(_(
                     "Approved total must be greater than zero. Use "
                     "'Request Changes' if the request is not acceptable."
                 ))
-            rec._check_fixed_cost_floor()
-            rec._distribute_approved_amount()
-            is_partial = (
+            if line_override:
+                # Trust the CFO's per-line figures — infra is the only floor.
+                rec._check_infra_cost_floor()
+            else:
+                rec._check_fixed_cost_floor()
+                rec._distribute_approved_amount()
+            # Persist the buffer reserve, derived from the base approved total.
+            # It is stored apart and NOT added into approved_total.
+            rec.buffer_amount = (
+                (rec.approved_total or 0.0) * ((rec.buffer_pct or 0.0) / 100.0)
+            )
+            inferred_partial = (
                 (rec.approved_total or 0.0) < (rec.requested_total or 0.0)
                 or any(
                     (line.approved_amount or 0.0) < (line.requested_amount or 0.0)
@@ -806,7 +891,17 @@ class EtharaProjectPhaseRequest(models.Model):
                     (line.approved_amount or 0.0) < (line.requested_amount or 0.0)
                     for line in rec.infra_line_ids
                 )
+                or any(
+                    (line.approved_amount or 0.0)
+                    < (line.requested_amount or line.final_amount or 0.0)
+                    for line in rec.subscription_line_ids
+                )
             )
+            # An explicit decision from the caller (the CFO's Approve vs Partial
+            # button, passed as `force_partial` in the context) wins; otherwise
+            # fall back to inferring partialness from the amounts.
+            forced = self.env.context.get('force_partial', None)
+            is_partial = inferred_partial if forced is None else bool(forced)
             new_state = 'partially_approved' if is_partial else 'approved'
             now = fields.Datetime.now()
             rec.write({
@@ -874,6 +969,37 @@ class EtharaProjectPhaseRequest(models.Model):
         now = fields.Datetime.now()
         self.write({
             'state': 'changes_required',
+            'cfo_approver_id': self.env.user.id,
+            'cfo_approval_date': now,
+            'cfo_change_request_note': note,
+            'approver_id': self.env.user.id,
+            'approval_date': now,
+            'rejection_reason': note,
+            'rejected_by': self.env.user.id,
+        })
+        cto_partner_ids = (
+            self.cto_reviewer_id.partner_id.ids
+            if self.cto_reviewer_id else []
+        )
+        self._send_thread_mail(
+            TEMPLATE_CFO_CHANGES,
+            list(set(self._requester_partner_ids() + cto_partner_ids)),
+        )
+
+    def _do_cfo_reject(self, note):
+        """Terminal CFO rejection. Unlike `_do_cfo_request_changes` (which sends
+        the request back to the PL as `changes_required` for revision), this
+        closes the request as `rejected` and does NOT propagate anything to the
+        phase/budget."""
+        self.ensure_one()
+        if self.state != 'cfo_review':
+            raise UserError(_(
+                'Only requests in CFO Approval can be rejected by the CFO.'
+            ))
+        self._check_can_cfo_approve()
+        now = fields.Datetime.now()
+        self.write({
+            'state': 'rejected',
             'cfo_approver_id': self.env.user.id,
             'cfo_approval_date': now,
             'cfo_change_request_note': note,

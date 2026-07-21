@@ -17,11 +17,15 @@ def migrate(cr, version):
     env = api.Environment(cr, SUPERUSER_ID, {})
 
     # 1. Personas -> the project of their current (else earliest) allocation.
-    personas = env['kensei2.persona'].search([('pt_project_id', '=', False)])
-    for persona in personas:
-        alloc = persona.pt_current_allocation_id or persona.pt_allocation_ids[:1]
-        if alloc and alloc.project_id:
-            persona.pt_project_id = alloc.project_id.id
+    # SKIPPED when pt_project_id no longer exists: personas were made global in
+    # 19.0.1.4.0 and the field was dropped, so this backfill is a historical
+    # no-op on any upgrade that lands on the current schema.
+    if 'pt_project_id' in env['kensei2.persona']._fields:
+        personas = env['kensei2.persona'].search([('pt_project_id', '=', False)])
+        for persona in personas:
+            alloc = persona.pt_current_allocation_id or persona.pt_allocation_ids[:1]
+            if alloc and alloc.project_id:
+                persona.pt_project_id = alloc.project_id.id
 
     # 2. Team members -> every project they touch (as tasker, PL, or QL).
     Alloc = env['project.tracker.allocation']

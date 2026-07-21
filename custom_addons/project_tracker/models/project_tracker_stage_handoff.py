@@ -90,6 +90,11 @@ class Kensei2TrackerStageHandoff(models.TransientModel):
             'parent_id': alloc.id,
             'persona_id': alloc.persona_id.id,
             'project_id': alloc.project_id.id,
+            # Taxonomy is a property of the TASK, so it carries to the next stage
+            # (the tasker can still adjust it on the new stage).
+            'l1_category': alloc.l1_category,
+            'l2_category': alloc.l2_category,
+            'agent_type': alloc.agent_type,
             'tasker_member_id': self.tasker_member_id.id,
             'assigned_date': self.assigned_date,
         })

@@ -1,10 +1,19 @@
-import { WebcamDetector } from "/etp_applicant_assessment/static/src/portal/webcam-detector.js";
-import { ClipRecorder } from "/etp_applicant_assessment/static/src/portal/clip-recorder.js";
+// ?v= busts the 7-day browser cache on these module files; keep in sync
+// with the ?v= on portal.js itself in portal_templates.xml.
+import { WebcamDetector } from "/etp_applicant_assessment/static/src/portal/webcam-detector.js?v=20260720-phone-v3";
+import { ClipRecorder } from "/etp_applicant_assessment/static/src/portal/clip-recorder.js?v=20260720-phone-v3";
 
 const SNAPSHOT_PERIOD_MS = 25000;
 const SNAPSHOT_ON_SIGNAL_MIN_GAP_MS = 12000;
 const CLIP_SECONDS = 10;
 const MEDIA_ERROR_DEDUPE_MS = 30000;
+// While the candidate stays out of full screen a fresh warning fires on
+// this cadence until they return (or the warning cap auto-submits).
+const FS_WARN_REPEAT_MS = 20000;
+// On submit, give the in-flight evidence clip a moment to keep recording,
+// then flush it early and wait (bounded) for its upload before navigating.
+const SUBMIT_CLIP_GRACE_MS = 6000;
+const SUBMIT_EVIDENCE_DRAIN_MS = 8000;
 const BLOCKED_KEYS = new Set(["c", "v", "x", "p", "s", "u"]);
 const WARNING_TOAST_MS = 4500;
 const WARNING_LABELS = {
@@ -95,6 +104,51 @@ function showWarningToast(kind, count, cap) {
     activeToasts.set(kind, record);
 }
 
+function warningMetaText(count, cap) {
+    if (!(count > 0 && cap > 0)) return "";
+    const remaining = Math.max(cap - count, 0);
+    if (remaining <= 0) return `Warning ${count} of ${cap} — auto-submitting your test.`;
+    if (remaining === 1) return `Warning ${count} of ${cap} — one more and your test auto-submits.`;
+    return `Warning ${count} of ${cap}`;
+}
+
+// Blocking pop-up shown when a mobile phone is detected. Unlike the corner
+// toast, it interrupts the candidate until acknowledged.
+let phoneAlert = null;
+function showPhoneAlert(count, cap) {
+    if (phoneAlert) {
+        phoneAlert.meta.textContent = warningMetaText(count, cap);
+        return;
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "eaa-alert eaa-alert--phone";
+    const card = document.createElement("div");
+    card.className = "eaa-alert__card";
+    const icon = document.createElement("div");
+    icon.className = "eaa-alert__icon eaa-alert__icon--phone";
+    const title = document.createElement("h2");
+    title.className = "eaa-alert__title";
+    title.textContent = "Mobile phone detected";
+    const text = document.createElement("p");
+    text.className = "eaa-alert__text";
+    text.textContent = "Put your phone away immediately. This incident has been recorded and will be reported to the recruiter.";
+    const meta = document.createElement("p");
+    meta.className = "eaa-alert__meta";
+    meta.textContent = warningMetaText(count, cap);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-primary";
+    btn.textContent = "I understand";
+    btn.addEventListener("click", () => {
+        overlay.remove();
+        phoneAlert = null;
+    });
+    card.append(icon, title, text, meta, btn);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    phoneAlert = { overlay, meta };
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const root = document.querySelector(".eaa-test");
     if (!root) return;
@@ -132,9 +186,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         detector: null,
         recorder: null,
         submitted: false,
+        completing: false,
         warningCount: 0,
         lastSnapshotAt: 0,
         clipInFlight: false,
+        pendingClip: null,
+        evidenceInFlight: 0,
     };
 
     const mediaErrorLastFire = new Map();
@@ -179,22 +236,45 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function captureEvidence(kind, warningId) {
-        if (!state.recorder) return;
-        let snapshotUrl = null;
-        let snapshotKey = null;
-        if (Date.now() - state.lastSnapshotAt >= SNAPSHOT_ON_SIGNAL_MIN_GAP_MS) {
-            state.lastSnapshotAt = Date.now();
-            const snap = await captureSnapshot(kind);
-            if (snap) {
-                snapshotUrl = snap.url || null;
-                snapshotKey = snap.s3_key || null;
+        // The counter is bumped synchronously so a submit landing right
+        // after the warning still waits for this evidence to settle.
+        state.evidenceInFlight++;
+        try {
+            let snapshotUrl = null;
+            let snapshotKey = null;
+            if (Date.now() - state.lastSnapshotAt >= SNAPSHOT_ON_SIGNAL_MIN_GAP_MS) {
+                state.lastSnapshotAt = Date.now();
+                const snap = await captureSnapshot(kind);
+                if (snap) {
+                    snapshotUrl = snap.url || null;
+                    snapshotKey = snap.s3_key || null;
+                }
             }
+            if (state.recorder) {
+                await captureAndUploadClip(kind, snapshotUrl, snapshotKey, warningId);
+            }
+        } finally {
+            state.evidenceInFlight--;
         }
-        captureAndUploadClip(kind, snapshotUrl, snapshotKey, warningId);
+    }
+
+    function notifyWarning(kind, count, cap) {
+        if (kind === "mobile_phone") {
+            showPhoneAlert(count, cap);
+            return;
+        }
+        showWarningToast(kind, count, cap);
     }
 
     async function postEvent(kind, meta) {
+        if (state.submitted) return;
+        // Pop the phone alert the instant the detector fires — the server
+        // roundtrip below only refines the warning count on the overlay.
+        if (kind === "mobile_phone") {
+            showPhoneAlert(state.warningCount + 1, warningCap);
+        }
         let warningId = null;
+        let terminal = false;
         try {
             const r = await postJson("/event", { kind, meta: meta || {} });
             if (r.ok) {
@@ -203,19 +283,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                 const count = typeof data.warning_count === "number"
                     ? data.warning_count
                     : state.warningCount;
-                showWarningToast(kind, count, warningCap);
+                notifyWarning(kind, count, warningCap);
                 if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
-                if (data.state === "submitted" || data.state === "scored") {
-                    forceCompleted();
-                    return;
-                }
+                terminal = data.state === "submitted" || data.state === "scored";
             } else {
-                showWarningToast(kind, state.warningCount, warningCap);
+                notifyWarning(kind, state.warningCount, warningCap);
             }
         } catch (e) {
-            showWarningToast(kind, state.warningCount, warningCap);
+            notifyWarning(kind, state.warningCount, warningCap);
         }
+        // Start evidence capture BEFORE completing: the warning that trips
+        // the cap is exactly the one whose clip must survive. Both submit
+        // paths wait (bounded) for in-flight evidence.
         captureEvidence(kind, warningId);
+        if (terminal) forceCompleted();
     }
 
     async function captureSnapshot(reason) {
@@ -257,40 +338,64 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
+    // One clip records at a time; a warning that lands mid-recording is
+    // queued (latest wins) instead of silently dropped, and is captured as
+    // soon as the current clip settles.
     async function captureAndUploadClip(reason, snapshotUrl, snapshotKey, warningId) {
         if (!state.recorder) return;
-        if (state.clipInFlight) return;
+        if (state.clipInFlight) {
+            state.pendingClip = { reason, snapshotUrl, snapshotKey, warningId };
+            return;
+        }
         state.clipInFlight = true;
         try {
-            const blob = await state.recorder.captureClip();
-            if (!blob) {
-                await beaconMediaError("clip-empty", "recorder returned empty");
-                return;
-            }
-            let presign;
-            try {
-                const r = await postJson("/proctoring/video/presign", {});
-                if (!r.ok) {
-                    await beaconMediaError("presign-error", `status=${r.status}`, r.status);
-                    return;
+            let job = { reason, snapshotUrl, snapshotKey, warningId };
+            while (job) {
+                try {
+                    await uploadOneClip(job);
+                } catch (e) {
+                    await beaconMediaError("capture-error", String(e && e.message || e));
                 }
-                const data = await r.json();
-                presign = data.presign;
-            } catch (e) {
-                await beaconMediaError("presign-error", String(e && e.message || e));
-                return;
+                job = state.submitted ? null : state.pendingClip;
+                state.pendingClip = null;
             }
-            if (!presign) {
-                await beaconMediaError("presign-null", "no bucket configured");
-                return;
+        } finally {
+            state.clipInFlight = false;
+        }
+    }
+
+    function handleWarningResponse(data) {
+        if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
+        if (data.state === "submitted" || data.state === "scored") forceCompleted();
+    }
+
+    async function uploadOneClip({ reason, snapshotUrl, snapshotKey, warningId }) {
+        const blob = await state.recorder.captureClip();
+        if (!blob) {
+            await beaconMediaError("clip-empty", "recorder returned empty");
+            return;
+        }
+        let presign = null;
+        try {
+            const r = await postJson("/proctoring/video/presign", {});
+            if (r.ok) {
+                presign = (await r.json()).presign || null;
+                if (!presign) await beaconMediaError("presign-null", "no bucket configured");
+            } else {
+                await beaconMediaError("presign-error", `status=${r.status}`, r.status);
             }
+        } catch (e) {
+            await beaconMediaError("presign-error", String(e && e.message || e));
+        }
+
+        let committed = false;
+        if (presign) {
             const form = new FormData();
             for (const [k, v] of Object.entries(presign.fields || {})) form.append(k, v);
             form.append("file", blob, `clip-${Date.now()}.webm`);
-            let s3Resp;
             let directOk = false;
             try {
-                s3Resp = await fetch(presign.url, { method: "POST", body: form });
+                const s3Resp = await fetch(presign.url, { method: "POST", body: form });
                 directOk = !!s3Resp.ok;
                 if (!directOk) {
                     await beaconMediaError("s3-post-failed", `status=${s3Resp.status}`, s3Resp.status);
@@ -308,41 +413,41 @@ document.addEventListener("DOMContentLoaded", async () => {
                         warning_id: warningId || 0,
                     });
                     if (r.ok) {
-                        const data = await r.json();
-                        if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
-                        if (data.state === "submitted" || data.state === "scored") forceCompleted();
+                        handleWarningResponse(await r.json());
+                        committed = true;
+                    } else {
+                        await beaconMediaError("commit-error", `status=${r.status}`, r.status);
                     }
                 } catch (e) {
                     await beaconMediaError("commit-error", String(e && e.message || e));
                 }
+            }
+        }
+        if (committed) return;
+
+        // Server-side fallback. Reached when presign is unavailable (S3 not
+        // configured), the direct S3 POST failed (CORS/policy/region), or
+        // the commit didn't land. The server stores to S3 or, failing that,
+        // as a local attachment — the clip is never dropped.
+        try {
+            const fallback = new FormData();
+            fallback.append("file", blob, `clip-${Date.now()}.webm`);
+            fallback.append("reason", reason);
+            if (snapshotUrl) fallback.append("snapshot_url", snapshotUrl);
+            if (snapshotKey) fallback.append("snapshot_key", snapshotKey);
+            if (warningId) fallback.append("warning_id", String(warningId));
+            const fbResp = await fetch(url("/proctoring/video/upload"), {
+                method: "POST",
+                body: fallback,
+                credentials: "same-origin",
+            });
+            if (!fbResp.ok) {
+                await beaconMediaError("commit-error", `fallback status=${fbResp.status}`, fbResp.status);
                 return;
             }
-            try {
-                const fallback = new FormData();
-                fallback.append("file", blob, `clip-${Date.now()}.webm`);
-                fallback.append("reason", reason);
-                if (snapshotUrl) fallback.append("snapshot_url", snapshotUrl);
-                if (snapshotKey) fallback.append("snapshot_key", snapshotKey);
-                if (warningId) fallback.append("warning_id", String(warningId));
-                const fbResp = await fetch(url("/proctoring/video/upload"), {
-                    method: "POST",
-                    body: fallback,
-                    credentials: "same-origin",
-                });
-                if (!fbResp.ok) {
-                    await beaconMediaError("commit-error", `fallback status=${fbResp.status}`, fbResp.status);
-                    return;
-                }
-                const data = await fbResp.json();
-                if (typeof data.warning_count === "number") updateWarnings(data.warning_count);
-                if (data.state === "submitted" || data.state === "scored") forceCompleted();
-            } catch (e) {
-                await beaconMediaError("commit-error", String(e && e.message || e));
-            }
+            handleWarningResponse(await fbResp.json());
         } catch (e) {
-            await beaconMediaError("capture-error", String(e && e.message || e));
-        } finally {
-            state.clipInFlight = false;
+            await beaconMediaError("commit-error", String(e && e.message || e));
         }
     }
 
@@ -351,11 +456,34 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (warnEl) warnEl.textContent = String(n);
         const warnWrap = warnEl ? warnEl.closest(".eaa-warnings") : null;
         if (warnWrap) warnWrap.classList.toggle("eaa-warnings--active", n > 0);
+        if (fsGuard) fsGuard.meta.textContent = warningMetaText(n, warningCap);
         if (warningCap > 0 && n >= warningCap && !state.submitted) doSubmit();
     }
 
-    function forceCompleted() {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+    // Navigating away aborts in-flight fetches and kills an in-progress
+    // MediaRecorder — which used to lose the clip of the very warning that
+    // ended the test. Give the recording a short grace period, flush it
+    // early (partial clip), then wait for uploads to settle — bounded, so
+    // the candidate is never stuck here.
+    async function drainEvidence(graceMs) {
+        if (state.evidenceInFlight <= 0) return;
+        if (saveStatusEl) saveStatusEl.textContent = "Saving proctoring evidence…";
+        if (graceMs > 0 && state.clipInFlight) await sleep(graceMs);
+        if (state.recorder) state.recorder.flush();
+        const deadline = Date.now() + SUBMIT_EVIDENCE_DRAIN_MS;
+        while (state.evidenceInFlight > 0 && Date.now() < deadline) {
+            if (state.recorder) state.recorder.flush();
+            await sleep(250);
+        }
+    }
+
+    async function forceCompleted() {
+        if (state.completing) return;
+        state.completing = true;
         state.submitted = true;
+        await drainEvidence(SUBMIT_CLIP_GRACE_MS);
         stopMedia();
         window.location.href = url("");
     }
@@ -547,6 +675,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             }).catch(() => {}));
         });
         await Promise.all(promises);
+        await drainEvidence(SUBMIT_CLIP_GRACE_MS);
         stopMedia();
         const form = document.createElement("form");
         form.method = "POST";
@@ -723,26 +852,103 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     }
 
+    // ── Fullscreen enforcement ────────────────────────────────────────
+    // A blocking overlay covers the test whenever the tab is not in full
+    // screen (or is hidden/minimized), and keeps re-warning on a fixed
+    // cadence until the candidate returns — leaving full screen once no
+    // longer costs just a single warning.
+    let fsGuard = null;
+    let proctorReady = false;
+    let tryEnterFullscreen = () => {};
+
     if (requireFullscreen) {
         const fsBtn = root.querySelector('[data-role="fs-btn"]');
-        const enterFullscreen = () => {
+        let fsEverEntered = false;
+        let fsLastWarnAt = 0;
+
+        tryEnterFullscreen = () => {
             const el = document.documentElement;
             if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
         };
-        if (fsBtn) fsBtn.addEventListener("click", enterFullscreen);
-        enterFullscreen();
-        // Browsers reject programmatic fullscreen without a user gesture, so
-        // surface the button whenever we are not fullscreen (HRMS behaviour).
+
+        function ensureFsGuard() {
+            if (fsGuard) return fsGuard;
+            const overlay = document.createElement("div");
+            overlay.className = "eaa-alert eaa-alert--fs d-none";
+            const card = document.createElement("div");
+            card.className = "eaa-alert__card";
+            const icon = document.createElement("div");
+            icon.className = "eaa-alert__icon eaa-alert__icon--fs";
+            const title = document.createElement("h2");
+            title.className = "eaa-alert__title";
+            title.textContent = "Return to full screen";
+            const text = document.createElement("p");
+            text.className = "eaa-alert__text";
+            text.textContent = "This test must stay in full-screen mode. You will keep receiving warnings until you return, and the test pauses on this screen.";
+            const meta = document.createElement("p");
+            meta.className = "eaa-alert__meta";
+            meta.textContent = warningMetaText(state.warningCount, warningCap);
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "btn btn-primary";
+            btn.textContent = "Return to full screen";
+            btn.addEventListener("click", tryEnterFullscreen);
+            card.append(icon, title, text, meta, btn);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+            fsGuard = { overlay, meta };
+            return fsGuard;
+        }
+
+        const fsCompliant = () =>
+            !!document.fullscreenElement && !document.hidden;
+
+        function syncFsGuard() {
+            if (state.submitted || !proctorReady) {
+                if (fsGuard) fsGuard.overlay.classList.add("d-none");
+                return;
+            }
+            if (fsCompliant()) {
+                if (fsGuard) fsGuard.overlay.classList.add("d-none");
+                return;
+            }
+            const guard = ensureFsGuard();
+            guard.meta.textContent = warningMetaText(state.warningCount, warningCap);
+            guard.overlay.classList.remove("d-none");
+            // Warnings only start once the candidate has been in full
+            // screen — before that the blocking overlay is enforcement
+            // enough (programmatic entry without a gesture is rejected
+            // by the browser, so t=0 is never compliant).
+            if (
+                fsEverEntered
+                && !filePickerBusy()
+                && performance.now() - fsLastWarnAt >= FS_WARN_REPEAT_MS
+            ) {
+                fsLastWarnAt = performance.now();
+                postEvent("fullscreen_exit", { at: new Date().toISOString() });
+            }
+        }
+
+        if (fsBtn) fsBtn.addEventListener("click", tryEnterFullscreen);
+        tryEnterFullscreen();
         setTimeout(() => {
             if (fsBtn) fsBtn.classList.toggle("d-none", !!document.fullscreenElement);
         }, 800);
         document.addEventListener("fullscreenchange", () => {
             if (fsBtn) fsBtn.classList.toggle("d-none", !!document.fullscreenElement);
-            if (!document.fullscreenElement) {
+            if (document.fullscreenElement) {
+                fsEverEntered = true;
+            } else if (fsEverEntered && !state.submitted && !filePickerBusy()) {
+                // Immediate strike on exit; syncFsGuard repeats it every
+                // FS_WARN_REPEAT_MS until compliance.
+                fsLastWarnAt = performance.now();
                 postEvent("fullscreen_exit", { at: new Date().toISOString() });
-                setTimeout(enterFullscreen, 1500);
             }
+            syncFsGuard();
         });
+        document.addEventListener("visibilitychange", syncFsGuard);
+        window.addEventListener("resize", syncFsGuard);
+        setInterval(syncFsGuard, 1000);
     }
 
     function showConsent(resolve) {
@@ -758,6 +964,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (consentAccept) {
             consentAccept.addEventListener("click", () => {
                 consentModal.classList.add("d-none");
+                // The click is a user gesture — the one moment the browser
+                // will honour a fullscreen request without a dedicated
+                // button press.
+                tryEnterFullscreen();
                 resolve(true);
             }, { once: true });
         }
@@ -802,10 +1012,22 @@ document.addEventListener("DOMContentLoaded", async () => {
         let pillPendingAt = 0;
         const PILL_STABLE_MS = 400;
 
+        // Append ?proctordebug=1 to the test URL (or set
+        // localStorage.eaaProctorDebug = "1") to get per-pass detector
+        // logs — model/delegate chosen, every object detection with its
+        // label + score, and each fired signal — in the console.
+        let proctorDebug = false;
+        try {
+            proctorDebug = new URLSearchParams(window.location.search).has("proctordebug")
+                || window.localStorage.getItem("eaaProctorDebug") === "1";
+        } catch (e) {}
+
         try {
             state.detector = new WebcamDetector({
                 video: preview,
                 enabled: detectorEnabled,
+                debug: proctorDebug,
+                onDiagnostic: (step, message) => beaconMediaError(step, message),
                 onStatus: ({ faces, lookingAway, phone }) => {
                     if (!recPill) return;
                     let text = "REC";
@@ -829,8 +1051,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                         recPill.textContent = text;
                     }
                 },
-                onSignal: (kind) => {
-                    postEvent(kind, { at: new Date().toISOString() });
+                onSignal: (kind, detail) => {
+                    postEvent(kind, { at: new Date().toISOString(), ...(detail || {}) });
                 },
             });
             await state.detector.init();
@@ -852,5 +1074,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     await new Promise((resolve) => showConsent(resolve));
+    proctorReady = true;
     startProctoring();
 });

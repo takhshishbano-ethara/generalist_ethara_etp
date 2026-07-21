@@ -1,5 +1,6 @@
 from . import role_map
 from . import hr_employee
+from . import mail_message
 from . import ethara_project
 from . import ethara_project_attachment
 from . import ethara_project_ai_model

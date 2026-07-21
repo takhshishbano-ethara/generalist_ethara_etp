@@ -25,6 +25,23 @@ _SOP_GEN_FINALIZE_MAX_ATTEMPTS = 5
 
 _TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS = 5
 
+
+def _preview_src_ok(src):
+    """L-2: allow only safe image sources in admin-preview markup — http(s), our
+    own relative controller paths (/...), or image data: URLs. Rejects
+    javascript:/vbscript:/data-non-image and other schemes so an LLM- or
+    admin-supplied spec can never inject an active-content URL, even if this
+    markup is later refactored from <img src> to an href-bearing tag."""
+    s = str(src or "").strip()
+    if not s:
+        return False
+    low = s.lower()
+    if low.startswith(("http://", "https://", "/")):
+        return True
+    if low.startswith("data:image/"):
+        return True
+    return False
+
 _VIDEO_OP_MAX_ATTEMPTS = 3
 
 
@@ -68,30 +85,17 @@ class EtpAssessmentPrompt(models.Model):
     question_count = fields.Integer(compute="_compute_counts")
     approved_count = fields.Integer(compute="_compute_counts")
     last_extract_summary = fields.Char(readonly=True)
-    extract_state = fields.Selection(
-        [
-            ("idle", "Idle"),
-            ("queued", "Queued"),
-            ("extracting", "Extracting"),
-            ("done", "Extracted"),
-            ("failed", "Failed"),
-        ],
-        default="idle", copy=False, string="Extraction State",
-        help="Tag extraction runs in the background: clicking Extract Tags "
-             "queues it and a cron does the (slow) LLM call OFF the web request. "
-             "This is what prevents the 'cursor already closed' crash on managed "
-             "Postgres, where a long in-request call lets the DB connection be "
-             "reaped mid-flight.")
-    extract_error = fields.Char(
-        string="Extraction Error", readonly=True, copy=False)
     sop_gen_state = fields.Selection(
         [("idle", "Idle"), ("queued", "Queued"), ("generating", "Generating"),
+         ("finalizing", "Finalizing"),
          ("done", "Done"), ("failed", "Failed")],
         default="idle", copy=False, string="SOP Generation",
         help="The SOP document is sent natively to the "
              "multimodal model which authors questions directly per the format "
              "in the SOP. Runs in the background (a cron does the slow call off "
-             "the web request).")
+             "the web request). 'finalizing' means the drafts are committed and "
+             "only the status write remains — a killed worker resumes WITHOUT "
+             "re-calling Vertex.")
     sop_gen_error = fields.Char(
         string="SOP Generation Error", readonly=True, copy=False)
     tag_ids = fields.Many2many("etp.assessment.pro.tag", string="SOP Tags")
@@ -456,6 +460,14 @@ class EtpAssessmentPrompt(models.Model):
                         allowed_types=prompt._allowed_question_types())
                     # Commit the drafts before the contended state write, so a
                     # serialization retry there cannot lose them or re-run Vertex.
+                    self.env.cr.commit()
+                    # H-8: flip to 'finalizing' and COMMIT before the final
+                    # status write. The drainer only selects queued/generating,
+                    # so if the worker is killed between the draft commit and the
+                    # 'done' write, the row is left 'finalizing' (needs an admin
+                    # nudge) and is NEVER re-sent to Vertex — no duplicate drafts,
+                    # no double spend.
+                    prompt.write({"sop_gen_state": "finalizing"})
                     self.env.cr.commit()
                     self._finalize_sop_gen_state(prompt, len(draft_ids))
                     _logger.info(
@@ -1334,6 +1346,12 @@ class EtpAssessmentPromptQuestion(models.Model):
                            or spec.get("data"))
                     if not src:
                         continue
+                    # L-2: only render http(s), our own relative paths, or
+                    # image data: URLs. Blocks javascript:/vbscript:/other
+                    # schemes from an LLM/admin-supplied spec ever reaching an
+                    # href-like attribute if this markup is refactored later.
+                    if not _preview_src_ok(src):
+                        continue
                     label = _html.escape(str(
                         spec.get("label") or spec.get("slot") or ""))
                     imgs.append(
@@ -1876,10 +1894,6 @@ class EtpAssessmentPromptQuestion(models.Model):
 
     def action_deny(self):
         self.filtered(lambda r: r.state == "draft").write({"state": "denied"})
-        return True
-
-    def action_approve_all(self):
-        self.filtered(lambda r: r.state == "draft").action_approve()
         return True
 
     def _briefs(self):
@@ -2585,13 +2599,28 @@ class EtpAssessmentPromptResource(models.Model):
         import zipfile
         try:
             from defusedxml.ElementTree import fromstring as _xml_fromstring
-        except ImportError:
-            from xml.etree.ElementTree import (  # noqa: S314
-                fromstring as _xml_fromstring,
-            )
+        except ImportError as exc:
+            # H-12: do NOT silently fall back to stdlib xml.etree — it is exposed
+            # to billion-laughs entity expansion on an attacker .docx. defusedxml
+            # is a declared manifest dependency; if it is missing, fail loudly.
+            raise RuntimeError(
+                "defusedxml is required to parse .docx uploads safely. "
+                "Install it: pip install defusedxml") from exc
 
         ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            # H-13: cap the UNCOMPRESSED size before reading. A ~10MB deflate
+            # zip can hold a >10GB member (zip bomb) that OOMs the worker when
+            # zf.read decompresses it whole. 40MB is far above any real SOP.
+            _MAX_DOCX_XML = 40 * 1024 * 1024
+            try:
+                info = zf.getinfo("word/document.xml")
+            except KeyError:
+                raise ValueError("docx has no word/document.xml")
+            if info.file_size > _MAX_DOCX_XML:
+                raise ValueError(
+                    "docx word/document.xml is %d bytes (> %d cap); refused as "
+                    "a possible zip bomb." % (info.file_size, _MAX_DOCX_XML))
             xml_bytes = zf.read("word/document.xml")
         root = _xml_fromstring(xml_bytes)
         paragraphs = []

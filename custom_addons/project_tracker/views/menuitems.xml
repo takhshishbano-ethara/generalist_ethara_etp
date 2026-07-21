@@ -3,28 +3,43 @@
     <menuitem name="Project Tracker" id="menu_project_tracker_root"
               groups="project_tracker.group_project_tracker_tasker,base.group_system"/>
 
-    <!-- Landing for QL/PL/admin: the project cards. Opening a card drops you
-         INTO that project (allocations, personas, team, dashboard all scoped).
-         First in sequence, so the app opens here. -->
+    <!-- Flat top level: Personas, Team and Allocations are their OWN entries on
+         the first page — you never drill INTO a project to work. Task Allocation
+         is first, so the app opens there; use its Project filter/group-by to
+         slice work project-wise. -->
+
+    <!-- Landing for everyone: the cross-project task list. -->
+    <menuitem name="Task Allocation" id="menu_project_tracker_allocations"
+              parent="menu_project_tracker_root"
+              action="project_tracker_allocation_action" sequence="5"
+              groups="project_tracker.group_project_tracker_tasker,base.group_system"/>
+
+    <!-- Global persona pool (not scoped to any project). -->
+    <menuitem name="Personas" id="menu_project_tracker_personas"
+              parent="menu_project_tracker_root"
+              action="project_tracker_persona_action" sequence="10"
+              groups="project_tracker.group_project_tracker_ql,base.group_system"/>
+
+    <menuitem name="Team" id="menu_project_tracker_team"
+              parent="menu_project_tracker_root"
+              action="project_tracker_team_member_action" sequence="15"
+              groups="project_tracker.group_project_tracker_ql,base.group_system"/>
+
+    <!-- Projects are just labels to slice work by — created/edited here, never a
+         workspace you open to work inside. -->
     <menuitem name="Projects" id="menu_project_tracker_projects"
               parent="menu_project_tracker_root"
-              action="project_tracker_project_action" sequence="5"
+              action="project_tracker_project_action" sequence="20"
               groups="project_tracker.group_project_tracker_ql,base.group_system"/>
 
-    <!-- Cross-project overview. For a plain tasker this is their landing (they
-         can't see Projects) and renders their personal dashboard; for QL/PL/admin
-         it's the all-projects org view (filter by project inside it). -->
     <menuitem name="Dashboard" id="menu_project_tracker_dashboard"
               parent="menu_project_tracker_root"
-              action="project_tracker_main_dashboard_action" sequence="10"
+              action="project_tracker_main_dashboard_action" sequence="25"
               groups="project_tracker.group_project_tracker_tasker,base.group_system"/>
+
     <menuitem name="Daily Tracker" id="menu_project_tracker_daily"
               parent="menu_project_tracker_root"
-              action="project_tracker_daily_action" sequence="25"
+              action="project_tracker_daily_action" sequence="30"
               groups="project_tracker.group_project_tracker_ql,base.group_system"/>
-
-    <!-- Task Allocation, Personas and Team Management are no longer flat
-         top-level entries — they live INSIDE a project (its workspace tabs and
-         smart buttons), so work can never span projects by accident. -->
 
 </odoo>

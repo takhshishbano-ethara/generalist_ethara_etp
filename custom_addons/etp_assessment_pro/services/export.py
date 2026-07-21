@@ -149,12 +149,33 @@ def _response_row(resp):
     return row
 
 
+# Leading characters that spreadsheet apps (Excel / Numbers / Sheets) treat as
+# the start of a formula. Candidate-controlled fields (name, email,
+# justification) and LLM feedback flow verbatim into these CSVs, so a cell like
+# `=HYPERLINK(...)` or `@SUM(...)` would execute on the admin's machine when the
+# export is opened (CSV injection, CWE-1236). Prefix any such cell with a single
+# quote so it is rendered as literal text and never evaluated.
+_CSV_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        # Real numerics are safe and must stay numeric for sorting in the sheet.
+        return value
+    s = str(value)
+    if s and s[0] in _CSV_FORMULA_LEAD:
+        return "'" + s
+    return s
+
+
 def _write_csv(columns, rows):
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
     w.writeheader()
     for r in rows:
-        w.writerow(r)
+        w.writerow({k: _sanitize_cell(v) for k, v in r.items()})
     return buf.getvalue().encode("utf-8")
 
 
@@ -236,7 +257,7 @@ def _summary_row(ev):
         "assessment": ev.assessment_id.name or "",
         "day": "",
         "skill": "",
-        "question": "=== RESULT SUMMARY ===",
+        "question": "[RESULT SUMMARY]",
         "question_type": "summary",
         "generator": "",
         "difficulty": "",

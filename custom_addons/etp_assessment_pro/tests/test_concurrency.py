@@ -288,3 +288,196 @@ class TestDeadlineVsSubmitSingle(_ConcurrencyBase):
             row.action_submit()
 
 
+@tagged("-at_install", "post_install")
+class TestExpireStaleAttemptsCron(_ConcurrencyBase):
+    """The _cron_expire_stale_attempts sweep rescues an abandoned in-progress
+    attempt whose deadline has passed - the candidate never came back, so only
+    the cron (not a live portal request) can settle it. Closes the gap where an
+    abandoned tab left the attempt unscored AND pinned the assessment open."""
+
+    def _expire(self, ev):
+        # A real abandoned attempt went through /begin, which sets BOTH
+        # started_at and state='in_progress' (portal.py:161-164). Reproduce that
+        # begun-then-abandoned state, with the deadline already in the past.
+        past = fields.Datetime.now() - timedelta(hours=2)
+        ev.write({"started_at": past, "state": "in_progress"})
+        ev.invalidate_recordset()
+
+    def _run_cron(self):
+        # The cron commits per candidate (idle-txn safety in prod); the test
+        # harness forbids a real commit, so no-op it - same convention as
+        # test_phase23_lifecycle's _cron_llm_auto_score test.
+        with patch.object(self.env.cr, "commit"):
+            self.env["etp.assessment.pro.evaluator"]._cron_expire_stale_attempts()
+
+    def test_cron_auto_submits_expired_attempt_and_closes_assessment(self):
+        a, ev, (q1, dim1, master1), (q2, _, _) = self._single_with_two_mcq()
+        # Answer q1 in time, then abandon the tab and let the deadline pass.
+        self._record(ev, {
+            "question_id": str(q1.id),
+            "dimension_%d" % dim1.id: str(master1[0].id)})
+        self._expire(ev)
+        self.assertEqual(ev.state, "in_progress")
+        self.assertTrue(ev.is_time_expired())
+
+        # The cron runs with no live request context at all.
+        self._run_cron()
+        ev.invalidate_recordset()
+        a.invalidate_recordset()
+
+        self.assertEqual(ev.state, "submitted")
+        self.assertTrue(ev.is_locked)
+        rows = self.Response.search([
+            ("assessment_evaluator_id", "=", ev.id)])
+        self.assertEqual(len(rows), 2, "one answered + one placeholder only")
+        self.assertEqual(
+            rows.filtered(lambda r: r.question_id.id == q1.id).score, 1,
+            "the real in-time answer must survive the sweep")
+        # The whole assessment auto-completes once its only candidate is done.
+        self.assertEqual(a.state, "done")
+
+    def test_cron_skips_unlimited_and_live_attempts(self):
+        # duration_minutes=0 → no deadline → deadline_datetime is False → the
+        # '<' filter must never touch it, and an in-time attempt is left alone.
+        cat = self._make_category("NoDeadlineCat")
+        q1, dim1, master1 = self._make_mcq("ND1", correct_idx=0, category=cat)
+        emp = self._make_applicant("NoDeadline")
+        a = self.Assessment.create({
+            "name": "NoDeadlineA",
+            "generator_id": cat.id,
+            "question_limit": 1,
+            "duration_minutes": 0,  # unlimited sitting
+            "evaluator_ids": [(6, 0, [emp.id])],
+        })
+        a.write({"question_ids": [(6, 0, [q1.id])]})
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
+        self.assertFalse(ev.deadline_datetime)
+        # Put it in the live begun state (as /begin would) with an old start -
+        # unlimited duration means no deadline, so the sweep must skip it.
+        ev.write({"started_at": fields.Datetime.now() - timedelta(hours=2),
+                  "state": "in_progress"})
+        ev.invalidate_recordset()
+
+        self._run_cron()
+        ev.invalidate_recordset()
+        self.assertEqual(
+            ev.state, "in_progress",
+            "an unlimited-duration attempt must never be auto-expired")
+
+    def test_cron_is_idempotent(self):
+        a, ev, (q1, dim1, master1), (q2, _, _) = self._single_with_two_mcq()
+        self._record(ev, {
+            "question_id": str(q1.id),
+            "dimension_%d" % dim1.id: str(master1[0].id)})
+        self._expire(ev)
+        self._run_cron()
+        ev.invalidate_recordset()
+        first = self.Response.search_count([
+            ("assessment_evaluator_id", "=", ev.id)])
+        # Second sweep: the attempt is already 'submitted', so the state filter
+        # excludes it - no new placeholder, no drift.
+        self._run_cron()
+        self.assertEqual(
+            self.Response.search_count([
+                ("assessment_evaluator_id", "=", ev.id)]),
+            first,
+            "a second sweep must not create another placeholder")
+
+
+@tagged("-at_install", "post_install")
+class TestShardedAutoScore(_ConcurrencyBase):
+    """Parallel scoring lanes: N shard crons drain disjoint evaluator slices
+    (id % shard_count == shard) under distinct advisory locks, so scoring scales
+    past the single-lock serial ceiling. shard_count=1 stays byte-identical to
+    the original drainer.
+    """
+
+    def _queued_evaluators(self, n):
+        from odoo.addons.etp_assessment_pro.services import vertex as vertex_svc
+        cat = self._make_category("ShardCat")
+        q = self._make_subjective("ShardQ", category=cat)
+        a = self.Assessment.create({
+            "name": "ShardA", "generator_id": cat.id, "question_limit": 1,
+            "duration_minutes": 30, "llm_auto_score": True,
+            "evaluator_ids": [(6, 0, [self._make_applicant("SC%d" % i).id])
+                              for i in range(n)]})
+        a.write({"question_ids": [(6, 0, [q.id])]})
+        a.action_start()
+        for ev in a.assessment_evaluator_ids:
+            self.Response.create({
+                "assessment_id": a.id, "assessment_evaluator_id": ev.id,
+                "evaluator_id": ev.applicant_id.id, "question_id": q.id,
+                "justification": "An answer.", "state": "submitted",
+                "llm_state": "pending"})
+            ev.write({"state": "submitted", "scoring_requested": True,
+                      "llm_state": "pending"})
+        return a, q, vertex_svc
+
+    def _set_shards(self, n):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "etp_assessment_pro.scoring_shards", str(n))
+
+    def test_shards_partition_evaluators_disjointly(self):
+        a, _q, _v = self._queued_evaluators(6)
+        ids = a.assessment_evaluator_ids.ids
+        self._set_shards(3)
+        seen = []
+        for shard in range(3):
+            got = self.Assessment._scoring_shard_evaluators(shard, 3, limit=100)
+            self.assertTrue(all(e.id % 3 == shard for e in got),
+                            "shard %d holds only its own residue class" % shard)
+            seen += got.ids
+        self.assertEqual(sorted(seen), sorted(ids),
+                         "every queued evaluator is owned by exactly one shard")
+        self.assertEqual(len(seen), len(set(seen)), "no evaluator in two shards")
+
+    def test_full_cohort_scored_across_all_shards(self):
+        a, _q, _v = self._queued_evaluators(5)
+        self._set_shards(3)
+        # Patch the per-evaluator scorer to a marker write so the test isolates
+        # SHARD ROUTING (does every evaluator get drained by some shard?) from
+        # the Vertex/scoring internals covered elsewhere.
+        Evaluator = type(self.env["etp.assessment.pro.evaluator"])
+        def _mark(self):
+            self.write({"llm_state": "scored"})
+            return len(self)
+        with patch.object(Evaluator, "action_llm_score", _mark), \
+                patch.object(self.env.cr, "commit"):
+            for shard in range(3):
+                self.Assessment._cron_llm_auto_score(shard=shard)
+        for ev in a.assessment_evaluator_ids:
+            ev.invalidate_recordset()
+            self.assertEqual(
+                ev.llm_state, "scored",
+                "evaluator %s must be drained by exactly one shard" % ev.id)
+
+    def test_shard_noop_when_beyond_configured_count(self):
+        a, _q, _v = self._queued_evaluators(3)
+        self._set_shards(2)
+        # shard 2 is disabled while scoring_shards=2 (valid shards 0,1).
+        before = a.assessment_evaluator_ids.mapped("llm_state")
+        self.Assessment._cron_llm_auto_score(shard=2)
+        a.assessment_evaluator_ids.invalidate_recordset()
+        self.assertEqual(a.assessment_evaluator_ids.mapped("llm_state"), before,
+                         "a shard >= scoring_shards must be a pure no-op")
+
+    def test_default_single_shard_matches_original_domain(self):
+        a, _q, _v = self._queued_evaluators(4)
+        # No config param set -> default 1 shard -> unmodulo'd search of all 4.
+        self.assertEqual(self.Assessment._scoring_shard_count(), 1)
+        got = self.Assessment._scoring_shard_evaluators(0, 1, limit=100)
+        self.assertEqual(sorted(got.ids), sorted(a.assessment_evaluator_ids.ids),
+                         "shard_count=1 selects every queued evaluator (legacy)")
+
+    def test_shard_count_clamped(self):
+        self._set_shards(99)
+        self.assertEqual(self.Assessment._scoring_shard_count(), 4,
+                         "shard count clamps to MAX_SCORING_SHARDS")
+        self._set_shards(0)
+        self.assertEqual(self.Assessment._scoring_shard_count(), 1,
+                         "shard count floors at 1")
+        self._set_shards(-3)
+        self.assertEqual(self.Assessment._scoring_shard_count(), 1)
+
+

@@ -9,15 +9,19 @@
         <form string="Bulk Allocation" class="o_project_tracker_form">
           <field name="state" invisible="1"/>
 
-          <!-- ===== Step 1 — Source + configure ===== -->
+          <!-- ===== Step 1 — Project → personas → taskers ===== -->
           <div invisible="state != 'draft'">
             <div class="alert alert-info" role="alert">
-              Choose a <b>Persona Source</b>, then pick the taskers, method and
-              limit, and Preview. Existing personas are reused; new ones (file
-              mode) are created.
+              Pick a <b>Project</b> — its taskers load below. Choose which
+              <b>personas</b> to hand out (existing ones from the pool, or a file),
+              tick the taskers to include, then Preview.
             </div>
             <group>
-              <group string="Source">
+              <group string="Project">
+                <field name="project_id" required="1"
+                       options="{'no_create_edit': True, 'no_open': True}"/>
+              </group>
+              <group string="Personas">
                 <field name="source_mode" widget="radio"/>
                 <field name="csv_file" filename="filename" widget="binary"
                        string="Persona Names File"
@@ -29,10 +33,16 @@
                     <i class="fa fa-download me-1"/>Download sample file
                   </a>
                 </div>
-                <field name="unassigned_available" invisible="source_mode != 'unassigned'"/>
+                <!-- Hand out only one domain's personas (e.g. all "coding"
+                     personas). Empty = every domain. -->
+                <field name="domain_filter" placeholder="All domains"
+                       invisible="source_mode != 'unassigned'"/>
+                <field name="unassigned_available" string="Available in pool"
+                       invisible="source_mode != 'unassigned'"/>
               </group>
-              <group string="Allocation">
-                <field name="project_id" options="{'no_create_edit': True, 'no_open': True}"/>
+            </group>
+            <group>
+              <group string="Distribution">
                 <field name="allocation_method" widget="radio"/>
                 <field name="limit_mode" widget="radio"/>
                 <field name="allocation_limit"
@@ -43,10 +53,19 @@
             <div class="alert alert-secondary py-1 px-2" role="alert"
                  invisible="source_mode != 'unassigned'">
               <i class="fa fa-info-circle me-1" title="Info"/>
-              Allocates <field name="unassigned_available" class="fw-bold"/>
-              existing persona(s) that are not yet assigned to any tasker.
+              Hands out <field name="unassigned_available" class="fw-bold"/>
+              existing persona(s) from the pool that are not yet assigned to anyone.
             </div>
-            <separator string="Taskers"/>
+            <separator string="Taskers on this project"/>
+            <div class="alert alert-warning py-1 px-2" role="alert"
+                 invisible="tasker_line_ids or not project_id">
+              <i class="fa fa-exclamation-triangle me-1" title="Warning"/>
+              This project has no active taskers yet — add team members to it on
+              the <b>Team</b> page first.
+            </div>
+            <div class="text-muted" invisible="project_id">
+              Select a project above to load its taskers.
+            </div>
             <field name="tasker_line_ids">
               <list editable="bottom" create="false" delete="false">
                 <!-- required on the model; kept in the payload but hidden -->

@@ -1,0 +1,507 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!--
+    Erza Showcase: public single-page editorial view.
+
+    Mounted at /erza by controllers/main.py. The client-side JS fetches
+    /erza/api/dataset for the task-bundle viewer and headline KPIs.
+
+    Erza measures Agent-Skills efficacy via PAIRED evaluation: the same task
+    is run twice on the same model / harness / container - once with the
+    curated Skill injected, once without - and the reported result is the
+    paired difference Δ. All DOM ids/classes are preserved for erza_portal.js
+    hooks; charts plot placeholder figures pending the first public delivery.
+  -->
+  <template id="portal_showcase" name="Erza Portal">
+    <html lang="en" data-theme="">
+      <head>
+        <meta charset="UTF-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>erza - Agent-Skills Efficacy Benchmark</title>
+        <meta name="description" content="Erza measures how much curated Agent Skills change what an autonomous agent actually does - paired, with-Skills vs no-Skills, scored over deterministic verifiers."/>
+        <!-- Inline theme sync BEFORE stylesheet loads (no FOUC).
+           System preference is authoritative (read prefers-color-scheme before
+           tokens resolve so there is no flash). The in-page toggle is a
+           session-only override. -->
+        <script>
+        (function () {
+          try {
+            var sysDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.setAttribute('data-theme', sysDark ? 'dark' : 'light');
+          } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        })();
+        </script>
+        <!-- Favicon: no explicit link - falls back to /favicon.ico, i.e. the
+             Ethara company/website favicon (company, not project). -->
+        <!-- Google Fonts: DM Sans + Roboto -->
+        <link rel="preconnect" href="https://fonts.googleapis.com"/>
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&amp;family=Roboto:wght@300;400;500;700&amp;display=swap"/>
+        <!-- Portal CSS -->
+        <link rel="stylesheet" t-attf-href="/erza_dashboard/static/src/portal/css/erza_portal.css?v=#{asset_version or ''}"/>
+        <!-- Deferred JS: GSAP + ScrollTrigger + Chart.js + portal script -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" integrity="sha512-7eHRwcbYkK4d9g/6tD/mhkf++eoTHwpNM9woBxtPUBWm67zeAfFC+HrdoE2GanKeocly/VxeLvIqwvCdk7qScg==" crossorigin="anonymous" referrerpolicy="no-referrer" defer="defer"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" integrity="sha512-onMTRKJBKz8M1TnqqDuGBlowlH0ohFzMXYRNebz+yOcc5TQr/zAKsthzhuv0hiyUKEiQEQXEynnXCvNTOk50dg==" crossorigin="anonymous" referrerpolicy="no-referrer" defer="defer"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer" defer="defer"></script>
+        <script t-attf-src="/erza_dashboard/static/src/portal/js/erza_portal.js?v=#{asset_version or ''}" defer="defer"></script>
+      </head>
+      <body>
+        <a class="skip-link" href="#erza-main">Skip to content</a>
+        <!-- Scroll progress rail (fills as the page scrolls) -->
+        <div class="scroll-progress" aria-hidden="true"></div>
+        <!-- Theme toggle (fixed, top-right; keep id and icon markup used by CSS) -->
+        <button id="erza-theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle color theme">
+          <svg class="erza-theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <svg class="erza-theme-icon-light" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <!-- Portal root -->
+        <div id="erza-portal">
+          <!-- ================= MASTHEAD ================= -->
+          <header class="masthead">
+            <div class="wordmark">erza</div>
+            <div class="badge">Agent-Skills efficacy · Δ measured</div>
+            <p class="thesis">The measurable effect of a Skill on an agent's behavior.</p>
+            <div class="byline">by
+
+              
+              <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></div>
+            <div class="hero-actions">
+              <a class="erza-btn" t-att-href="github_url" target="_blank" rel="noopener">
+                <svg class="erza-btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.55v-2.03c-3.2.69-3.87-1.36-3.87-1.36-.52-1.32-1.28-1.67-1.28-1.67-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.35.96.11-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.51-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.77.12 3.06.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.4-5.26 5.69.41.36.78 1.05.78 2.12v3.15c0 .3.21.66.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/>
+                </svg>
+                <span>GitHub</span></a>
+              <a class="erza-btn" t-att-href="huggingface_url" target="_blank" rel="noopener">
+                <span class="erza-btn-icon" aria-hidden="true">🤗</span>
+                <span>Hugging Face</span></a>
+              <a class="erza-btn erza-btn-primary" href="https://www.ethara.ai/contact" target="_blank" rel="noopener">
+                <span>Get in touch</span>
+                <span class="erza-btn-arrow" aria-hidden="true">→</span></a></div>
+          </header>
+          <main id="erza-main">
+            <!-- ================= 01 · Overview ================= -->
+            <section class="section" id="section-overview" data-animate="fade-up">
+              <div class="section-label">01 · Overview</div>
+              <div class="overview-grid">
+                <div class="prose">
+                  <p>
+                  Erza measures 
+                    <b>Skill efficacy</b> - not how capable a model is, but how much a
+                  curated Agent Skill 
+                    <em>changes the outcome</em>. Classic agent benchmarks report one
+                  absolute score per model. Erza runs the 
+                    <b>same task twice on the same model, harness
+                  and container</b> - once with the Skill injected, once without - and reports the
+                  
+                    <b>paired difference (Δ)</b>. Efficacy is measured, never assumed: Δ is a reported
+                  property of every task, never a gate for inclusion. Tasks with zero or negative Δ are
+                  kept and labelled, so the benchmark can honestly measure whether training closes the gap.
+                </p>
+                  <ul class="capabilities">
+                    <li>Paired evaluation - with-Skills vs no-Skills on an identical model, harness and container</li>
+                    <li>Deterministic verifiers with a 100%-passing oracle and network-sealed grading</li>
+                    <li>Skill-to-solution leakage audit - Skills teach procedure, never answers</li>
+                    <li>Δ reported for every task, including zero and negative - no selection on outcome</li>
+                    <li>Built as an RL environment: train, and the measured Δ should shrink</li>
+                  </ul></div>
+                <aside class="glance" aria-label="At a glance">
+                  <div class="glance-label">At a glance</div>
+                  <ul class="glance-list">
+                    <li class="glance-row">
+                      <span>Task bundles</span>
+                      <b>
+                        <span data-field="task_count">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>Conditions</span>
+                      <b>2 · with / without
+
+                      
+                      </b></li>
+                    <li class="glance-row">
+                      <span>Models</span>
+                      <b>
+                        <span data-field="model_count">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>Paired runs</span>
+                      <b>
+                        <span data-field="run_count">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>Curated Skills</span>
+                      <b>
+                        <span data-field="skill_count">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>Languages</span>
+                      <b>
+                        <span data-field="language_count">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>No-Skills pass</span>
+                      <b>
+                        <span data-field="no_skill_pass_rate_overall">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>With-Skills pass</span>
+                      <b>
+                        <span data-field="pass_rate_overall">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>Efficacy (Δ)</span>
+                      <b>
+                        <span data-field="mean_delta_overall">-</span>
+                      </b></li>
+                    <li class="glance-row">
+                      <span>Verifier</span>
+                      <b>Deterministic · sealed
+
+                      
+                      </b></li>
+                  </ul>
+                </aside></div>
+              <figure class="chart">
+                <div class="chart-canvas chart-canvas--wide">
+                  <canvas id="erza-chart-pass-rate" aria-label="With-Skills vs no-Skills pass rate across Erza task domains"></canvas></div>
+                <figcaption>With-Skills vs no-Skills pass rate across Erza task domains.
+                </figcaption>
+              </figure>
+            </section>
+            <!-- ================= 02 · Difficulty tiers ================= -->
+            <section class="section" id="section-tiers" data-animate="fade-up">
+              <div class="section-label">02 · Baseline difficulty</div>
+              <h2 class="section-title">One hard bundle, in context</h2>
+              <p class="section-desc">
+              The first published Erza bundle sits in the 
+                <b>hard</b> tier - a Natural-Science
+              seismology task the model solves only 1 run in 3 unaided, and 3 of 3 with the curated
+              Skill. Below: how Skills move pass rates across Erza domains, and this bundle's
+              real agent cost per run.
+            </p>
+              <!-- Tier grid: JS-populated (empty tiers skipped). Preserve id. -->
+              <div id="erza-tier-grid" class="erza-tier-grid" aria-live="polite"></div>
+              <div class="chart-double">
+                <figure class="chart">
+                  <div class="chart-canvas">
+                    <canvas id="erza-chart-pass-tier" aria-label="Skill efficacy by task domain"></canvas></div>
+                  <figcaption>Skill efficacy (Δ) by task domain - Erza.
+                  </figcaption>
+                </figure>
+                <figure class="chart">
+                  <div class="chart-canvas">
+                    <canvas id="erza-chart-cost-tier" aria-label="Agent cost per run, no-Skills vs with-Skills"></canvas></div>
+                  <figcaption>Agent cost per run - no-Skills vs with-Skills (this bundle, 3 trials each).
+                  </figcaption>
+                </figure></div>
+            </section>
+            <!-- ================= 03 · Models ================= -->
+            <section class="section" id="section-models" data-animate="fade-up">
+              <div class="section-label">03 · Model comparison</div>
+              <h2 class="section-title">Head-to-head, three frontier models</h2>
+              <p class="section-desc">
+              With-Skills pass rate shows how far each model gets when handed the right procedure; the
+              Δ column isolates how much the Skill itself contributed, independent of raw model strength.
+              A strong model with a small Δ was already close; a large Δ means the Skill did real work.
+            </p>
+              <div class="erza-table-wrap">
+                <table id="erza-model-table" class="erza-table erza-model-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Provider</th>
+                      <th class="num">Paired runs</th>
+                      <th class="num">No-Skills</th>
+                      <th class="num">With-Skills</th>
+                      <th class="num">Mean score</th>
+                      <th class="num">Δ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- JS-populated -->
+                  </tbody>
+                </table></div>
+            </section>
+            <!-- ================= 04 · Matrix (with-Skills pass + Δ) ================= -->
+            <section class="section" id="section-matrix" data-animate="fade-up">
+              <div class="section-label">04 · Per-tier per-model</div>
+              <h2 class="section-title">Where the Skill earns its keep</h2>
+              <div class="erza-matrix-grid">
+                <div class="erza-matrix-block">
+                  <div class="section-label">With-Skills pass by tier</div>
+                  <div class="erza-table-wrap">
+                    <table id="erza-passrate-table" class="erza-table erza-passrate-table">
+                      <thead>
+                        <tr>
+                          <th>Tier</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- JS-populated -->
+                      </tbody>
+                    </table></div></div>
+                <div class="erza-matrix-block">
+                  <div class="section-label">Δ by tier (pp)</div>
+                  <div class="erza-table-wrap">
+                    <table id="erza-meanscore-table" class="erza-table erza-meanscore-table">
+                      <thead>
+                        <tr>
+                          <th>Tier</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- JS-populated -->
+                      </tbody>
+                    </table></div></div></div>
+            </section>
+            <!-- ================= 05 · Paired evaluation flow ================= -->
+            <section class="section" id="section-scoring" data-animate="fade-up">
+              <div class="section-label">05 · Paired evaluation</div>
+              <h2 class="section-title">Same task, twice - the Δ is the finding</h2>
+              <p class="section-desc">
+              Each task bundle ships a prompt, a container, a curated Skill, an oracle and a
+              deterministic verifier. Erza runs the agent twice under matched conditions and scores
+              both arms with the same network-sealed verifier. The reported result is
+              
+                <code>Δ = with-Skills − no-Skills</code>.
+            </p>
+              <div class="pipeline-frame">
+                <div class="erza-flow" role="list" aria-label="Paired evaluation - five sequential steps">
+                  <div class="erza-flow-step" role="listitem">
+                    <div class="erza-flow-marker">1</div>
+                    <div class="erza-flow-body">
+                      <span class="erza-flow-icon">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                          <polyline points="3.3 7 12 12 20.7 7"/>
+                          <line x1="12" y1="22" x2="12" y2="12"/>
+                        </svg></span>
+                      <h3 class="erza-flow-title">Task bundle</h3>
+                      <p class="erza-flow-desc">prompt · container · oracle · verifier</p></div></div>
+                  <div class="erza-flow-link" aria-hidden="true">
+                    <svg width="34" height="20" viewBox="0 0 34 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="1" y1="10" x2="27" y2="10"/>
+                      <polyline points="22 4 30 10 22 16"/>
+                    </svg></div>
+                  <div class="erza-flow-step" role="listitem">
+                    <div class="erza-flow-marker">2</div>
+                    <div class="erza-flow-body">
+                      <span class="erza-flow-icon">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <rect x="3" y="4" width="18" height="16" rx="2"/>
+                          <path d="M7 9l3 3-3 3"/>
+                          <line x1="13" y1="15" x2="17" y2="15"/>
+                        </svg></span>
+                      <h3 class="erza-flow-title">No-Skills run</h3>
+                      <p class="erza-flow-desc">agent solves it - Skill withheld</p></div></div>
+                  <div class="erza-flow-link" aria-hidden="true">
+                    <svg width="34" height="20" viewBox="0 0 34 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="1" y1="10" x2="27" y2="10"/>
+                      <polyline points="22 4 30 10 22 16"/>
+                    </svg></div>
+                  <div class="erza-flow-step" role="listitem">
+                    <div class="erza-flow-marker">3</div>
+                    <div class="erza-flow-body">
+                      <span class="erza-flow-icon">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M12 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 18l-4.2 2.2.8-4.7-3.4-3.3 4.7-.7z"/>
+                        </svg></span>
+                      <h3 class="erza-flow-title">With-Skills run</h3>
+                      <p class="erza-flow-desc">same agent - Skill injected</p></div></div>
+                  <div class="erza-flow-link" aria-hidden="true">
+                    <svg width="34" height="20" viewBox="0 0 34 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="1" y1="10" x2="27" y2="10"/>
+                      <polyline points="22 4 30 10 22 16"/>
+                    </svg></div>
+                  <div class="erza-flow-step" role="listitem">
+                    <div class="erza-flow-marker">4</div>
+                    <div class="erza-flow-body">
+                      <span class="erza-flow-icon">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M12 3l7 3v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/>
+                          <path d="M9.3 12l1.9 1.9L15 10"/>
+                        </svg></span>
+                      <h3 class="erza-flow-title">Verifier</h3>
+                      <p class="erza-flow-desc">deterministic · network-sealed</p></div></div>
+                  <div class="erza-flow-link" aria-hidden="true">
+                    <svg width="34" height="20" viewBox="0 0 34 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="1" y1="10" x2="27" y2="10"/>
+                      <polyline points="22 4 30 10 22 16"/>
+                    </svg></div>
+                  <div class="erza-flow-step" role="listitem">
+                    <div class="erza-flow-marker">5</div>
+                    <div class="erza-flow-body">
+                      <span class="erza-flow-icon">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <circle cx="12" cy="12" r="8.5"/>
+                          <circle cx="12" cy="12" r="4"/>
+                          <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>
+                        </svg></span>
+                      <h3 class="erza-flow-title">Δ efficacy</h3>
+                      <p class="erza-flow-desc">with-Skills − no-Skills</p></div></div></div></div>
+            </section>
+            <!-- ================= 06 · Domains ================= -->
+            <section class="section" id="section-coverage" data-animate="fade-up">
+              <div class="section-label">06 · Domains</div>
+              <h2 class="section-title">Where Skills help - by domain</h2>
+              <p class="section-desc">
+              Erza's paired methodology spans a broad
+                <b>domain taxonomy</b>. Across these
+              task domains, curated Skills lift pass rates most in knowledge-dense fields
+              like Natural Science and Media production. Cybersecurity and Software Engineering are
+              excluded here.
+            </p>
+              <div class="erza-table-wrap">
+                <table class="erza-table erza-domain-table">
+                  <thead>
+                    <tr>
+                      <th>Domain</th>
+                      <th class="num">N</th>
+                      <th class="num">No-Skills</th>
+                      <th class="num">With-Skills</th>
+                      <th class="num">Δ (pp)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Natural Science</td>
+                      <td class="num">14</td>
+                      <td class="num">42.0%</td>
+                      <td class="num">70.8%</td>
+                      <td class="num">
+                        <span class="erza-delta erza-delta-pos">+28.8 pp</span></td>
+                    </tr>
+                    <tr>
+                      <td>Media &amp; Content Production</td>
+                      <td class="num">5</td>
+                      <td class="num">23.3%</td>
+                      <td class="num">47.4%</td>
+                      <td class="num">
+                        <span class="erza-delta erza-delta-pos">+24.1 pp</span></td>
+                    </tr>
+                    <tr>
+                      <td>Industrial &amp; Physical Systems</td>
+                      <td class="num">14</td>
+                      <td class="num">23.9%</td>
+                      <td class="num">39.6%</td>
+                      <td class="num">
+                        <span class="erza-delta erza-delta-pos">+15.7 pp</span></td>
+                    </tr>
+                    <tr>
+                      <td>Finance &amp; Economics</td>
+                      <td class="num">9</td>
+                      <td class="num">19.1%</td>
+                      <td class="num">33.3%</td>
+                      <td class="num">
+                        <span class="erza-delta erza-delta-pos">+14.2 pp</span></td>
+                    </tr>
+                    <tr>
+                      <td>Office &amp; White Collar</td>
+                      <td class="num">14</td>
+                      <td class="num">40.5%</td>
+                      <td class="num">53.0%</td>
+                      <td class="num">
+                        <span class="erza-delta erza-delta-pos">+12.6 pp</span></td>
+                    </tr>
+                    <tr>
+                      <td>Mathematics &amp; OR</td>
+                      <td class="num">8</td>
+                      <td class="num">45.7%</td>
+                      <td class="num">55.4%</td>
+                      <td class="num">
+                        <span class="erza-delta erza-delta-pos">+9.7 pp</span></td>
+                    </tr>
+                  </tbody>
+                </table></div>
+            </section>
+            <!-- ================= 07 · Viewer ================= -->
+            <section class="section" id="section-viewer" data-animate="fade-up">
+              <div class="section-label">07 · Dataset viewer</div>
+              <h2 class="section-title">Browse the task bundles</h2>
+              <p class="section-desc">
+              Filter and search the delivery. Expand a row to see per-model no-Skills vs with-Skills
+              runs and the resulting Δ, plus links to the raw trajectory and task file.
+            </p>
+              <div class="eval-controls">
+                <div class="eval-search">
+                  <svg class="eval-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <input id="erza-search" class="erza-input" type="search" placeholder="Search by task, codebase, skill or UUID…" aria-label="Search tasks"/></div>
+                <div class="eval-filters">
+                  <select id="erza-filter-tier" class="erza-select" aria-label="Filter by difficulty tier">
+                    <option value="">All tiers</option>
+                    <option value="trivial">Trivial</option>
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                    <option value="expert">Expert</option>
+                  </select>
+                  <select id="erza-filter-lang" class="erza-select" aria-label="Filter by language">
+                    <option value="">All languages</option>
+                    <!-- JS populates additional options -->
+                  </select>
+                  <select id="erza-sort" class="erza-select" aria-label="Sort tasks">
+                    <option value="task_slug">Sort: Task</option>
+                    <option value="difficulty">Sort: Difficulty</option>
+                    <option value="language">Sort: Language</option>
+                    <option value="no_skill_pass_rate">Sort: No-Skills</option>
+                    <option value="pass_rate">Sort: With-Skills</option>
+                    <option value="mean_delta">Sort: Δ efficacy</option>
+                  </select></div>
+                <div class="eval-meta">
+                  <span id="erza-viewer-count">-</span> tasks</div></div>
+              <div class="erza-table-wrap">
+                <table id="erza-viewer-table" class="erza-table erza-viewer-table">
+                  <thead>
+                    <tr>
+                      <th>Task</th>
+                      <th>Codebase</th>
+                      <th>Language</th>
+                      <th>Tier</th>
+                      <th class="num">No-Skills</th>
+                      <th class="num">With-Skills</th>
+                      <th class="num">Mean score</th>
+                      <th class="num">Δ</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- JS-populated -->
+                  </tbody>
+                </table></div>
+              <nav id="erza-pagination" class="erza-pagination" aria-label="Task pagination">
+                <!-- JS-populated -->
+              </nav>
+            </section>
+            <!-- ================= 08 · Resources ================= -->
+            <section class="section" id="section-resources" data-animate="fade-up">
+              <div class="section-label">08 · Resources</div>
+              <h2 class="section-title">Explore the sources</h2>
+              <div class="erza-resource-grid">
+                <a class="erza-resource-card" t-att-href="github_url" target="_blank" rel="noopener">
+                  <div class="erza-resource-kicker">Repository</div>
+                  <div class="erza-resource-title">GitHub</div>
+                  <p class="erza-resource-desc">Client-facing delivery repository - packaged task bundles, paired results and reproduction notes.</p></a>
+                <a class="erza-resource-card" t-att-href="huggingface_url" target="_blank" rel="noopener">
+                  <div class="erza-resource-kicker">Dataset</div>
+                  <div class="erza-resource-title">Hugging Face</div>
+                  <p class="erza-resource-desc">Structured dataset card for the Erza sample bundle(s) - feature schema, splits and download stats.</p></a></div>
+            </section>
+          </main>
+          <footer class="erza-footer">
+            <div class="erza-footer-inner">
+              <span class="erza-footer-note">Ethara.ai · erza</span></div>
+          </footer></div>
+      </body>
+    </html>
+  </template>
+</odoo>

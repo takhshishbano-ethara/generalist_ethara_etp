@@ -1984,21 +1984,41 @@
     }
 
     /* ===================================================================
-       IMAGE-LABEL — per-box numbered label inputs
+       IMAGE-LABEL - per-box numbered label inputs (stacked, paginated)
        =================================================================== */
+    .etp-label-block { margin-top: 4px; }
+
+    .etp-label-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+
+        .form-label { font-weight: 600; }
+    }
+    .etp-label-counter {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--etp-faint);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
     .etp-label-list {
-        max-height: 60vh;
-        overflow-y: auto;
-        overflow-x: hidden;
-        padding-right: 6px;
+        /* No inner scroll: pagination handles overflow, so the panel grows
+           with its page and never traps the page scroll. */
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
     }
     .etp-label-row {
-        display: grid;
-        grid-template-columns: minmax(130px, 210px) 1fr;
-        align-items: center;
-        gap: 8px 18px;
+        /* Label ABOVE a full-width input - the input now spans the whole
+           column so a sentence-length answer fits comfortably. */
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
         padding: 12px 14px;
-        margin-bottom: 10px;
         border: 1px solid var(--etp-border);
         border-radius: var(--etp-radius-sm);
         background: linear-gradient(180deg, #ffffff 0%, #fbfbff 100%);
@@ -2015,10 +2035,29 @@
 
         .form-label {
             margin: 0;
-            font-weight: 600;
-            font-size: 0.92rem;
-            color: var(--etp-text);
+            font-weight: 700;
+            font-size: 0.8rem;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: var(--etp-faint);
         }
+        .etp-input { width: 100%; }
+    }
+
+    .etp-label-pager {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px dashed var(--etp-border);
+    }
+    .etp-label-pageinfo {
+        font-size: 0.84rem;
+        font-weight: 600;
+        color: var(--etp-text);
+        font-variant-numeric: tabular-nums;
     }
 
     input.etp-input,
@@ -2180,3 +2219,41 @@ body.etp-zoom-lock { overflow: hidden; }
     margin: 0;
     box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .18);
 }
+
+/* ===================================================================
+   PROCTORING - watermark overlay + fullscreen prompt
+   =================================================================== */
+.etp-watermark-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 1;                 /* above page background, below controls */
+    pointer-events: none;       /* never blocks clicking/typing */
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    align-content: space-around;
+    user-select: none;
+}
+.etp-watermark-cell {
+    color: rgba(15, 23, 42, .06); /* very faint; readable in a photo, not on screen */
+    font-size: .85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transform: rotate(-30deg);
+    text-align: center;
+    letter-spacing: .04em;
+}
+/* Exam content must sit ABOVE the watermark so it stays crisp. */
+.etp-exam-sticky,
+.etp-exam-card,
+.etp-violation-banner,
+.etp-fs-prompt,
+.etp-webcam-note { position: relative; z-index: 2; }
+
+.etp-fs-prompt {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.etp-fs-prompt .btn { flex: 0 0 auto; }
+

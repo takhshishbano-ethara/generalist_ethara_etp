@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_send_applicant_wizard_form" model="ir.ui.view">
+        <field name="name">documenso.send.applicant.wizard.form</field>
+        <field name="model">documenso.send.applicant.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Send Documenso Document to Applicants">
+                <sheet>
+                    <group>
+                        <field name="job_id" options="{'no_quick_create': True}"/>
+                        <field name="template_ids" widget="many2many_tags"
+                               options="{'no_create': True}"/>
+                        <field name="applicant_ids" widget="many2many_tags"
+                               options="{'no_create': True, 'no_open': True}"/>
+                        <field name="title_override" placeholder="Optional override for the document title"/>
+                        <field name="distribute"/>
+                    </group>
+                    <group string="Advanced">
+                        <field name="extra_prefill_json"
+                               placeholder='{"custom label": "value"}'/>
+                    </group>
+                    <group string="Applicants Without Email (will be skipped)"
+                           invisible="not skipped_applicant_ids">
+                        <field name="skipped_applicant_ids" nolabel="1" readonly="1"
+                               options="{'no_create': True, 'no_open': True}"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_send" type="object" string="Send" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_documenso_send_applicant_wizard" model="ir.actions.act_window">
+        <field name="name">Send Documenso to Applicants</field>
+        <field name="res_model">documenso.send.applicant.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

@@ -40,6 +40,13 @@ def _strip_data_url(data):
 
 
 def _is_valid_b64(payload):
+    # L-6: bound the decode. An admin-supplied data: URL / raw base64 is decoded
+    # here to validate it; without a cap a multi-hundred-MB payload blows up
+    # worker memory. _MAX_BYTES base64 is ~4/3 larger, so cap the STRING length.
+    if payload and len(payload) > (_MAX_BYTES // 3) * 4 + 4:
+        _logger.warning("Inline image base64 too large (%d chars); rejected.",
+                        len(payload))
+        return False
     try:
         base64.b64decode(payload, validate=True)
         return True
@@ -54,25 +61,47 @@ def _download(url):
     except ImportError:
         _logger.warning("httpx not available; cannot download image %s", url)
         return None, None
+    # H-14: SSRF guard. `url` can come from an admin field OR from LLM output
+    # (a prompt-injected SOP can plant a source_url). Validate BEFORE the request
+    # and re-validate every redirect hop so an external URL can't 302 into cloud
+    # metadata / loopback / a private range and exfiltrate the SA token.
+    from . import net_guard
+    if not net_guard.is_safe_url(url):
+        _logger.warning("Refusing image download from unsafe URL: %s", url)
+        return None, None
     try:
-        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-            with client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                chunks, total = [], 0
-                for chunk in resp.iter_bytes():
-                    total += len(chunk)
-                    if total > _MAX_BYTES:
-                        _logger.warning(
-                            "Image %s exceeds %s bytes; aborted download.",
-                            url, _MAX_BYTES)
+        with httpx.Client(timeout=20.0, follow_redirects=False) as client:
+            hop = url
+            for _redirect in range(5):
+                with client.stream("GET", hop) as resp:
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        nxt = resp.headers.get("location")
+                        if not nxt or not net_guard.is_safe_url(nxt):
+                            _logger.warning(
+                                "Image %s redirected to unsafe URL %s; aborted.",
+                                url, nxt)
+                            return None, None
+                        hop = nxt
+                        continue
+                    resp.raise_for_status()
+                    chunks, total = [], 0
+                    for chunk in resp.iter_bytes():
+                        total += len(chunk)
+                        if total > _MAX_BYTES:
+                            _logger.warning(
+                                "Image %s exceeds %s bytes; aborted download.",
+                                url, _MAX_BYTES)
+                            return None, None
+                        chunks.append(chunk)
+                    content = b"".join(chunks)
+                    if not content:
+                        _logger.warning("Image %s empty; skipped.", url)
                         return None, None
-                    chunks.append(chunk)
-                content = b"".join(chunks)
-                if not content:
-                    _logger.warning("Image %s empty; skipped.", url)
-                    return None, None
-                ctype = resp.headers.get("content-type") or _content_type_for(url)
-                return base64.b64encode(content).decode(), ctype.split(";")[0]
+                    ctype = (resp.headers.get("content-type")
+                             or _content_type_for(url))
+                    return base64.b64encode(content).decode(), ctype.split(";")[0]
+            _logger.warning("Image %s exceeded redirect limit; aborted.", url)
+            return None, None
     except Exception as exc:  # noqa: BLE001 - never abort an import on one image
         _logger.warning("Image download failed for %s: %s", url, exc)
         return None, None

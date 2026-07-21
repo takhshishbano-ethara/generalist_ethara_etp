@@ -423,8 +423,6 @@ class ApplicantAssessmentPortal(http.Controller):
         if not assessment or assessment.state not in ("in_progress", "submitted"):
             return self._json_response({"ok": False, "reason": "invalid_state"}, 400)
         env = request.env
-        if not s3_service.is_configured(env):
-            return self._json_response({"ok": False, "reason": "s3_not_configured"}, 400)
 
         upload = kw.get("file")
         if not upload:
@@ -453,22 +451,44 @@ class ApplicantAssessmentPortal(http.Controller):
             warning_id_int = 0
 
         ext = "mp4" if content_type == "video/mp4" else "webm"
-        try:
-            clip_url, key = s3_service.upload_bytes(
-                env, blob,
-                key_hint=f"proctoring-video/{assessment.id}",
-                content_type=content_type,
-                extension=ext,
-            )
-        except Exception:
-            _logger.exception(
-                "Server-side clip upload failed for assessment=%s",
-                assessment.id,
-            )
-            assessment.record_media_error(
-                "s3-post-failed", 500, "server_fallback_upload_failed",
-            )
-            return self._json_response({"ok": False, "reason": "upload_failed"}, 502)
+        clip_url = key = None
+        attachment_id = False
+        if s3_service.is_configured(env):
+            try:
+                clip_url, key = s3_service.upload_bytes(
+                    env, blob,
+                    key_hint=f"proctoring-video/{assessment.id}",
+                    content_type=content_type,
+                    extension=ext,
+                )
+            except Exception:
+                _logger.exception(
+                    "Server-side clip upload failed for assessment=%s; "
+                    "falling back to local attachment storage",
+                    assessment.id,
+                )
+                assessment.record_media_error(
+                    "s3-post-failed", 500, "server_fallback_upload_failed",
+                )
+        if not clip_url:
+            # Evidence must never be dropped: without S3 (or when S3
+            # errors) the clip is kept as a private attachment on the
+            # assessment, mirroring what snapshots already do.
+            attachment = env["ir.attachment"].sudo().create({
+                "name": (
+                    f"proctoring-clip-{assessment.id}-"
+                    f"{fields.Datetime.now().strftime('%Y%m%d%H%M%S%f')}.{ext}"
+                ),
+                "res_model": "etp.applicant.assessment",
+                "res_id": assessment.id,
+                "type": "binary",
+                "datas": base64.b64encode(blob),
+                "mimetype": content_type,
+                "public": False,
+            })
+            attachment_id = attachment.id
+            clip_url = f"/web/content/{attachment.id}?download=false"
+            key = ""
 
         Warning = env["etp.applicant.assessment.warning"].sudo()
         kind_val = reason if reason in _EVENT_KINDS else "no_face"
@@ -479,7 +499,11 @@ class ApplicantAssessmentPortal(http.Controller):
                 ("assessment_id", "=", assessment.id),
             ], limit=1)
             if existing:
-                update_vals = {"s3_url": clip_url, "s3_key": key}
+                update_vals = {
+                    "s3_url": clip_url,
+                    "s3_key": key,
+                    "attachment_id": attachment_id,
+                }
                 if snapshot_url:
                     update_vals["snapshot_url"] = snapshot_url
                 if snapshot_key:
@@ -497,6 +521,7 @@ class ApplicantAssessmentPortal(http.Controller):
             "kind": kind_val,
             "s3_url": clip_url,
             "s3_key": key,
+            "attachment_id": attachment_id,
             "snapshot_url": snapshot_url,
             "snapshot_key": snapshot_key,
         })

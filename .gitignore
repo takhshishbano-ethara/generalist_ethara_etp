@@ -73,3 +73,4 @@ custom_addons/vegeta/deploy/
 custom_addons/vegeta/docs/
 .venv/
 .venv
+.playwright-mcp

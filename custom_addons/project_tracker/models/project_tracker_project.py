@@ -22,8 +22,8 @@ class Kensei2TrackerProject(models.Model):
     project_type = fields.Selection(
         [('sft', 'SFT'), ('rlhf', 'RLHF'), ('other', 'Other')],
         string='Type', default='sft', required=True, index=True,
-        help='Drives which persona attributes apply: SFT projects use the '
-             'L1/L2 taxonomy, RLHF projects use Domain / Agent Type.')
+        help='Drives which persona attributes apply: SFT projects use '
+             'Domain / Agent Type, RLHF projects use the L1/L2 taxonomy.')
     description = fields.Text(string='Description')
     active = fields.Boolean(
         default=True,
@@ -33,10 +33,6 @@ class Kensei2TrackerProject(models.Model):
         'project.tracker.allocation', 'project_id', string='Allocations')
     allocation_count = fields.Integer(
         string='Allocations', compute='_compute_allocation_count')
-    persona_ids = fields.One2many(
-        'kensei2.persona', 'pt_project_id', string='Personas')
-    persona_count = fields.Integer(
-        string='Personas', compute='_compute_persona_count')
     team_member_ids = fields.Many2many(
         'project.tracker.team.member',
         'project_tracker_project_team_member_rel',
@@ -53,12 +49,6 @@ class Kensei2TrackerProject(models.Model):
             [('project_id', 'in', self.ids)], ['project_id'], ['__count']))
         for rec in self:
             rec.allocation_count = counts.get(rec, 0)
-
-    def _compute_persona_count(self):
-        counts = dict(self.env['kensei2.persona']._read_group(
-            [('pt_project_id', 'in', self.ids)], ['pt_project_id'], ['__count']))
-        for rec in self:
-            rec.persona_count = counts.get(rec, 0)
 
     def _compute_team_count(self):
         for rec in self:

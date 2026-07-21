@@ -12,9 +12,32 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
+# Hard cap on any candidate-supplied free-text answer BEFORE it is stored or
+# ever reaches the LLM scorer. A subjective answer / per-box label is prose, not
+# a document; 8000 chars is far more than any honest response and stops a
+# candidate stuffing megabytes of CJK into `justification` to run up the Vertex
+# bill (each char ~1 token; the scorer re-sends the whole thing, and MAX_TOKENS
+# retries double it). Long-form answers past this are truncated, not rejected,
+# so an honest candidate never loses their attempt.
+_JUSTIFICATION_MAX_LEN = 8000
+# Per-box cap for image_label annotations. Coverage scoring only counts filled
+# boxes, so a box label needs no more than a short phrase; this bounds the
+# serialized label JSON regardless of how many boxes an image has.
+_LABEL_VALUE_MAX_LEN = 500
 
-def _rules_json(assessment):
-    """Serialize proctoring rules as JSON for safe injection into inline JS."""
+
+def _rules_json(assessment, evaluator=None):
+    """Serialize proctoring rules + violation policy as JSON for inline JS.
+    max_violations 0 means the first violation ends the exam, matching
+    _record_violation_single's ``not cap`` branch.
+    """
+    watermark_label = ""
+    if evaluator and assessment.rule_watermark:
+        applicant = evaluator.applicant_id
+        parts = [applicant.partner_name or applicant.display_name or ""]
+        if applicant.email_from:
+            parts.append(applicant.email_from)
+        watermark_label = "  ".join(p for p in parts if p)
     return json.dumps({
         "tab_switch": bool(assessment.rule_block_tab_switch),
         "copy_paste": bool(assessment.rule_block_copy_paste),
@@ -24,6 +47,10 @@ def _rules_json(assessment):
         "fullscreen": bool(assessment.rule_fullscreen),
         "webcam": bool(assessment.rule_webcam),
         "watermark": bool(assessment.rule_watermark),
+        "watermark_label": watermark_label,
+        "max_violations": int(assessment.max_violations or 0),
+        "violation_action": assessment.violation_action or "log_only",
+        "violation_count": int(evaluator.violation_count or 0) if evaluator else 0,
     })
 
 
@@ -301,6 +328,9 @@ class EtpAssessmentPortal(http.Controller):
         block = self._guard_or_abort(evaluator, evaluator.assessment_id)
         if block:
             return block
+        # Only the assigned candidate may finish their own attempt (mirrors /begin, /submit).
+        if not self._is_real_candidate(evaluator):
+            return request.redirect(f"/pro_assessment/{token}")
         if not evaluator.is_locked and evaluator.state != "submitted":
             if (not evaluator.is_time_expired()
                     and self._unanswered_question_ids(evaluator)):
@@ -320,6 +350,9 @@ class EtpAssessmentPortal(http.Controller):
         if block:
             return block
         if evaluator.is_locked:
+            return request.redirect(f"/pro_assessment/{token}")
+        # Only the assigned candidate may record a violation (mirrors /begin, /submit).
+        if not self._is_real_candidate(evaluator):
             return request.redirect(f"/pro_assessment/{token}")
         reason = (kw.get("violation_reason") or "Unknown violation")[:240]
         self._record_violation_single(evaluator, reason)
@@ -592,7 +625,7 @@ class EtpAssessmentPortal(http.Controller):
                 "progress_percent": int((len(answered) / len(order)) * 100)
                     if order else 0,
                 "deadline_iso": _deadline_iso(deadline),
-                "rules_json": _rules_json(assessment),
+                "rules_json": _rules_json(assessment, evaluator),
                 "selected_option_ids": selected_option_ids,
                 "existing_justification": existing.justification if existing else "",
                 "label_image": label_image,
@@ -686,7 +719,7 @@ class EtpAssessmentPortal(http.Controller):
                 continue
             if isinstance(val, (list, tuple)):
                 val = val[0] if val else ""
-            text = (val or "").strip()
+            text = (val or "").strip()[:_LABEL_VALUE_MAX_LEN]
             if text:
                 labels[num] = text
         return {k: labels[k] for k in sorted(labels, key=int)}
@@ -706,7 +739,8 @@ class EtpAssessmentPortal(http.Controller):
         order = json.loads(evaluator.question_order or "[]")
         if qid not in order:
             return False
-        justification = (form.get("justification") or "").strip()
+        justification = (form.get("justification") or "").strip()[
+            :_JUSTIFICATION_MAX_LEN]
         if question.question_type == "image_label":
             label_map = self._collect_image_label_answers(form)
             if label_map:
@@ -833,40 +867,5 @@ class EtpAssessmentPortal(http.Controller):
             self._auto_submit_remaining_single(evaluator)
 
     def _auto_submit_remaining_single(self, evaluator):
-        question_order = json.loads(evaluator.question_order or "[]")
-        Response = request.env["etp.assessment.pro.response"].sudo()
-        for q_id in question_order:
-            existing = Response.search([
-                ("assessment_evaluator_id", "=", evaluator.id),
-                ("question_id", "=", q_id),
-                ("state", "=", "submitted"),
-            ], limit=1)
-            if existing:
-                continue
-            draft = Response.search([
-                ("assessment_evaluator_id", "=", evaluator.id),
-                ("question_id", "=", q_id),
-                ("state", "=", "draft"),
-            ], limit=1)
-            if draft:
-                draft.write({"state": "submitted",
-                             "llm_state": "not_needed"})
-            else:
-                try:
-                    with request.env.cr.savepoint():
-                        Response.create({
-                            "assessment_id": evaluator.assessment_id.id,
-                            "assessment_evaluator_id": evaluator.id,
-                            "evaluator_id": evaluator.applicant_id.id,
-                            "question_id": q_id,
-                            "justification": "[Auto-submitted: time expired]",
-                            "state": "submitted",
-                            "llm_state": "not_needed",
-                        }).flush_recordset()
-                except IntegrityError:
-                    continue
-        evaluator.write({"state": "submitted", "is_locked": True})
-        assessment = evaluator.assessment_id
-        evs = assessment.assessment_evaluator_ids
-        if evs and all(e.state == "submitted" for e in evs):
-            assessment.write({"state": "done"})
+        # Single source of truth shared with the _cron_expire_stale_attempts sweep.
+        evaluator.sudo()._auto_submit_expired()

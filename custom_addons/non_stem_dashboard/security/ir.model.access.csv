@@ -1,2 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_non_stem_run_user,non.stem.run.user,model_non_stem_run,base.group_user,1,1,1,1
+access_non_stem_run_viewer,non.stem.run.viewer,model_non_stem_run,non_stem_dashboard.group_viewer,1,0,0,0
+access_non_stem_run_user,non.stem.run.user,model_non_stem_run,non_stem_dashboard.group_user,1,0,0,0
+access_non_stem_run_admin,non.stem.run.admin,model_non_stem_run,non_stem_dashboard.group_admin,1,1,1,1

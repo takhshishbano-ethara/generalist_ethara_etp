@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="documenso_connector.TemplateDesigner">
+        <div class="o_documenso_designer d-flex flex-column">
+            <div class="o_documenso_topbar d-flex align-items-center px-3 py-2">
+                <button class="btn btn-secondary me-2" t-on-click="onClose">
+                    <i class="fa fa-arrow-left me-1"/>
+                    <span>Back to Template</span>
+                </button>
+                <div class="flex-grow-1 fw-bold text-truncate" t-esc="state.title"/>
+                <span t-if="state.refreshing" class="me-2 text-muted small">
+                    <i class="fa fa-refresh fa-spin me-1"/>
+                    <t>Refreshing…</t>
+                </span>
+                <button class="btn btn-outline-secondary me-2" t-on-click="onReloadIframe" title="Reload the Documenso editor">
+                    <i class="fa fa-refresh"/>
+                </button>
+                <a class="btn btn-outline-primary" t-att-href="state.editorUrl" target="_blank" t-if="state.editorUrl">
+                    <i class="fa fa-external-link me-1"/>
+                    <span>Open in New Tab</span>
+                </a>
+            </div>
+            <div class="o_documenso_iframe_wrap flex-grow-1">
+                <iframe t-if="state.editorUrl"
+                        t-ref="iframe"
+                        t-att-src="state.editorUrl"
+                        class="o_documenso_iframe"
+                        allow="clipboard-read; clipboard-write; fullscreen"/>
+                <div t-else="" class="o_documenso_placeholder d-flex align-items-center justify-content-center h-100 text-muted">
+                    <div class="text-center p-4">
+                        <i class="fa fa-exclamation-triangle fa-2x mb-2"/>
+                        <div>No Documenso editor URL configured for this template.</div>
+                        <small>Set the "Documenso Web URL" in Settings and ensure this template has a Documenso ID.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>

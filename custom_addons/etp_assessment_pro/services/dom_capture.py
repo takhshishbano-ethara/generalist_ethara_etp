@@ -399,6 +399,12 @@ def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None,
     if not PLAYWRIGHT_AVAILABLE:
         raise RuntimeError(
             "Playwright is not available; cannot capture a live URL.")
+    # H-15: SSRF guard. source_url can be set by an admin OR emitted by the LLM
+    # (a prompt-injected SOP). Opening an arbitrary URL in headless Chromium with
+    # JS enabled can reach file://, cloud metadata, or internal HTTP. Refuse any
+    # non-public http(s) URL before launching the browser.
+    from . import net_guard
+    net_guard.assert_safe_url(url, context="dom_capture", allow_data=True)
     from . import imaging
     vw, vh = viewport
     try:
@@ -407,8 +413,17 @@ def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None,
         settle = 5000
     if settle < 0:
         settle = 5000
+    # L-8: cap the settle wait so an admin can't pin a worker for days with a
+    # giant wait_ms; 30s is well past any real SPA hydration.
+    settle = min(settle, 30000)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # Nuke the metadata/loopback endpoints at the resolver layer so even JS
+        # fetch() inside the page cannot reach them.
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--host-resolver-rules=MAP 169.254.169.254 ~NOTFOUND,"
+                  "MAP metadata.google.internal ~NOTFOUND,"
+                  "MAP metadata ~NOTFOUND"])
         try:
             # a real desktop UA + en-US locale so sites serve their full desktop
             # layout (not a bot/mobile fallback) to the headless capture, exactly
@@ -418,6 +433,14 @@ def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None,
                 device_scale_factor=dsf,
                 locale="en-US",
                 user_agent=_DESKTOP_UA)
+            # Abort any in-page request to a non-public URL (defence in depth on
+            # top of the resolver rules above).
+            context.route(
+                "**/*",
+                lambda route: (
+                    route.continue_()
+                    if net_guard.is_safe_url(route.request.url)
+                    else route.abort()))
             page = context.new_page()
             page.goto(url, wait_until="load", timeout=60000)
             # let a single-page app finish its network burst + hydration before

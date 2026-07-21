@@ -7,7 +7,7 @@ from datetime import datetime
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from .documenso_client import build_prefill_fields, map_employee_fields
+from .documenso_client import build_prefill_fields, map_applicant_fields
 
 _logger = logging.getLogger(__name__)
 
@@ -32,9 +32,15 @@ class DocumensoContract(models.Model):
     _rec_name = 'name'
 
     name = fields.Char(string='Reference', required=True, default=lambda self: _('New'), copy=False)
-    employee_id = fields.Many2one(
-        'hr.employee', string='Employee', required=True, ondelete='restrict', index=True, tracking=True)
-    employee_email = fields.Char(related='employee_id.work_email', store=True, string='Employee Email')
+    applicant_id = fields.Many2one(
+        'hr.applicant', string='Applicant', required=True, ondelete='restrict', index=True, tracking=True)
+    applicant_email = fields.Char(related='applicant_id.email_from', store=True, string='Applicant Email')
+    recipient_name = fields.Char(
+        string='Recipient', compute='_compute_recipient', store=True)
+    recipient_email = fields.Char(
+        string='Recipient Email', compute='_compute_recipient', store=True)
+    job_id = fields.Many2one(
+        'hr.job', string='Job', ondelete='set null', index=True, tracking=True)
 
     template_id = fields.Many2one(
         'documenso.template', string='Primary Template', ondelete='set null', tracking=True)
@@ -84,6 +90,12 @@ class DocumensoContract(models.Model):
         for record in self:
             record.field_count = len(record.field_ids)
 
+    @api.depends('applicant_id', 'applicant_id.partner_name', 'applicant_id.email_from')
+    def _compute_recipient(self):
+        for record in self:
+            record.recipient_name = record.applicant_id.partner_name or ''
+            record.recipient_email = record.applicant_id.email_from or ''
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
@@ -111,9 +123,9 @@ class DocumensoContract(models.Model):
             else:
                 raise UserError(_("Select at least one template to send."))
 
-        values = map_employee_fields(self.employee_id)
+        base_values = map_applicant_fields(self.applicant_id)
         if extra_prefill:
-            values.update({str(k).lower(): v for k, v in extra_prefill.items() if v})
+            base_values.update({str(k).lower(): v for k, v in extra_prefill.items() if v})
 
         primary_id = None
         primary_signing_url = None
@@ -121,6 +133,10 @@ class DocumensoContract(models.Model):
         bundle = []
 
         for index, template in enumerate(templates):
+            values = dict(base_values)
+            if template.salary_bracket:
+                values['salary bracket'] = template.salary_bracket
+                values['salary'] = template.salary_bracket
             recipients = self._build_recipients(template)
             prefill = build_prefill_fields(
                 [self._field_to_payload(f) for f in template.field_ids],
@@ -169,22 +185,60 @@ class DocumensoContract(models.Model):
         })
         self.message_post(body=_(
             "Contract sent to %(email)s using %(n)s template(s)."
-        ) % {'email': self.employee_id.work_email or self.employee_id.name, 'n': len(templates)})
+        ) % {'email': self.recipient_email or self.recipient_name, 'n': len(templates)})
         return True
 
     def _build_recipients(self, template):
-        employee = self.employee_id
+        name = self.recipient_name or ''
+        email = self.recipient_email or ''
+        if not email:
+            raise UserError(_(
+                "Recipient email is missing for %s."
+            ) % (self.recipient_name or _('applicant')))
+
+        def _valid(placeholder):
+            try:
+                return int(placeholder.documenso_id)
+            except (TypeError, ValueError):
+                return None
+
+        valid_placeholders = [p for p in template.recipient_ids if _valid(p) is not None]
+        if not valid_placeholders:
+            client = self._get_client()
+            resp = client.create_template_recipients(template.documenso_id, [{
+                'name': name or _('Signer'),
+                'email': email,
+                'role': 'SIGNER',
+                'signingOrder': 1,
+            }])
+            new_recipient_id = None
+            if isinstance(resp, dict):
+                created_list = resp.get('recipients') or []
+                if created_list:
+                    new_recipient_id = created_list[0].get('id')
+            if new_recipient_id:
+                client.create_template_fields(template.documenso_id, [{
+                    'recipientId': new_recipient_id,
+                    'type': 'SIGNATURE',
+                    'pageNumber': 1,
+                    'pageX': 60,
+                    'pageY': 85,
+                    'width': 30,
+                    'height': 8,
+                }])
+            template.action_refresh_one()
+            valid_placeholders = [p for p in template.recipient_ids if _valid(p) is not None]
+            if not valid_placeholders:
+                raise UserError(_(
+                    "Documenso did not return any recipient after provisioning for template '%s'."
+                ) % template.title)
+
         recipients = []
-        for placeholder in template.recipient_ids:
+        for placeholder in valid_placeholders:
             recipients.append({
-                'id': placeholder.documenso_id,
-                'name': employee.name or placeholder.name or '',
-                'email': employee.work_email or placeholder.email or '',
-            })
-        if not recipients:
-            recipients.append({
-                'name': employee.name or '',
-                'email': employee.work_email or '',
+                'id': _valid(placeholder),
+                'name': name or placeholder.name or '',
+                'email': email or placeholder.email or '',
             })
         return recipients
 
@@ -271,7 +325,7 @@ class DocumensoContract(models.Model):
         if not content:
             return
         filename = self.pdf_filename or (
-            'contract-%s.pdf' % (self.employee_id.name or self.documenso_id)).replace(' ', '_')
+            'contract-%s.pdf' % (self.recipient_name or self.documenso_id)).replace(' ', '_')
         if not filename.lower().endswith('.pdf'):
             filename = '%s.pdf' % filename
         self.write({
@@ -305,9 +359,8 @@ class DocumensoContract(models.Model):
         self._download_and_store_pdf()
         if self.envelope_id:
             self._sync_envelope_items()
-        self.env['documenso.signed.profile'].sudo()._upsert_from_contract(self)
-        self.message_post(body=_("Contract signed by %s.") % (
-            self.employee_id.work_email or self.employee_id.name))
+        self.message_post(body=_("Document signed by %s.") % (
+            self.recipient_email or self.recipient_name or _('recipient')))
 
     def _sync_envelope_items(self):
         self.ensure_one()

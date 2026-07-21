@@ -24,6 +24,12 @@ class EtpAssessmentBankImport(models.AbstractModel):
     def import_bank_native(self, payload):
         """Lossless round-trip partner of ``question._export_native`` — must stay in sync with it."""
         if isinstance(payload, str):
+            # M-7: bound the parse. A multi-hundred-MB JSON string would pin the
+            # worker parsing it. 50MB covers any realistic native bank export.
+            if len(payload) > 50 * 1024 * 1024:
+                raise UserError(
+                    "Import payload too large (%d bytes; max 50MB)."
+                    % len(payload))
             try:
                 payload = json.loads(payload)
             except Exception as exc:

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_calendar_event_form_gm_actions" model="ir.ui.view">
+        <field name="name">calendar.event.form.gm.actions</field>
+        <field name="model">calendar.event</field>
+        <field name="inherit_id" ref="calendar.view_calendar_event_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="before">
+                <header>
+                    <button name="%(google_meet_api.action_google_meet_reschedule_wizard)d"
+                            string="Reschedule"
+                            type="action"
+                            class="btn-primary"
+                            context="{'default_event_id': id}"/>
+                    <button name="%(google_meet_api.action_google_meet_cancel_wizard)d"
+                            string="Cancel Interview"
+                            type="action"
+                            class="btn-danger"
+                            context="{'default_event_id': id}"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+</odoo>

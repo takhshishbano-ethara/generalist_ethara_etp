@@ -7,6 +7,7 @@
     "license": "LGPL-3",
     "depends": ["base", "web"],
     "data": [
+        "security/non_stem_groups.xml",
         "security/ir.model.access.csv",
         "views/non_stem_dashboard_views.xml",
     ],

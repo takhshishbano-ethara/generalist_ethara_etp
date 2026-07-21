@@ -256,3 +256,71 @@ class ApplicantAssessmentApplicantApi(http.Controller):
         except Exception as exc:
             _logger.exception('list_applicants_by_job failed')
             return return_Response('Internal error', 500, errors=[str(exc)])
+
+    @http.route(
+        '/api/v1/applicant/update-status', type='http', auth='none',
+        methods=['POST'], csrf=False, cors='*',
+    )
+    @validate_token
+    @validate_request({})
+    def update_applicant_status(self, jdata=None, **kwargs):
+        try:
+            data = jdata or {}
+
+            candidate_id = _coerce_int(data.get('candidate_id'))
+            if not candidate_id:
+                return return_Response(
+                    'candidate_id is required', 400,
+                    errors=['candidate_id is required'],
+                )
+
+            status = data.get('status')
+            status = status.strip() if isinstance(status, str) else ''
+            if not status:
+                return return_Response(
+                    'status is required', 400,
+                    errors=['status (string) is required'],
+                )
+            if status not in HIRING_STATUS_KEYS:
+                return return_Response(
+                    'Invalid status %r' % status, 400,
+                    errors=[
+                        'status must be one of: %s'
+                        % ', '.join(sorted(HIRING_STATUS_KEYS))
+                    ],
+                )
+
+            domain = [('id', '=', candidate_id)]
+
+            applicant = request.env['hr.applicant'].sudo().search(
+                domain, order='create_date desc, id desc', limit=1
+            )
+            if not applicant:
+                return return_Response(
+                    'No application found for this candidate', 404
+                )
+            
+            previous_status = applicant.status
+            changed = previous_status != status
+            if changed:
+                applicant.write({'status': status})
+
+            return return_Response(
+                'Status updated' if changed else 'Status unchanged', 200,
+                data={
+                    'data': {
+                        'applicant_id': applicant.id,
+                        'candidate_name': safe_get_value(
+                            applicant, 'name', 'str',
+                        ),
+                        'previous_status': previous_status,
+                        'status': applicant.status,
+                        'status_updated_at': _iso_utc(
+                            applicant.status_updated_at,
+                        ),
+                    },
+                },
+            )
+        except Exception as exc:
+            _logger.exception('update_applicant_status failed')
+            return return_Response('Internal error', 500, errors=[str(exc)])

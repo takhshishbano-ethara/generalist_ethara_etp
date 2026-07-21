@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import hashlib
 import json
 import logging
 import re
@@ -306,7 +307,11 @@ def _label_attempted_boxes(resp):
     except (ValueError, TypeError):
         return 1
     if isinstance(data, dict):
-        return sum(1 for v in data.values() if str(v or "").strip())
+        # H-10: a box counts as attempted only with a real label (>= 2 non-space
+        # chars). Otherwise a candidate pads half the boxes with junk single
+        # chars ("a", "b", ...) to push coverage to 0.5 and dodge the coverage
+        # cap while the correctness lane still hands out partial credit.
+        return sum(1 for v in data.values() if len(str(v or "").strip()) >= 2)
     return 1
 
 
@@ -546,7 +551,11 @@ def _apply_image_label_coverage(resp, it):
     correctness_100, note = _verified_judge_100(it)
     correctness = max(0.0, min(1.0, correctness_100 / 100.0))
     raw100 = correctness * 100.0
-    capped = min(raw100, _COVERAGE_CAP) if coverage < _COVERAGE_FLOOR else raw100
+    # H-10: cap AT the floor, not just below it (<=), so labelling exactly half
+    # the boxes is still capped. Combined with the >=2-char attempted-box filter,
+    # a candidate can no longer pad junk labels to sit on the boundary and dodge
+    # the cap.
+    capped = min(raw100, _COVERAGE_CAP) if coverage <= _COVERAGE_FLOOR else raw100
     it = _mark_recomputed(dict(it), note)
     it["composed_raw_100"] = capped
     it["label_scores"] = {
@@ -554,7 +563,7 @@ def _apply_image_label_coverage(resp, it):
         "correctness": round(correctness, 4),
         "total_boxes": total,
         "attempted_boxes": attempted,
-        "coverage_cap_applied": coverage < _COVERAGE_FLOOR,
+        "coverage_cap_applied": coverage <= _COVERAGE_FLOOR,
     }
     it["score"] = capped / 100.0
     reasoning = str(it.get("reasoning") or "")
@@ -563,7 +572,7 @@ def _apply_image_label_coverage(resp, it):
         + "[image_label coverage=%.2f (%d/%d boxes) x correctness=%.2f -> raw "
           "%.2f%s]" % (
             coverage, attempted, total, correctness, capped,
-            "; coverage<0.5 cap 40" if coverage < _COVERAGE_FLOOR else ""))
+            "; coverage<=0.5 cap 40" if coverage <= _COVERAGE_FLOOR else ""))
     return it
 
 
@@ -661,8 +670,16 @@ def _build_item(resp):
             cba = json.loads(gen.covered_by_all_json or "[]")
             if isinstance(cba, list) and cba:
                 item["covered_by_all"] = cba
-    except Exception:  # noqa: BLE001
-        pass
+    except (ValueError, TypeError):
+        # Malformed element JSON silently thins the grading context (the v6/v10
+        # rubric loses required_elements / covered_by_all), which can lower a
+        # candidate's score with no trace. Log it and flag the item for review
+        # rather than swallowing it.
+        _logger.warning(
+            "scoring: malformed element JSON on question %s (generator %s); "
+            "grading without required/covered context",
+            q.id, q.generator_id.id or "-")
+        item["element_context_error"] = True
     if q.solution_json:
         try:
             item["golden_answer"] = json.loads(q.solution_json)
@@ -894,9 +911,13 @@ def _recompute_v10(it):
     note = None
     emitted = it.get("score")
     try:
-        if emitted is not None and abs(float(emitted) - score) > 1.5:
+        # H-17: the judge emits ``score`` on a 0-1 scale while ``score`` here is
+        # the 0-100 recompute. Comparing raw (0.85 vs 85) tripped the >1.5 drift
+        # note on EVERY answer, drowning real drift. Coerce to the same 0-100
+        # scale before diffing so the note fires only on genuine disagreement.
+        if emitted is not None and abs(_coerce_100(emitted) - score) > 1.5:
             note = ("recompute %.1f vs judge %.1f (key %.1f, cov %s, clar %s)"
-                    % (score, float(emitted), key_closeness,
+                    % (score, _coerce_100(emitted), key_closeness,
                        "%.1f" % sop_coverage if sop_coverage is not None
                        else "-",
                        "%.0f" % clarity_val if clarity_val is not None
@@ -951,6 +972,10 @@ def _store_scored(resp, it):
         "llm_state": "scored",
         "llm_raw_100": raw100,
         "llm_gate": gate,
+        # H-16: record the sha256 of the exact text we just graded, so a later
+        # re-submit of identical text is not re-queued for scoring.
+        "llm_scored_hash": hashlib.sha256(
+            (resp.justification or "").encode("utf-8")).hexdigest(),
         "llm_rubric_source": str(it.get("rubric_source") or ""),
         "llm_reference_answer": str(it.get("reference_answer") or ""),
         "llm_reasoning": reasoning,
@@ -1082,7 +1107,20 @@ def _score_submission(env, responses):
         return scored
     ev_ids = {r.assessment_evaluator_id.id for r in gradable
               if r.assessment_evaluator_id}
-    evaluator_id = ev_ids.pop() if len(ev_ids) == 1 else False
+    # M-10: attribute the call's cost to a candidate for the per-candidate spend
+    # cap + budget report. Batches are built per-evaluator upstream, so a mix is
+    # not expected; if one ever occurs, attribute to the lowest evaluator id
+    # (deterministic) instead of dropping attribution to False, and log it.
+    if len(ev_ids) == 1:
+        evaluator_id = next(iter(ev_ids))
+    elif ev_ids:
+        evaluator_id = min(ev_ids)
+        _logger.warning(
+            "scoring: mixed-evaluator batch %s; attributing LLM cost to "
+            "evaluator %s for the per-candidate cap.",
+            sorted(ev_ids), evaluator_id)
+    else:
+        evaluator_id = False
     items = [_build_item(r) for r in gradable]
     system_prompt = _get_scoring_prompt(env)
     # Attach the rendered media per item, and tell the judge where each item's

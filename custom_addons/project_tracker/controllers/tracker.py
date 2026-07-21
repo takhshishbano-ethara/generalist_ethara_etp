@@ -363,19 +363,22 @@ _LIST_STATS = {
 }
 
 
+# Persona Name (required) + optional Domain and Source URL — the persona's own
+# attributes. Task taxonomy (L1/L2, Agent Type) is set per task, not imported.
+# Domains repeat across rows so the Bulk Allocation domain filter has several
+# personas per domain to hand out.
 _PERSONA_SAMPLE_CSV = (
-    "Persona Name,L1,L2\n"
-    "Marcus,Finance,Accounts Payable\n"
-    "Sophia,Healthcare,Patient Intake\n"
-    "Leo,Retail,\n"
-)
-
-# RLHF projects describe personas by Domain / Agent Type instead of L1 / L2.
-_PERSONA_SAMPLE_CSV_RLHF = (
-    "Persona Name,Domain,Agent Type\n"
-    "Marcus,Math,Solver\n"
-    "Sophia,Coding,Reviewer\n"
-    "Leo,Science,\n"
+    "Persona Name,Domain,Source URL\n"
+    "Marcus Reed,Enterprise,https://example.com/personas/marcus-reed\n"
+    "Sophia Lin,Enterprise,https://example.com/personas/sophia-lin\n"
+    "Leo Alvarez,Enterprise,https://example.com/personas/leo-alvarez\n"
+    "Amara Okafor,Enterprise,https://example.com/personas/amara-okafor\n"
+    "Daniel Kim,Finance,https://example.com/personas/daniel-kim\n"
+    "Priya Nair,Finance,https://example.com/personas/priya-nair\n"
+    "Ethan Brooks,Finance,https://example.com/personas/ethan-brooks\n"
+    "Yuki Tanaka,Coding,https://example.com/personas/yuki-tanaka\n"
+    "Olivia Grant,Coding,https://example.com/personas/olivia-grant\n"
+    "Noah Feld,Coding,https://example.com/personas/noah-feld\n"
 )
 
 _TEAM_SAMPLE_CSV = (
@@ -390,18 +393,12 @@ class Kensei2TrackerController(http.Controller):
 
     @http.route("/project_tracker/persona/sample_csv", type="http", auth="user")
     def persona_sample_csv(self, **kw):
-        """Serve a downloadable sample CSV for the persona import.
-
-        ``?type=rlhf`` returns the Domain / Agent Type template; anything else
-        the default SFT L1 / L2 template."""
-        rlhf = kw.get("type") == "rlhf"
-        body = _PERSONA_SAMPLE_CSV_RLHF if rlhf else _PERSONA_SAMPLE_CSV
-        fname = "persona_sample_rlhf.csv" if rlhf else "persona_sample.csv"
+        """Serve a downloadable, name-only sample CSV for the persona import."""
         return request.make_response(
-            body,
+            _PERSONA_SAMPLE_CSV,
             headers=[
                 ("Content-Type", "text/csv"),
-                ("Content-Disposition", 'attachment; filename="%s"' % fname),
+                ("Content-Disposition", 'attachment; filename="persona_sample.csv"'),
             ],
         )
 

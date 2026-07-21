@@ -225,8 +225,8 @@
                                     <field name="kind"/>
                                     <field name="penalty_percent"/>
                                     <field name="detector_confidence"/>
-                                    <field name="snapshot_url" widget="url"/>
-                                    <field name="s3_url" widget="url"/>
+                                    <field name="snapshot_signed_url" widget="url" string="Snapshot"/>
+                                    <field name="signed_url" widget="url" string="Clip"/>
                                 </list>
                                 <form>
                                     <sheet>
@@ -236,10 +236,11 @@
                                             <field name="detector_confidence" readonly="1"/>
                                         </group>
                                         <group>
-                                            <field name="snapshot_url" widget="url" readonly="1"/>
+                                            <field name="snapshot_signed_url" widget="url" readonly="1"/>
                                             <field name="snapshot_key" readonly="1"/>
-                                            <field name="s3_url" widget="url" readonly="1"/>
+                                            <field name="signed_url" widget="url" readonly="1"/>
                                             <field name="s3_key" readonly="1"/>
+                                            <field name="attachment_id" readonly="1"/>
                                         </group>
                                         <field name="raw_meta_json" readonly="1" nolabel="1"/>
                                     </sheet>
@@ -340,7 +341,7 @@
                 <field name="kind"/>
                 <field name="penalty_percent"/>
                 <field name="detector_confidence"/>
-                <field name="s3_url" widget="url"/>
+                <field name="signed_url" widget="url" string="Clip"/>
             </list>
         </field>
     </record>

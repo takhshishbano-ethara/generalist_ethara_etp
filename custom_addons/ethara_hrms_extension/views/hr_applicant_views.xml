@@ -19,6 +19,12 @@
                     </group>
                     <field name="cancellation_reason" invisible="not cancellation_reason"/>
                 </group>
+                <notebook>
+                    <page string="Selection Form Documents" name="selection_form_documents">
+                        <field name="selection_form_document_ids"
+                               context="{'default_applicant_id': id}"/>
+                    </page>
+                </notebook>
             </xpath>
         </field>
     </record>

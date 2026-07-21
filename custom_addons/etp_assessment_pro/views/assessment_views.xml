@@ -45,7 +45,7 @@
                             invisible="state == 'draft'"/>
                     <button name="action_release_all_results" string="Release Results"
                             type="object" icon="fa-unlock"
-                            invisible="releasable_count == 0 or results_release != 'manual'"/>
+                            invisible="releasable_count == 0"/>
                     <field name="submitted_count" invisible="1"/>
                     <field name="releasable_count" invisible="1"/>
                     <field name="awaiting_scoring_count" invisible="1"/>

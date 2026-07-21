@@ -50,11 +50,13 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from .budget_api import (
     _coerce_int,
     _coerce_float,
+    _coerce_bool,
     _coerce_date,
     _pagination,
     _read_multipart_or_json,
     _missing_ids,
 )
+from ..models.role_map import resolve_role_ids
 
 _logger = logging.getLogger(__name__)
 
@@ -202,6 +204,20 @@ def _user_brief(user):
             _role_brief(user.user_role) if 'user_role' in user._fields else None
         ),
     }
+
+
+def _user_role_code(user):
+    """The canonical role string ('CTO'/'CFO'/…) for a user, taken from their
+    `user_role.user_type`. Empty when the user or role is missing. Matches the
+    `user_type` the Flutter side feeds to `UserRole.fromApiString`, so the
+    approval trail can tell WHICH role acted (e.g. a CTO send-back vs a CTO
+    approve-and-forward)."""
+    if not user or 'user_role' not in user._fields:
+        return ''
+    role = user.user_role
+    if not role:
+        return ''
+    return getattr(role, 'user_type', '') or ''
 
 
 def _author_brief(partner):
@@ -510,6 +526,12 @@ def _request_to_summary(req):
             fields.Datetime.to_string(req.approval_date)
             if req.approval_date else None
         ),
+        # WHO sent it back and in WHICH role — needed by the approval trail
+        # (on list cards too) to tell a CTO send-back from a CTO
+        # approve-and-forward. Without the role the trail always read
+        # "forwarded to CFO" even for a returned request.
+        'rejected_by': req.rejected_by.name if req.rejected_by else '',
+        'rejected_by_role': _user_role_code(req.rejected_by),
         'batch': {
             'id': req.phase_id.id,
             'name': req.phase_id.name,
@@ -536,6 +558,135 @@ def _request_to_summary(req):
         'remaining_amount': req.remaining_amount,
         'sequence_number': req.sequence_number,
     }
+
+
+def _caller_is_cfo():
+    """True when the authenticated caller holds a CFO role. `@validate_token`
+    sets `request.env.user` to the token's user (via update_env), so this
+    reflects the HTTP caller even when the record itself is browsed sudo."""
+    user = request.env.user
+    role = getattr(user, 'user_role', False)
+    if not role:
+        return False
+    return role.id in resolve_role_ids(request.env, 'cfo')
+
+
+# Buffer figures are a CFO-confidential reserve ("Not visible to TPM/CTO").
+# They are stripped from the detail payload for every non-CFO caller.
+_BUFFER_TOPLEVEL_KEYS = ('buffer_pct', 'buffer_amount')
+_BUFFER_TOTALS_KEYS = (
+    'buffer_pct', 'buffer_amount',
+    'buffer_amount_requested', 'buffer_amount_approved',
+)
+# The activity-log subject used by the set_buffer message_post. Shared between
+# the post site and the redaction filter so they can't drift — a buffer message
+# reveals the exact reserve, so it must be scrubbed from the change_log for
+# non-CFO callers just like the buffer fields.
+BUFFER_LOG_SUBJECT = 'Buffer reserve updated'
+
+# Subject stamped on the chatter entry logged when a raiser revises + resubmits
+# a returned budget, so the detail activity log shows WHAT changed and WHO did it.
+RESUBMIT_LOG_SUBJECT = 'Budget revised & resubmitted'
+
+
+def _esc(value):
+    """Minimal HTML escape for user-controlled names in a message_post body."""
+    return (
+        str(value or '')
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+    )
+
+
+def _request_line_snapshot(req):
+    """A name-keyed snapshot of a request's cost lines, used to diff what the
+    raiser changed on resubmit (lines are replaced wholesale, so we match on
+    the human name rather than a stable id)."""
+    snap = {'Models': {}, 'Infrastructure': {}, 'Subscriptions': {}}
+    for line in req.model_line_ids:
+        name = line.ai_model_name or (
+            line.ai_model_id.name if line.ai_model_id else 'Model'
+        )
+        snap['Models'][name] = {'amount': line.requested_amount or 0.0}
+    for line in req.infra_line_ids:
+        name = line.instance_type or (
+            line.infra_type_id.display_name or line.infra_type_id.name
+            if line.infra_type_id else 'Infrastructure'
+        )
+        snap['Infrastructure'][name] = {
+            'amount': line.requested_amount or 0.0,
+            'qty': line.quantity or 0.0,
+        }
+    for line in req.subscription_line_ids:
+        name = line.subscription_id.name if line.subscription_id else 'Subscription'
+        snap['Subscriptions'][name] = {
+            'amount': line.requested_amount or 0.0,
+            'seats': getattr(line, 'subscription_count', 0) or 0,
+        }
+    return snap
+
+
+def _diff_request_lines(before, after):
+    """Build human-readable change lines from two `_request_line_snapshot`s:
+    added / removed lines, amount changes, and infra quantity changes."""
+    out = []
+    for group in ('Models', 'Infrastructure', 'Subscriptions'):
+        b = before.get(group, {})
+        a = after.get(group, {})
+        for name, av in a.items():
+            bv = b.get(name)
+            if bv is None:
+                out.append(
+                    f'Added {group[:-1] if group.endswith("s") else group} '
+                    f'"{_esc(name)}" (USD {av["amount"]:,.2f})'
+                )
+            elif abs(av['amount'] - bv['amount']) > 0.005:
+                out.append(
+                    f'{group} "{_esc(name)}": USD {bv["amount"]:,.2f} '
+                    f'→ USD {av["amount"]:,.2f}'
+                )
+            elif 'qty' in av and av.get('qty') != bv.get('qty'):
+                out.append(
+                    f'{group} "{_esc(name)}": qty '
+                    f'{bv.get("qty", 0):g} → {av.get("qty", 0):g}'
+                )
+        for name in b:
+            if name not in a:
+                out.append(
+                    f'Removed {group[:-1] if group.endswith("s") else group} '
+                    f'"{_esc(name)}"'
+                )
+    return out
+
+
+def _is_buffer_log_entry(entry):
+    """True when a change_log entry reveals the confidential buffer reserve."""
+    if not isinstance(entry, dict):
+        return False
+    subject = (entry.get('subject') or '').strip()
+    body = entry.get('body') or ''
+    return subject == BUFFER_LOG_SUBJECT or 'Buffer reserve' in body
+
+
+def _redact_buffer_for_non_cfo(detail):
+    """Remove the confidential buffer data unless the caller is a CFO. Enforces
+    the buffer's CFO-only visibility at the API, not just in the UI — this
+    covers the buffer fields AND the buffer message in the activity log."""
+    if _caller_is_cfo():
+        return detail
+    for key in _BUFFER_TOPLEVEL_KEYS:
+        detail.pop(key, None)
+    totals = detail.get('totals')
+    if isinstance(totals, dict):
+        for key in _BUFFER_TOTALS_KEYS:
+            totals.pop(key, None)
+    log = detail.get('change_log')
+    if isinstance(log, list):
+        detail['change_log'] = [
+            e for e in log if not _is_buffer_log_entry(e)
+        ]
+    return detail
 
 
 def _request_to_detail(req):
@@ -666,12 +817,15 @@ def _request_to_detail(req):
             if req.topup_reason_id else None
         ),
         'rejection_reason': req.rejection_reason or '',
-        'rejected_by': req.rejected_by.name if req.rejected_by else '',
+        # `rejected_by` / `rejected_by_role` come from `_request_to_summary`.
         'cto_review_note': getattr(req, 'cto_review_note', '') or '',
         'cfo_change_request_note': (
             getattr(req, 'cfo_change_request_note', '') or ''
         ),
         'buffer_pct': req.buffer_pct,
+        # Stable CFO "Financial overview" snapshots (see model fields).
+        'original_requested_total': req.original_requested_total,
+        'cto_forwarded_total': req.cto_forwarded_total,
         'model_lines': model_lines,
         'infra_lines': infra_lines,
         'subscription_lines': sub_lines,
@@ -686,6 +840,10 @@ def _request_to_detail(req):
             'subscription_monthly_total': sub_monthly_total,
             'subscription_per_day_total': sub_per_day_total,
             'buffer_pct': req.buffer_pct,
+            # Persisted buffer reserve (stored on the request, kept OUT of
+            # approved_total). The *_requested/_approved figures below remain
+            # computed for display parity.
+            'buffer_amount': req.buffer_amount,
             'buffer_amount_requested': (
                 model_requested_total
                 + infra_requested_total
@@ -715,7 +873,7 @@ def _request_to_detail(req):
             'detail': _batch_detail(req.phase_id),
         },
     })
-    return detail
+    return _redact_buffer_for_non_cfo(detail)
 
 
 # ---------------------------------------------------------------------------
@@ -804,6 +962,23 @@ def _build_request_infra_cmds(entries, replace=False):
             vals['approved_amount'] = _coerce_float(
                 line.get('approved_amount'), 0.0,
             )
+        # Persist the structured instance specs. Because the update / CTO-forward
+        # paths call this with replace=True (delete + recreate every line), the
+        # client MUST echo these back or they'd be lost — previously they were
+        # silently wiped on every resubmit. Only write keys the client sent so a
+        # caller that omits them doesn't zero out an existing value on a new line.
+        for key, coerce in (
+            ('instance_type', lambda v: v or False),
+            ('unit_price_usd', lambda v: _coerce_float(v, 0.0)),
+            ('price_unit', lambda v: v or False),
+            ('quantity', lambda v: _coerce_float(v, 0.0)),
+            ('duration_hours', lambda v: _coerce_float(v, 0.0)),
+            ('ebs_storage_gb', lambda v: _coerce_float(v, 0.0)),
+            ('volume_type', lambda v: v or False),
+            ('volume_rate_usd_per_gb_mo', lambda v: _coerce_float(v, 0.0)),
+        ):
+            if key in line:
+                vals[key] = coerce(line.get(key))
         cmds.append((0, 0, vals))
     if cmds:
         missing = _missing_ids(
@@ -877,12 +1052,19 @@ def _apply_line_overrides(req, jdata):
             if not line_id or 'approved_amount' not in line:
                 continue
             target = getattr(req, attr).filtered(lambda l: l.id == line_id)
-            if target:
-                target.write({
-                    'approved_amount': _coerce_float(
-                        line.get('approved_amount'), 0.0,
-                    ),
-                })
+            if not target:
+                continue
+            write_vals = {
+                'approved_amount': _coerce_float(
+                    line.get('approved_amount'), 0.0,
+                ),
+            }
+            # The CFO may edit an infra line's quantity in place (the only
+            # structured field they can change). The compute/storage/computed
+            # amounts recompute automatically from quantity on the line model.
+            if attr == 'infra_line_ids' and 'quantity' in line:
+                write_vals['quantity'] = _coerce_float(line.get('quantity'), 0.0)
+            target.write(write_vals)
 
 
 # ---------------------------------------------------------------------------
@@ -919,8 +1101,10 @@ class EtharaBudgetRequestController(http.Controller):
             state_aliases = {
                 'pending': ['draft', 'cto_review', 'cfo_review'],
                 'approved': ['approved', 'partially_approved'],
-                # CTO/CFO reject writes state=changes_required.
-                'rejected': ['changes_required'],
+                # A CTO send-back / CFO return writes state=changes_required; a
+                # terminal CFO reject writes state=rejected. Both read as
+                # "rejected" in the queue's Rejected filter.
+                'rejected': ['changes_required', 'rejected'],
                 'withdrawn': ['withdrawn'],
             }
             valid_states = [v for v, _l in Request._fields['state'].selection]
@@ -1317,6 +1501,12 @@ class EtharaBudgetRequestController(http.Controller):
                     )
                 vals['topup_reason_id'] = reason_id
 
+        # Snapshot the lines BEFORE the write (they're replaced wholesale) so we
+        # can log what the raiser changed.
+        _before_snap = _request_line_snapshot(req)
+        _before_total = req.requested_total or 0.0
+        _before_just = req.justification or ''
+
         try:
             if vals:
                 req.write(vals)
@@ -1328,6 +1518,33 @@ class EtharaBudgetRequestController(http.Controller):
                 message='Something went wrong.', status=400,
                 data={'errors': [str(e)]},
             )
+
+        # Log WHAT changed and WHO changed it into the chatter → surfaces in the
+        # detail page's activity log (`_change_log`). Never let logging break the
+        # update.
+        if vals:
+            try:
+                changes = _diff_request_lines(
+                    _before_snap, _request_line_snapshot(req),
+                )
+                _after_total = req.requested_total or 0.0
+                if abs(_after_total - _before_total) > 0.005:
+                    changes.insert(
+                        0,
+                        f'Requested total: USD {_before_total:,.2f} '
+                        f'→ USD {_after_total:,.2f}',
+                    )
+                if (req.justification or '') != _before_just:
+                    changes.append('Justification updated.')
+                if changes:
+                    body = (
+                        f'<strong>{RESUBMIT_LOG_SUBJECT}</strong><br/>'
+                        f'By: {_esc(request.env.user.display_name)}<br/>'
+                        + '<br/>'.join('&bull; ' + c for c in changes)
+                    )
+                    req.message_post(body=body, subject=RESUBMIT_LOG_SUBJECT)
+            except Exception:
+                _logger.exception('update_budget_request change-log failed')
 
         if uploaded_files:
             new_att_ids, _urls = _upload_files_as_url_attachments(
@@ -1439,27 +1656,35 @@ class EtharaBudgetRequestController(http.Controller):
 
         total_tasks_eff = vals.get('total_tasks', req.total_tasks)
 
-        if 'model_lines' in jdata:
-            cmds, _sub, err = _build_request_model_cmds(
-                jdata.get('model_lines') or [], total_tasks_eff, replace=True,
-            )
-            if err:
-                return return_Response(message=err, status=400, data={})
-            vals['model_line_ids'] = cmds
-        if 'infra_lines' in jdata:
-            cmds, _sub, err = _build_request_infra_cmds(
-                jdata.get('infra_lines') or [], replace=True,
-            )
-            if err:
-                return return_Response(message=err, status=400, data={})
-            vals['infra_line_ids'] = cmds
-        if 'subscription_lines' in jdata:
-            cmds, _sub, err = _build_request_subscription_cmds(
-                jdata.get('subscription_lines') or [], replace=True,
-            )
-            if err:
-                return return_Response(message=err, status=400, data={})
-            vals['subscription_line_ids'] = cmds
+        # The line arrays REPLACE the request's lines (with new requested
+        # amounts) only at the CTO step, where the CTO forwards a revised
+        # request. At the CFO step the same keys carry per-line APPROVED-amount
+        # overrides ({id, approved_amount}) applied by `_apply_line_overrides`
+        # below — so skip the replace block for CFO to avoid clobbering line ids
+        # (and rejecting override rows that omit ai_model_id / infra_type_id).
+        if step == 'cto':
+            if 'model_lines' in jdata:
+                cmds, _sub, err = _build_request_model_cmds(
+                    jdata.get('model_lines') or [], total_tasks_eff,
+                    replace=True,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                vals['model_line_ids'] = cmds
+            if 'infra_lines' in jdata:
+                cmds, _sub, err = _build_request_infra_cmds(
+                    jdata.get('infra_lines') or [], replace=True,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                vals['infra_line_ids'] = cmds
+            if 'subscription_lines' in jdata:
+                cmds, _sub, err = _build_request_subscription_cmds(
+                    jdata.get('subscription_lines') or [], replace=True,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                vals['subscription_line_ids'] = cmds
 
         if 'requested_total' in jdata:
             vals['requested_total'] = _coerce_float(
@@ -1509,12 +1734,31 @@ class EtharaBudgetRequestController(http.Controller):
                         ),
                     })
                 if 'approved_amount' in jdata:
+                    # The client sends the BASE approved amount here (buffer is
+                    # NOT folded in); it becomes approved_total verbatim.
                     req.write({
                         'approved_total': _coerce_float(
                             jdata.get('approved_amount'), 0.0,
                         ),
                     })
-                req.action_cfo_approve()
+                # Per-line override mode: the CFO edited individual model /
+                # subscription line amounts (infra stays locked). When those
+                # arrays are present the per-line `approved_amount` figures are
+                # authoritative — `action_cfo_approve` recomputes the total from
+                # the lines and skips auto-redistribution.
+                cfo_line_override = (
+                    'model_lines' in jdata
+                    or 'subscription_lines' in jdata
+                    or 'infra_lines' in jdata
+                )
+                ctx = {}
+                if cfo_line_override:
+                    ctx['cfo_line_override'] = True
+                # Explicit Approve (full) vs Partial decision from the CFO. When
+                # `is_partial` is absent, the model infers it from the amounts.
+                if 'is_partial' in jdata:
+                    ctx['force_partial'] = _coerce_bool(jdata.get('is_partial'))
+                req.with_context(**ctx).action_cfo_approve()
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})
         except Exception as e:
@@ -1589,7 +1833,14 @@ class EtharaBudgetRequestController(http.Controller):
                         ),
                         status=400, data={},
                     )
-                req._do_cfo_request_changes(note)
+                # `mode='reject'` closes the request terminally (state
+                # `rejected`); the default `changes` sends it back to the PL for
+                # revision (state `changes_required`).
+                mode = (jdata.get('mode') or 'changes').strip().lower()
+                if mode == 'reject':
+                    req._do_cfo_reject(note)
+                else:
+                    req._do_cfo_request_changes(note)
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})
         except Exception as e:
@@ -1599,7 +1850,12 @@ class EtharaBudgetRequestController(http.Controller):
                 data={'errors': [str(e)]},
             )
 
-        verb = 'CTO send-back' if step == 'cto' else 'CFO change request'
+        if step == 'cto':
+            verb = 'CTO send-back'
+        elif (jdata.get('mode') or 'changes').strip().lower() == 'reject':
+            verb = 'CFO rejection'
+        else:
+            verb = 'CFO change request'
         return return_Response(
             message=f'Budget request returned with {verb}.', status=200,
             data={'data': _request_to_detail(req.sudo())},
@@ -1668,6 +1924,9 @@ class EtharaBudgetRequestController(http.Controller):
             req.message_post(
                 body='<br/>'.join(body_lines),
                 subject=f'{step.upper()} review acknowledged',
+                subtype_xmlid='mail.mt_note',
+                message_type='notification',
+                partner_ids=[],
             )
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400, data={})
@@ -1693,5 +1952,92 @@ class EtharaBudgetRequestController(http.Controller):
             )
         return return_Response(
             message=f'{step.upper()} review noted.', status=200,
+            data={'data': payload},
+        )
+
+    @http.route(
+        '/api/v1/ethara_project/budget/requests/set_buffer',
+        type='http', auth='none', methods=['POST'], csrf=False, cors='*',
+    )
+    @validate_token
+    def set_buffer_budget_request(self, **params):
+        """Persist the CFO's confidential buffer reserve on a request under CFO
+        review — WITHOUT approving it. Stores `buffer_pct` and the derived
+        `buffer_amount` (a % of the current approved line total). CFO-only; the
+        buffer stays redacted for every other role (see `_request_to_detail`)."""
+        jdata, _files = _read_multipart_or_json()
+        req_id = _coerce_int(jdata.get('id'))
+        if not req_id:
+            return return_Response(
+                message='id is required.', status=400, data={},
+            )
+        if 'buffer_pct' not in jdata:
+            return return_Response(
+                message='buffer_pct is required.', status=400, data={},
+            )
+        pct = _coerce_float(jdata.get('buffer_pct'), 0.0)
+        if pct < 0.0 or pct > 100.0:
+            return return_Response(
+                message='buffer_pct must be between 0 and 100.',
+                status=400, data={},
+            )
+        # The buffer is CFO-confidential — only the CFO may allocate it.
+        if not _caller_is_cfo():
+            return return_Response(
+                message='Only the CFO can allocate the confidential buffer.',
+                status=403, data={},
+            )
+        req = request.env[REQUEST_MODEL].sudo().browse(req_id).exists()
+        if not req:
+            return return_Response(
+                message='Budget request not found.', status=404, data={},
+            )
+        if req.state != 'cfo_review':
+            return return_Response(
+                message=(
+                    'Buffer can only be allocated while the request is in CFO '
+                    f'review (state \'{req.state}\').'
+                ),
+                status=400, data={},
+            )
+        # Base = the current CFO working total (sum of line approved amounts),
+        # falling back to the requested total. Matches the Flutter card and the
+        # figure `action_cfo_approve` finalises the buffer on at approval.
+        base = (
+            sum(req.model_line_ids.mapped('approved_amount'))
+            + sum(req.infra_line_ids.mapped('approved_amount'))
+            + sum(req.subscription_line_ids.mapped('approved_amount'))
+        ) or (req.requested_total or 0.0)
+        amount = base * pct / 100.0
+        try:
+            req.write({'buffer_pct': pct, 'buffer_amount': amount})
+            req.message_post(
+                body=(
+                    f'<strong>{BUFFER_LOG_SUBJECT}</strong><br/>'
+                    f'Reserved {pct:.2f}% (USD {amount:,.2f}) by '
+                    f'{request.env.user.display_name}'
+                ),
+                subject=BUFFER_LOG_SUBJECT,
+            )
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            _logger.exception('set_buffer_budget_request failed')
+            return return_Response(
+                message='Something went wrong.', status=400,
+                data={'errors': [str(e)]},
+            )
+        try:
+            payload = _request_to_detail(req)
+        except Exception as e:
+            _logger.exception(
+                'set_buffer serialization failed for id=%s', req.id,
+            )
+            return return_Response(
+                message=f'Buffer saved but response could not be built: {e}',
+                status=400, data={'errors': [str(e)]},
+            )
+        return return_Response(
+            message='Buffer reserve saved.', status=200,
             data={'data': payload},
         )
