@@ -285,7 +285,8 @@ class SelectionFormAdminController(http.Controller):
                 )
 
             now = odoo_fields.Datetime.now()
-            resend = _parse_bool(kwargs.get('resend'))
+            body = kwargs.get('jdata') or {}
+            resend = _parse_bool(body.get('resend', kwargs.get('resend')))
             if applicant.selection_form_sent_at and not resend:
                 return return_Response(
                     'Form already sent', 400,

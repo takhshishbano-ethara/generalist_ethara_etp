@@ -99,6 +99,10 @@ def _pick(kwargs, whitelist):
     return {k: kwargs[k] for k in whitelist if k in kwargs}
 
 
+def _body(kwargs):
+    return kwargs.get('jdata') or {}
+
+
 def _coerce(vals):
     out = {}
     for k, v in vals.items():
@@ -327,7 +331,7 @@ class ApplicantSelectionFormDataController(http.Controller):
                     'Applicant not found', 404,
                     errors=[f'no hr.applicant with id={applicant_id}'],
                 )
-            _write_partial(applicant, whitelist, kwargs)
+            _write_partial(applicant, whitelist, _body(kwargs))
             return return_Response(
                 'Section saved', 200,
                 data={'record': _serialize_applicant(applicant, mask=True)},
@@ -357,7 +361,7 @@ class ApplicantSelectionFormDataController(http.Controller):
                     'Approved selection forms are read-only', 400,
                     errors=['selection_form_status is approved'],
                 )
-            refs = kwargs.get('references')
+            refs = _body(kwargs).get('references')
             if refs is None:
                 return return_Response(
                     'references field is required', 400,
@@ -490,7 +494,8 @@ class ApplicantSelectionFormDataController(http.Controller):
                     'Applicant not found', 404,
                     errors=[f'no hr.applicant with id={applicant_id}'],
                 )
-            decision = (kwargs.get('decision') or '').strip().lower()
+            data = _body(kwargs)
+            decision = (data.get('decision') or '').strip().lower()
             if decision not in ('approved', 'rejected', 'under_review'):
                 return return_Response(
                     'Invalid decision', 400,
@@ -505,7 +510,7 @@ class ApplicantSelectionFormDataController(http.Controller):
                     'Selection form is not awaiting review', 400,
                     errors=[f'current status: {applicant.selection_form_status}'],
                 )
-            reason = (kwargs.get('rejection_reason') or '').strip()
+            reason = (data.get('rejection_reason') or '').strip()
             if decision == 'rejected' and not reason:
                 return return_Response(
                     'rejection_reason is required when decision=rejected',
