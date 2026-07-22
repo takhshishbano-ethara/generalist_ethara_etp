@@ -319,13 +319,20 @@ class EvaluationsApi(http.Controller):
             if v is None or not (0 <= v <= 100):
                 return return_Response(message="pi_score must be 0-100.", status=400)
             vals["pi_score"] = v
-        if "final_verdict" in data:
-            vals["final_verdict"] = data["final_verdict"]
+        verdict = data.get("final_verdict")
+        if verdict is not None:
+            if verdict not in ("hire", "reject", "hold", "next_round", "", False, None):
+                msg = "final_verdict must be one of: hire, reject, hold, next_round."
+                return return_Response(message=msg, status=400, errors=[msg])
+            vals["final_verdict"] = verdict or False
         if "notes" in data:
             vals["notes"] = data["notes"]
-        if data.get("no_further_pi_required"):
+        if verdict in ("hire", "reject", "hold"):
             vals["status"] = "completed"
             vals["completed_at"] = datetime.utcnow()
+        elif verdict == "next_round":
+            vals["status"] = "in_progress"
+            vals["completed_at"] = False
         else:
             vals["status"] = "in_progress"
 
@@ -451,6 +458,9 @@ class EvaluationsApi(http.Controller):
         eid = _int(params.get("employee_id") or params.get("employeeId"))
         if eid:
             domain.append(("employee_id", "=", eid))
+        cid = _int(params.get("candidate_id") or params.get("candidateId"))
+        if cid:
+            domain.append(("candidate_id", "=", cid))
         PMS = request.env["hr.applicant.pms.evaluation"].sudo()
         total = PMS.search_count(domain)
         records = PMS.search(domain, offset=offset, limit=limit, order="create_date desc")
@@ -470,11 +480,22 @@ class EvaluationsApi(http.Controller):
         if err is not None:
             return err
         emp_id = _int(data.get("employeeId"))
+        cid = _int(data.get("candidateId"))
+        if not emp_id and cid:
+            candidate = request.env["hr.applicant"].sudo().browse(cid).exists()
+            if not candidate:
+                return return_Response(message=f"Candidate id={cid} not found.", status=404)
+            if not candidate.employee_id:
+                return return_Response(
+                    message=f"Candidate id={cid} has no linked hr.employee (not hired yet).",
+                    status=400,
+                )
+            emp_id = candidate.employee_id.id
         if not emp_id:
-            return return_Response(message="employeeId is required.", status=400)
+            return return_Response(message="employeeId or candidateId (with hired employee) is required.", status=400)
         vals = {"employee_id": emp_id}
-        if data.get("candidateId"):
-            vals["candidate_id"] = _int(data["candidateId"])
+        if cid:
+            vals["candidate_id"] = cid
         if data.get("evaluatorId"):
             vals["evaluator_id"] = _int(data["evaluatorId"])
         rec = request.env["hr.applicant.pms.evaluation"].sudo().create(vals)

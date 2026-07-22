@@ -36,6 +36,7 @@ class HrApplicantEvaluation(models.Model):
         ("hire", "Hire"),
         ("reject", "Reject"),
         ("hold", "On Hold"),
+        ("next_round", "Send to Next Round"),
     ], tracking=True)
     status = fields.Selection([
         ("draft", "Draft"),

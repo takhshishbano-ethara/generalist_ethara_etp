@@ -16,6 +16,7 @@ HIRING_STATUS_SELECTION = [
     ('pi_completed', 'PI Completed'),
     ('pi_selected', 'PI Selected'),
     ('pi_rejected', 'PI Rejected'),
+    ('pi_hold', 'PI On Hold'),
     ('documents_requested', 'Documents Requested'),
     ('documents_submitted', 'Documents Submitted'),
     ('documents_rejected', 'Documents Rejected'),
