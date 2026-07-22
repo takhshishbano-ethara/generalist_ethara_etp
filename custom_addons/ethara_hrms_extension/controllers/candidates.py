@@ -142,6 +142,7 @@ def _serialize_position(job):
         "experienceLevel": _selection_label(job, "experience_level"),
         "experienceYears": _float_or_none(_f(job, "experience_years")),
         "salaryBracket":   _str_or_none(_f(job, "salary_bracket")),
+        "budgetCtc":       _float_or_none(_f(job, "budget_ctc")),
         "responsibilities": responsibilities,
         "requirements":    [],
         "preferredSkills": preferred_skills,
@@ -353,6 +354,7 @@ def _serialize(applicant):
         "currentCompany":           applicant.current_company or None,
         "currentCTC":               _float_or_none(applicant.current_ctc),
         "expectedCTC":              _float_or_none(applicant.expected_ctc),
+        "ctcBudgetExceeded":        bool(applicant.ctc_budget_exceeded),
         "noticePeriod":             _int_or_none(applicant.notice_period_days),
         "position":                 _serialize_position(applicant.job_id),
         "college":                  _serialize_college(college),
@@ -527,6 +529,7 @@ class EtharaCandidatesApi(http.Controller):
         writer.writerow([
             "id", "fullName", "email", "phone", "jobId", "positionTitle",
             "stage", "status", "resumeScore", "recommendation",
+            "expectedCTC", "ctcBudgetExceeded",
             "priorityScore", "onHold", "blacklisted", "createdAt", "updatedAt",
         ])
         for r in records:
@@ -541,6 +544,8 @@ class EtharaCandidatesApi(http.Controller):
                 _current_status(r) or "",
                 r.resume_score or 0,
                 RESUME_RECOMMENDATION_OUT.get(r.resume_recommendation, "pending"),
+                r.expected_ctc or 0,
+                bool(r.ctc_budget_exceeded),
                 r.priority_score or 0,
                 bool(r.on_hold),
                 bool(r.is_reapplication_blocked),

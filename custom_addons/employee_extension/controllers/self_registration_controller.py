@@ -422,6 +422,13 @@ class EmployeeSelfRegistrationController(http.Controller):
             experience_years = float(data.get('experience_years') or 0)
         except (TypeError, ValueError):
             experience_years = -1.0
+        raw_expected_ctc = data.get('expected_ctc')
+        if raw_expected_ctc is None:
+            raw_expected_ctc = data.get('expectedCTC')
+        try:
+            expected_ctc = float(raw_expected_ctc or 0)
+        except (TypeError, ValueError):
+            expected_ctc = -1.0
         try:
             college_id = int(data.get('college_id') or 0)
         except (TypeError, ValueError):
@@ -451,6 +458,8 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Experience years is required for experienced candidates")
         if experience_years < 0:
             errors.append("Experience years must be a non-negative number")
+        if expected_ctc < 0:
+            errors.append("Expected CTC must be a non-negative number")
 
         birthday_value = False
         if birthday_raw:
@@ -581,6 +590,7 @@ class EmployeeSelfRegistrationController(http.Controller):
                     'aadhaar_number': aadhaar_number,
                     'experience': experience,
                     'experience_years': experience_years if experience == 'experienced' else 0.0,
+                    'expected_ctc': expected_ctc,
                     'college_id': college_id or False,
                     'candidate_user_id': new_user.id,
                 }
@@ -656,6 +666,7 @@ class EmployeeSelfRegistrationController(http.Controller):
                         'personal_email': personal_email,
                         'experience': experience,
                         'experience_years': applicant.experience_years,
+                        'expected_ctc': applicant.expected_ctc,
                         'aadhaar_card_url': aadhaar_url,
                         'resume_url': resume_url,
                         'job_id': applicant.job_id.id if applicant.job_id else None,

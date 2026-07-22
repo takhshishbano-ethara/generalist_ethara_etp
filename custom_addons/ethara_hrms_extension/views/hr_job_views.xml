@@ -15,6 +15,7 @@
                 <field name="experience_level"/>
                 <field name="experience_years"/>
                 <field name="salary_bracket"/>
+                <field name="budget_ctc"/>
                 <field name="is_featured"/>
                 <field name="urgency_level"/>
                 <field name="posted_at"/>
