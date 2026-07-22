@@ -134,9 +134,9 @@ def _httpx():
 
 def _minted_bearer(env):
     ICP = env["ir.config_parameter"].sudo()
-    sa_json = ICP.get_param(
-        "etp_assessment_pro.vertex_service_account_json", ""
-    ) or ""
+    from . import secret_store
+    sa_json = secret_store.get_secret(
+        env, "etp_assessment_pro.vertex_service_account_json", "") or ""
     if not sa_json or "PLACEHOLDER" in sa_json:
         return ""
     cached = ICP.get_param("etp_assessment_pro.vertex_minted_token", "") or ""

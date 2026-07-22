@@ -795,8 +795,14 @@ def _coerce_100(value):
         v = float(value)
     except (TypeError, ValueError):
         return 0.0
+    # M-12: a judge on the 0-1 scale that overshoots 1.0 by a rounding hair (e.g.
+    # 1.001) is a PERFECT answer, not a 0.1% one. Treat the (1.0, 1.01] band as a
+    # full 1.0 so a perfect score is not silently suppressed to ~0. Anything above
+    # 1.01 is a genuine 0-100 score and passes through unchanged.
     if 0.0 < v <= 1.0:
         v = v * 100.0
+    elif 1.0 < v <= 1.01:
+        v = 100.0
     return max(0.0, min(100.0, v))
 
 

@@ -251,3 +251,128 @@ class TestHarnessBankImport(TransactionCase):
         from odoo.exceptions import UserError
         with self.assertRaises(UserError):
             self.Import.import_bank_harness({"questions": []})
+
+
+@tagged("-at_install", "post_install")
+class TestCsvImportRowCap(TransactionCase):
+    """L-9: the CSV import path is bounded so a huge upload cannot create an
+    unbounded number of draft records in one request."""
+
+    def setUp(self):
+        super().setUp()
+        self.Wizard = self.env["etp.assessment.pro.bank.import.wizard"]
+
+    def _csv(self, n_rows):
+        header = "title,question_type,prompt,options,correct_answer\n"
+        row = "Q%d,mcq,Pick,A|B|C,A\n"
+        return (header + "".join(row % i for i in range(n_rows))).encode("utf-8")
+
+    def test_row_cap_enforced(self):
+        from odoo.exceptions import UserError
+        wiz = self.Wizard.new({})
+        over = self.Wizard._MAX_CSV_ROWS + 5
+        with self.assertRaises(UserError):
+            wiz._parse_csv(self._csv(over))
+
+    def test_under_cap_parses(self):
+        wiz = self.Wizard.new({})
+        rows = wiz._parse_csv(self._csv(10))
+        self.assertEqual(len(rows), 10)
+
+    def test_oversize_bytes_rejected(self):
+        from odoo.exceptions import UserError
+        wiz = self.Wizard.new({})
+        big = b"title,prompt\n" + b"x" * (wiz._MAX_CSV_BYTES + 1)
+        with self.assertRaises(UserError):
+            wiz._parse_csv(big)
+
+
+@tagged("-at_install", "post_install")
+class TestCandidateRosterCsvCap(TransactionCase):
+    """L-9 (second path): the candidate-roster CSV import
+    (action_import_candidates_csv) is bounded so a huge upload cannot create an
+    unbounded number of hr.applicant records in one request."""
+
+    def setUp(self):
+        super().setUp()
+        self.Assessment = self.env["etp.assessment.pro"]
+
+    def _assessment(self, csv_bytes):
+        import base64
+        return self.Assessment.create({
+            "name": "Roster cap test",
+            "candidate_csv_file": base64.b64encode(csv_bytes),
+        })
+
+    def _roster_csv(self, n_rows):
+        header = "name,email\n"
+        row = "Cand %d,cand%d@example.com\n"
+        return (header + "".join(row % (i, i) for i in range(n_rows))).encode()
+
+    def test_roster_row_cap_enforced(self):
+        from odoo.addons.etp_assessment_pro.models import assessment as amod
+        from odoo.exceptions import UserError
+        a = self._assessment(self._roster_csv(amod._MAX_CANDIDATE_CSV_ROWS + 5))
+        with self.assertRaises(UserError):
+            a.action_import_candidates_csv()
+
+    def test_roster_oversize_bytes_rejected(self):
+        from odoo.addons.etp_assessment_pro.models import assessment as amod
+        from odoo.exceptions import UserError
+        big = b"name,email\n" + b"x" * (amod._MAX_CANDIDATE_CSV_BYTES + 1)
+        a = self._assessment(big)
+        with self.assertRaises(UserError):
+            a.action_import_candidates_csv()
+
+
+@tagged("-at_install", "post_install")
+class TestSecretStoreEncryption(TransactionCase):
+    """M-8: secrets are encrypted at rest, round-trip correctly, and legacy
+    plaintext stays readable (backward compatible)."""
+
+    def test_encrypt_decrypt_roundtrip(self):
+        from odoo.addons.etp_assessment_pro.services import secret_store
+        plain = '{"private_key":"-----BEGIN PRIVATE KEY-----abc"}'
+        enc = secret_store.encrypt(self.env, plain)
+        self.assertTrue(secret_store.is_encrypted(enc))
+        self.assertNotIn("private_key", enc)
+        self.assertEqual(secret_store.decrypt(self.env, enc), plain)
+
+    def test_legacy_plaintext_passes_through(self):
+        from odoo.addons.etp_assessment_pro.services import secret_store
+        # A value written before encryption existed has no marker: read as-is.
+        self.assertEqual(
+            secret_store.decrypt(self.env, "legacy-plain-secret"),
+            "legacy-plain-secret")
+
+    def test_empty_stays_empty(self):
+        from odoo.addons.etp_assessment_pro.services import secret_store
+        self.assertEqual(secret_store.encrypt(self.env, ""), "")
+        self.assertEqual(secret_store.decrypt(self.env, ""), "")
+
+    def test_get_set_secret_via_config(self):
+        from odoo.addons.etp_assessment_pro.services import secret_store
+        key = "etp_assessment_pro.s3_secret_key"
+        secret_store.set_secret(self.env, key, "AKIA-secret-value")
+        raw = self.env["ir.config_parameter"].sudo().get_param(key)
+        self.assertTrue(secret_store.is_encrypted(raw))
+        self.assertEqual(
+            secret_store.get_secret(self.env, key), "AKIA-secret-value")
+
+
+@tagged("-at_install", "post_install")
+class TestCoerce100Boundary(TransactionCase):
+    """M-12: a 0-1 judge score that overshoots 1.0 by a rounding hair is a PERFECT
+    answer, not a ~0.1% one."""
+
+    def test_overshoot_one_is_perfect(self):
+        from odoo.addons.etp_assessment_pro.services.scoring import _coerce_100
+        self.assertEqual(_coerce_100(1.001), 100.0)
+        self.assertEqual(_coerce_100(1.0), 100.0)
+        self.assertEqual(_coerce_100(0.5), 50.0)
+
+    def test_genuine_100_scale_untouched(self):
+        from odoo.addons.etp_assessment_pro.services.scoring import _coerce_100
+        self.assertEqual(_coerce_100(87.0), 87.0)
+        self.assertEqual(_coerce_100(1.5), 1.5)  # >1.01 -> genuine 0-100 value
+        self.assertEqual(_coerce_100(150), 100.0)  # clamped

@@ -29,3 +29,4 @@ from . import test_gen_type_allow_list
 from . import test_prompt_form_fixes
 from . import test_scoring_v10_composition
 from . import test_security_audit_fixes
+from . import test_settings_upload_persistence

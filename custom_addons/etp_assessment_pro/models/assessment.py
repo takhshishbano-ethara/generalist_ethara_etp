@@ -28,6 +28,10 @@ from psycopg2 import IntegrityError
 
 _logger = logging.getLogger(__name__)
 
+# L-9: caps for the candidate-roster CSV import (action_import_candidates_csv).
+_MAX_CANDIDATE_CSV_BYTES = 25 * 1024 * 1024
+_MAX_CANDIDATE_CSV_ROWS = 5000
+
 
 class EtpAssessment(models.Model):
     _name = "etp.assessment.pro"
@@ -489,6 +493,19 @@ class EtpAssessment(models.Model):
             raise UserError("Please upload a CSV file first.")
         try:
             csv_data = base64.b64decode(self.candidate_csv_file)
+        except Exception:
+            raise UserError(
+                "Invalid CSV file. Please upload a valid UTF-8 CSV file.")
+        # L-9: bound the roster import. Each row can create an hr.applicant, so an
+        # unbounded file is a worker-pinning / record-bloat vector. 5000 rows
+        # covers any realistic cohort; the byte guard rejects a huge file before
+        # it is decoded.
+        if len(csv_data) > _MAX_CANDIDATE_CSV_BYTES:
+            raise UserError(
+                "CSV too large (%d bytes; max %dMB)."
+                % (len(csv_data),
+                   _MAX_CANDIDATE_CSV_BYTES // (1024 * 1024)))
+        try:
             file_input = io.StringIO(csv_data.decode("utf-8"))
             reader = csv.DictReader(file_input)
         except Exception:
@@ -506,6 +523,10 @@ class EtpAssessment(models.Model):
         errors = []
 
         for row_num, row in enumerate(reader, start=2):
+            if row_num - 1 > _MAX_CANDIDATE_CSV_ROWS:
+                raise UserError(
+                    "CSV has too many rows (max %d). Split the roster into "
+                    "smaller batches." % _MAX_CANDIDATE_CSV_ROWS)
             name = (row.get("name") or "").strip()
             email = (row.get("email") or "").strip()
             if not name or not email:
@@ -1148,6 +1169,7 @@ class EtpAssessmentEvaluator(models.Model):
                             "evaluator_id": self.applicant_id.id,
                             "question_id": q_id,
                             "justification": "[Auto-submitted: time expired]",
+                            "auto_submitted": True,
                             "state": "submitted",
                             "llm_state": "not_needed",
                         }).flush_recordset()
@@ -1374,6 +1396,11 @@ class EtpAssessmentResponse(models.Model):
         "etp.assessment.pro.question", required=True, ondelete="cascade",
         index=True)
     justification = fields.Text()
+    # L-5: a robust marker for a time-expiry auto-submission, replacing a fragile
+    # match on a justification prefix a candidate could type verbatim. Set only by
+    # the auto-submit paths; drives _compute_scoring_kind (an auto-submitted
+    # placeholder must not trigger an LLM scoring call).
+    auto_submitted = fields.Boolean(default=False, string="Auto-submitted")
     line_ids = fields.One2many(
         "etp.assessment.pro.response.line", "response_id",
         string="Dimension Answers")
@@ -1694,13 +1721,16 @@ class EtpAssessmentResponse(models.Model):
                 rec.subjective_result = False
 
     @api.depends("question_id", "question_id.question_type", "justification",
-                 "line_ids.selected_option_id")
+                 "auto_submitted", "line_ids.selected_option_id")
     def _compute_scoring_kind(self):
         for rec in self:
             qtype = rec.question_id.question_type
             rec.has_objective = qtype in ("mcq", "msq")
             just = (rec.justification or "").strip()
-            is_placeholder = just.startswith("[Auto-submitted")
+            # L-5: trust the auto_submitted flag; fall back to the legacy prefix
+            # only for rows written before the field existed (upgrade safety).
+            is_placeholder = rec.auto_submitted or just.startswith(
+                "[Auto-submitted")
             if qtype == "image_ab":
                 rec.needs_llm = bool(rec.line_ids) and not is_placeholder
             else:
@@ -1831,6 +1861,17 @@ class EtpAssessmentResponse(models.Model):
     def _check_all_submitted(self):
         evaluator = self.assessment_evaluator_id
         if not evaluator:
+            return
+        # M-2: guard the lock transition against concurrent final submits. Take a
+        # row lock on the evaluator, re-read is_locked, and only write when it is
+        # still open - so two racing "last" submits don't double-flip the state or
+        # interleave with _check_locked and 500 the candidate's submit. The
+        # SELECT ... FOR UPDATE serializes the two workers on this one row.
+        self.env.cr.execute(
+            "SELECT is_locked FROM etp_assessment_pro_evaluator "
+            "WHERE id = %s FOR UPDATE", (evaluator.id,))
+        row = self.env.cr.fetchone()
+        if row and row[0]:
             return
         total_expected = evaluator.total_questions
         submitted_count = self.env["etp.assessment.pro.response"].search_count([

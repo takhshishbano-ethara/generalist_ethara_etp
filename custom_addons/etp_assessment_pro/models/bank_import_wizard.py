@@ -99,7 +99,18 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         raw = self._decode()
         return self._parse_csv(raw)
 
+    # L-9: bound the CSV import. Without a cap, a huge upload creates one draft
+    # record per row in a single web request - a worker-pinning / DB-bloat vector
+    # even though import is admin-only. 5000 rows covers any realistic bank; the
+    # raw-byte guard rejects a multi-hundred-MB file before it is even decoded.
+    _MAX_CSV_BYTES = 25 * 1024 * 1024
+    _MAX_CSV_ROWS = 5000
+
     def _parse_csv(self, raw):
+        if len(raw) > self._MAX_CSV_BYTES:
+            raise UserError(
+                "CSV too large (%d bytes; max %dMB)."
+                % (len(raw), self._MAX_CSV_BYTES // (1024 * 1024)))
         try:
             text = raw.decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -114,6 +125,10 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 "Use Download Template for the expected columns.")
         out = []
         for n, row in enumerate(reader, start=2):
+            if len(out) >= self._MAX_CSV_ROWS:
+                raise UserError(
+                    "CSV has too many rows (max %d). Split the file into "
+                    "smaller batches." % self._MAX_CSV_ROWS)
             row = {(k or "").strip().lower(): (v or "").strip()
                    for k, v in row.items() if k}
             if not any(row.values()):

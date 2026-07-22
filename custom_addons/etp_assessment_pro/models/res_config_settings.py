@@ -204,52 +204,115 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="etp_assessment_pro.scoring_prompt_filename",
     )
 
+    # ------------------------------------------------------------------
+    # Uploaded-file persistence.
+    #
+    # These .json / .md files are delivered through transient Binary fields
+    # (vertex_sa_upload, question_prompt_upload, scoring_prompt_upload) and
+    # must land in ir.config_parameter. The persistence therefore lives in
+    # set_values(), which runs inside the committed Save transaction.
+    #
+    # It MUST NOT live in an @api.onchange handler: Odoo runs onchange in a
+    # side-effect-free context and rolls its cursor back, so any set_param()
+    # done there is silently discarded (the "I upload the file but it does not
+    # take it" symptom). The onchange handlers below only decode for instant
+    # in-form feedback ("Current: <filename>"); they no longer write to the DB.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _decode_upload(raw_b64, label):
+        try:
+            return base64.b64decode(raw_b64).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise UserError("%s must be a UTF-8 text file (%s)." % (label, exc))
+
+    def get_values(self):
+        res = super().get_values()
+        # M-8: the two secret params are stored encrypted; decrypt them for the
+        # settings form so the admin sees the real value (or a legacy plaintext),
+        # not the ciphertext. Writing back through set_values re-encrypts.
+        from ..services import secret_store
+        mapping = {
+            "etp_assessment_pro.s3_secret_key":
+                "etp_assessment_pro_s3_secret_key",
+            "etp_assessment_pro.vertex_service_account_json":
+                "etp_assessment_pro_vertex_service_account_json",
+        }
+        ICP = self.env["ir.config_parameter"].sudo()
+        for param_key, field_name in mapping.items():
+            stored = ICP.get_param(param_key, "")
+            if secret_store.is_encrypted(stored):
+                res[field_name] = secret_store.decrypt(self.env, stored)
+        return res
+
+    def set_values(self):
+        # Persist the uploaded files BEFORE super() so the config_parameter
+        # fields super() writes carry the freshly decoded text. Runs in the
+        # Save transaction, so unlike the old onchange path it actually sticks.
+        for rec in self:
+            ICP = rec.env["ir.config_parameter"].sudo()
+            if rec.vertex_sa_upload:
+                text = rec._decode_upload(
+                    rec.vertex_sa_upload, "Service account JSON")
+                fname = rec.vertex_sa_upload_filename or "service-account.json"
+                rec.etp_assessment_pro_vertex_service_account_json = text
+                rec.etp_assessment_pro_vertex_service_account_filename = fname
+                # A new SA invalidates any cached minted bearer.
+                ICP.set_param("etp_assessment_pro.vertex_minted_token", "")
+                ICP.set_param(
+                    "etp_assessment_pro.vertex_minted_token_expires", "")
+            if rec.question_prompt_upload:
+                text = rec._decode_upload(
+                    rec.question_prompt_upload, "Question prompt")
+                rec.etp_assessment_pro_question_prompt = text
+                rec.etp_assessment_pro_question_prompt_filename = (
+                    rec.question_prompt_upload_filename or "question.md")
+            if rec.scoring_prompt_upload:
+                text = rec._decode_upload(
+                    rec.scoring_prompt_upload, "Scoring prompt")
+                rec.etp_assessment_pro_scoring_prompt = text
+                rec.etp_assessment_pro_scoring_prompt_filename = (
+                    rec.scoring_prompt_upload_filename or "scoring.md")
+        res = super().set_values()
+        # M-8: super() wrote the secret params as plaintext via their
+        # config_parameter binding. Re-encrypt them at rest now (idempotent - an
+        # already-encrypted value is left as-is). Readers decrypt on access.
+        from ..services import secret_store
+        ICP = self.env["ir.config_parameter"].sudo()
+        for key in secret_store.SECRET_PARAM_KEYS:
+            cur = ICP.get_param(key, "")
+            if cur and not secret_store.is_encrypted(cur) \
+                    and "PLACEHOLDER" not in str(cur):
+                ICP.set_param(key, secret_store.encrypt(self.env, cur))
+        return res
+
     @api.onchange("vertex_sa_upload")
     def _onchange_vertex_sa_upload(self):
+        # Decode for immediate feedback only; real persistence is in set_values.
         if not self.vertex_sa_upload:
             return
-        try:
-            text = base64.b64decode(self.vertex_sa_upload).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise UserError(
-                "Service account JSON must be a UTF-8 text file (%s)." % exc
-            )
-        fname = self.vertex_sa_upload_filename or "service-account.json"
-        ICP = self.env["ir.config_parameter"].sudo()
-        ICP.set_param("etp_assessment_pro.vertex_service_account_json", text)
-        ICP.set_param("etp_assessment_pro.vertex_service_account_filename", fname)
-        ICP.set_param("etp_assessment_pro.vertex_minted_token", "")
-        ICP.set_param("etp_assessment_pro.vertex_minted_token_expires", "")
+        text = self._decode_upload(
+            self.vertex_sa_upload, "Service account JSON")
         self.etp_assessment_pro_vertex_service_account_json = text
-        self.etp_assessment_pro_vertex_service_account_filename = fname
+        self.etp_assessment_pro_vertex_service_account_filename = (
+            self.vertex_sa_upload_filename or "service-account.json")
 
     @api.onchange("question_prompt_upload")
     def _onchange_question_prompt_upload(self):
         if not self.question_prompt_upload:
             return
-        try:
-            text = base64.b64decode(self.question_prompt_upload).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise UserError("Question prompt must be UTF-8 text (%s)." % exc)
-        ICP = self.env["ir.config_parameter"].sudo()
-        fname = self.question_prompt_upload_filename or "question.md"
-        ICP.set_param("etp_assessment_pro.question_prompt", text)
-        ICP.set_param("etp_assessment_pro.question_prompt_filename", fname)
+        text = self._decode_upload(
+            self.question_prompt_upload, "Question prompt")
         self.etp_assessment_pro_question_prompt = text
-        self.etp_assessment_pro_question_prompt_filename = fname
+        self.etp_assessment_pro_question_prompt_filename = (
+            self.question_prompt_upload_filename or "question.md")
 
     @api.onchange("scoring_prompt_upload")
     def _onchange_scoring_prompt_upload(self):
         if not self.scoring_prompt_upload:
             return
-        try:
-            text = base64.b64decode(self.scoring_prompt_upload).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise UserError("Scoring prompt must be UTF-8 text (%s)." % exc)
-        ICP = self.env["ir.config_parameter"].sudo()
-        fname = self.scoring_prompt_upload_filename or "scoring.md"
-        ICP.set_param("etp_assessment_pro.scoring_system_prompt", text)
-        ICP.set_param("etp_assessment_pro.scoring_prompt_filename", fname)
+        text = self._decode_upload(
+            self.scoring_prompt_upload, "Scoring prompt")
         self.etp_assessment_pro_scoring_prompt = text
-        self.etp_assessment_pro_scoring_prompt_filename = fname
+        self.etp_assessment_pro_scoring_prompt_filename = (
+            self.scoring_prompt_upload_filename or "scoring.md")
 
