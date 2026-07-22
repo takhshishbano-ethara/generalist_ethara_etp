@@ -73,9 +73,14 @@
   --dur-slow:  640ms;
 
   /* type */
-  --font-sans:    'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --font-display: 'Cormorant', Georgia, 'Times New Roman', serif;
+  --font-sans:    'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:    'SF Mono', 'Monaco', ui-monospace, Menlo, Consolas, monospace;
+  --font-display: 'Roboto', Georgia, 'Times New Roman', serif;
+
+  /* chart series colors (Opus = orange, Gemini = blue, GPT = green) */
+  --chart-opus:   #EA9A3C;
+  --chart-gemini: #4A9AE0;
+  --chart-gpt:    #57B85C;
 
   /* scale */
   --s-wordmark: clamp(26px, 2.4vw, 34px);
@@ -97,7 +102,7 @@
   --max-page:    1200px;
   --max-prose:   720px;
   --gap-section: 88px;
-  --pad-x:       56px;
+  --pad-x:       28px;
   --pad-x-mob:   20px;
   --hairline:    1px solid var(--border);
 }
@@ -260,10 +265,10 @@ hr.rule {
 .section-label,
 .au-section-title {
   font-family: var(--font-mono) !important;
-  font-size: var(--s-ui) !important;
+  font-size: var(--s-h3) !important;
   letter-spacing: var(--ls-wide);
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--ink);
   margin-bottom: 22px;
   padding-bottom: 14px;
   border-bottom: var(--hairline);
@@ -275,11 +280,20 @@ hr.rule {
 
 .section-desc {
   max-width: var(--max-prose);
-  font-size: var(--s-small);
+  font-size: var(--s-body);
   color: var(--ink-2);
   margin-bottom: 28px;
+  line-height: var(--lh-body);
 }
 .section-desc b { color: var(--ink); }
+
+/* Chart.js canvas wrappers — fixed height so maintainAspectRatio:false renders */
+.chart-canvas { position: relative; display: block; width: 100%; height: 420px; max-height: 420px; }
+.chart-canvas--wide { height: 540px; max-height: 540px; }
+.chart-canvas canvas { width: 100% !important; height: 100% !important; }
+@media (max-width: 700px) {
+  .chart-canvas, .chart-canvas--wide { height: 380px; max-height: 380px; }
+}
 
 /* ---------- scroll-trigger animations ------------------- */
 [data-animate] {
@@ -366,7 +380,6 @@ hr.rule {
   letter-spacing: var(--ls-tight);
   color: var(--ink);
   font-weight: 500;
-  max-width: 860px;
   margin-top: 36px;
 }
 .thesis em { color: var(--accent); font-style: italic; font-weight: 500; }
@@ -677,8 +690,8 @@ img.au-chart-dark  { display: none; }
 :root[data-theme="dark"] img.au-chart-light { display: none; }
 :root[data-theme="dark"] img.au-chart-dark  { display: block; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) img.au-chart-light { display: none; }
-  :root:not([data-theme]) img.au-chart-dark  { display: block; }
+  :root:not([data-theme="light"]) img.au-chart-light { display: none; }
+  :root:not([data-theme="light"]) img.au-chart-dark  { display: block; }
 }
 
 .au-chart-label,
@@ -1792,10 +1805,10 @@ body.au-dark-body footer .rounded-circle {
   max-width: 960px;
 }
 .reveal-line {
-  font-size: clamp(22px, 2.8vw, 32px) !important;
-  line-height: 1.25;
+  font-size: var(--s-body) !important;
+  line-height: 1.55;
   color: var(--ink);
-  letter-spacing: var(--ls-tight);
+  letter-spacing: normal;
   font-weight: 400;
 }
 .reveal-line + .reveal-line { margin-top: 10px; }
@@ -2048,16 +2061,18 @@ body.au-dark-body footer .rounded-circle {
 .eth-instance  { width: 16%; }
 .eth-prrange   { width: 8%; }
 .eth-lang      { width: 8%; }
-.eth-glm,
-.eth-kimi      { width: 16%; text-align: center; }
+.eth-opus,
+.eth-gpt,
+.eth-gemini    { width: 13%; text-align: center; }
 .eth-repo      { width: 10%; }
 .eth-expand    { width: 4%; text-align: center; }
 
 .au-etd-instance  { width: 16%; }
 .au-etd-prrange   { width: 8%; }
 .au-etd-lang      { width: 8%; }
-.au-etd-glm,
-.au-etd-kimi      { width: 16%; text-align: center; }
+.au-etd-opus,
+.au-etd-gpt,
+.au-etd-gemini    { width: 13%; text-align: center; }
 .au-etd-repo      { width: 10%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
 .au-etd-expand    { width: 4%; text-align: center; }
 
@@ -2408,8 +2423,7 @@ body.drawer-open { overflow: hidden; }
   .au-eval-filters select { width: 100%; }
   .au-viewer-table-wrap { font-size: 12px; }
 
-  .au-th-kimi, .au-td-kimi,
-  .au-eth-kimi, .au-etd-kimi { display: none; }
+  .eth-gemini, .au-etd-gemini { display: none; }
 }
 
 /* ============================================================
@@ -2418,8 +2432,7 @@ body.drawer-open { overflow: hidden; }
 @media (max-width: 480px) {
   .au-hero-title, .wordmark { font-size: clamp(20px, 5vw, 24px); }
 
-  .au-th-glm, .au-td-glm,
-  .au-eth-glm, .au-etd-glm { display: none; }
+  .eth-gpt, .au-etd-gpt { display: none; }
 }
 
 /* ============================================================
@@ -2457,7 +2470,7 @@ body.drawer-open { overflow: hidden; }
    DARK MODE
    Two activation paths:
    1. User toggle — :root[data-theme="dark"] (explicit)
-   2. OS fallback — :root:not([data-theme]) inside prefers-color-scheme
+   2. OS fallback — :root:not([data-theme="light"]) inside prefers-color-scheme
    ============================================================ */
 :root[data-theme="dark"],
 :root[data-theme="dark"] body {
@@ -2645,7 +2658,7 @@ body:has(.au-portal.au-dark) {
 
 /* ── OS fallback ─────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
+  :root:not([data-theme="light"]) {
     --bg: #0B0E14;  --bg-2: #151A28;  --bg-3: #1E2436;  --surface: #192030;
     --card-shadow: none;
     --ink: #F3F5F9;  --ink-2: #C5CBE9;  --ink-3: #8B93B0;
@@ -2663,22 +2676,22 @@ body:has(.au-portal.au-dark) {
     --au-success: var(--pass); --au-warning: var(--tier-fixable); --au-danger: var(--fail); --au-text-muted: var(--muted); --au-accent: var(--accent); --au-accent-surface: var(--accent-surface);
     color-scheme: dark;
   }
-  :root:not([data-theme]) body {
+  :root:not([data-theme="light"]) body {
     background:
       radial-gradient(ellipse 900px 520px at 20% -10%, rgba(137,181,255,0.05), transparent 60%),
       radial-gradient(ellipse 700px 420px at 120% 0%, rgba(205,176,255,0.04), transparent 60%),
       var(--bg);
   }
-  :root:not([data-theme]) .au-lightbox {
+  :root:not([data-theme="light"]) .au-lightbox {
     background: rgba(0, 0, 0, 0.85);
   }
-  :root:not([data-theme]) .au-eval-run-pass {
+  :root:not([data-theme="light"]) .au-eval-run-pass {
     color: var(--accent);
     background: var(--accent-surface);
     border-color: var(--accent);
   }
-  :root:not([data-theme]) .au-theme-toggle .au-icon-sun,
-  :root:not([data-theme]) .theme-toggle .icon-sun  { display: block; }
-  :root:not([data-theme]) .au-theme-toggle .au-icon-moon,
-  :root:not([data-theme]) .theme-toggle .icon-moon { display: none; }
+  :root:not([data-theme="light"]) .au-theme-toggle .au-icon-sun,
+  :root:not([data-theme="light"]) .theme-toggle .icon-sun  { display: block; }
+  :root:not([data-theme="light"]) .au-theme-toggle .au-icon-moon,
+  :root:not([data-theme="light"]) .theme-toggle .icon-moon { display: none; }
 }

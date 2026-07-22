@@ -2,7 +2,7 @@
     "name": "Raiden Dashboard",
     "version": "19.0.1.0.0",
     "category": "Productivity",
-    "summary": "Dashboard page for the Raiden AWS CLI S3 + DynamoDB RL environment benchmark",
+    "summary": "Dashboard page for the Raiden stateful-CLI RL environment benchmark",
     "description": """
 Raiden Dashboard
 ================

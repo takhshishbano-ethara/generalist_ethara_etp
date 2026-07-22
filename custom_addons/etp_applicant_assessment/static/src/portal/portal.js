@@ -1,7 +1,7 @@
 // ?v= busts the 7-day browser cache on these module files; keep in sync
 // with the ?v= on portal.js itself in portal_templates.xml.
-import { WebcamDetector } from "/etp_applicant_assessment/static/src/portal/webcam-detector.js?v=20260720-phone-v3";
-import { ClipRecorder } from "/etp_applicant_assessment/static/src/portal/clip-recorder.js?v=20260720-phone-v3";
+import { WebcamDetector } from "/etp_applicant_assessment/static/src/portal/webcam-detector.js?v=20260721-perm-fix";
+import { ClipRecorder } from "/etp_applicant_assessment/static/src/portal/clip-recorder.js?v=20260721-perm-fix";
 
 const SNAPSHOT_PERIOD_MS = 25000;
 const SNAPSHOT_ON_SIGNAL_MIN_GAP_MS = 12000;
@@ -268,6 +268,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     async function postEvent(kind, meta) {
         if (state.submitted) return;
+        // Setup phase: browser permission prompts blur the window and (in
+        // Chrome) exit fullscreen — none of that is the candidate's fault,
+        // so no warning may fire until media permissions are settled.
+        if (!proctorReady) return;
         // Pop the phone alert the instant the detector fires — the server
         // roundtrip below only refines the warning count on the overlay.
         if (kind === "mobile_phone") {
@@ -858,6 +862,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     // cadence until the candidate returns — leaving full screen once no
     // longer costs just a single warning.
     let fsGuard = null;
+    // False until camera/mic permissions are settled (or not needed).
+    // While false, no warnings fire and the fullscreen guard stays hidden
+    // — the permission prompt itself takes the page out of fullscreen.
     let proctorReady = false;
     let tryEnterFullscreen = () => {};
 
@@ -938,6 +945,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (fsBtn) fsBtn.classList.toggle("d-none", !!document.fullscreenElement);
             if (document.fullscreenElement) {
                 fsEverEntered = true;
+            } else if (!proctorReady) {
+                // The camera/mic permission prompt yanks the page out of
+                // fullscreen (Chrome does this by design). Disarm exit
+                // warnings: the candidate must re-enter via the guard
+                // button once setup is done, and only exits AFTER that
+                // count against them.
+                fsEverEntered = false;
             } else if (fsEverEntered && !state.submitted && !filePickerBusy()) {
                 // Immediate strike on exit; syncFsGuard repeats it every
                 // FS_WARN_REPEAT_MS until compliance.
@@ -973,11 +987,61 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
+    // Blocking overlay shown while the browser permission prompt is up —
+    // it keeps the questions covered (no unproctored reading time) and
+    // explains what to click. Swaps to a "blocked + reload" card if the
+    // candidate denies access.
+    let setupOverlay = null;
+    function showSetupOverlay(blocked) {
+        const deviceLabel = requireMic ? "camera and microphone" : "camera";
+        if (!setupOverlay) {
+            const overlay = document.createElement("div");
+            overlay.className = "eaa-alert eaa-alert--setup";
+            const card = document.createElement("div");
+            card.className = "eaa-alert__card";
+            const icon = document.createElement("div");
+            icon.className = "eaa-alert__icon eaa-alert__icon--cam";
+            const title = document.createElement("h2");
+            title.className = "eaa-alert__title";
+            const text = document.createElement("p");
+            text.className = "eaa-alert__text";
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "btn btn-primary d-none";
+            btn.textContent = "Reload page";
+            btn.addEventListener("click", () => window.location.reload());
+            card.append(icon, title, text, btn);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+            setupOverlay = { overlay, title, text, btn };
+        }
+        if (blocked) {
+            setupOverlay.title.textContent = "Camera access blocked";
+            setupOverlay.text.textContent =
+                `This test cannot start without your ${deviceLabel}. `
+                + "Enable access for this site in your browser settings, then reload.";
+            setupOverlay.btn.classList.remove("d-none");
+        } else {
+            setupOverlay.title.textContent = `Allow ${deviceLabel} access`;
+            setupOverlay.text.textContent =
+                "Click “Allow” on the browser permission pop-up to start your proctored test.";
+            setupOverlay.btn.classList.add("d-none");
+        }
+    }
+    function hideSetupOverlay() {
+        if (setupOverlay) {
+            setupOverlay.overlay.remove();
+            setupOverlay = null;
+        }
+    }
+
     async function startProctoring() {
         if (!requireWebcam) {
             if (camStatus) camStatus.textContent = "Camera: not required";
+            proctorReady = true;
             return;
         }
+        showSetupOverlay(false);
         try {
             const consentResp = await postJson("/proctoring/consent", { version: "v1" });
             if (!consentResp.ok) {
@@ -999,9 +1063,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (camStatus) camStatus.textContent = "Camera: live";
         } catch (e) {
             if (camStatus) camStatus.textContent = "Camera: BLOCKED — assessment cannot start";
-            alert("Please allow camera access to take this assessment.");
+            showSetupOverlay(true);
+            proctorReady = true;
             return;
         }
+        hideSetupOverlay();
+        // Permissions settled — warnings are armed from here on.
+        proctorReady = true;
 
         // The detector reports status on every animation frame; around a
         // decision boundary the label would flap several times a second and
@@ -1074,6 +1142,5 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     await new Promise((resolve) => showConsent(resolve));
-    proctorReady = true;
     startProctoring();
 });

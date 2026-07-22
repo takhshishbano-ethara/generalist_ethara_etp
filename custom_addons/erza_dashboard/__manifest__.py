@@ -1,6 +1,6 @@
 {
     "name": "Erza Dashboard",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.1.0",
     "category": "Productivity",
     "summary": "Dashboard for Erza - an Agent-Skills efficacy benchmark & RL environment",
     "description": """
@@ -13,18 +13,19 @@ Skill injected, once without - and the reported result is the paired
 difference (Δ). Efficacy is measured, never assumed; zero and negative-Δ
 tasks are kept and labelled.
 
-This dashboard is seeded from the first published Erza pilot bundle
-(natural-science seismology task; claude-opus-4-8; 3 paired trials per arm)
-sourced from the erza-dataset and erza-trajectories repositories, and provides:
+This dashboard is seeded from the first published Erza sample bundle
+(natural-science interlaboratory-metrology task, ERZA-RB1 robust consensus;
+claude-opus-4-8; 3 paired trials per arm) sourced from the erza-samples
+repository, and provides:
 
 * Persistent ORM models for task bundles, models, and paired runs (with Δ).
 * Backend list / kanban / form / graph / pivot views.
 * An OWL client action giving an executive overview.
-* A public portal page at /erza with an interactive task-bundle viewer.
+* A public portal page at /erza-samples with an interactive task-bundle viewer.
 * A JSON API exposing summary, tasks, and runs.
 
 Data source:
-* https://github.com/Ethara-Ai/erza (MIT)
+* https://github.com/Ethara-Ai/erza-samples (MIT)
 """,
     "author": "Ethara.AI",
     "website": "https://www.ethara.ai",

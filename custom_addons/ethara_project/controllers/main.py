@@ -115,6 +115,59 @@ def _attachment_brief(att):
     }
 
 
+# Phase states that count as a live/approved envelope. Approval and spend live
+# on the phases (the parent ethara.project.budget stays 'draft'), so the finance
+# rollup aggregates phases. Pending (draft) and rejected/withdrawn phases are
+# excluded, so a project with only pending phases reports 0 across the board
+# (label still "pending").
+_APPROVED_PHASE_STATES = ('approved', 'in_progress', 'delivered', 'closed')
+
+
+def _project_budget_summary(project):
+    """Aggregate the project's phases into the card's finance figures.
+
+    Only approved phases contribute amounts; the review label reflects whichever
+    states are present (approved > pending > rejected). "Consumed" is the logged
+    daily-task cost (what the team actually recorded via the Log-daily-task
+    popup) rather than the cloud cost-line feed, which is populated by a separate
+    pipeline. Utilization is consumed / approved."""
+    phases = project.env['ethara.project.phase'].sudo().search([
+        ('ethara_project_id', '=', project.id),
+    ])
+    approved_phases = phases.filtered(
+        lambda p: p.state in _APPROVED_PHASE_STATES
+    )
+    approved = sum(approved_phases.mapped('approved_amount'))
+    consumed = sum(approved_phases.mapped('daily_task_ids.total_cost'))
+    utilization = (consumed / approved * 100.0) if approved else 0.0
+
+    if approved_phases:
+        budget_state = 'approved'
+    elif any(p.state == 'draft' for p in phases):
+        budget_state = 'pending'
+    elif any(p.state == 'rejected' for p in phases):
+        budget_state = 'rejected'
+    else:
+        budget_state = 'pending'
+
+    if utilization >= 100.0:
+        health = 'over'
+    elif utilization >= 85.0:
+        health = 'watch'
+    else:
+        health = 'healthy'
+
+    return {
+        'budget_amount': round(approved, 2),
+        'consumed_amount': round(consumed, 2),
+        'utilization': round(utilization, 1),
+        'exceeded': round(max(0.0, consumed - approved), 2),
+        'variance': round(approved - consumed, 2),
+        'budget_state': budget_state,
+        'health': health,
+    }
+
+
 def _serialize_project(project, detail=False):
     start_date = safe_get_value(project, 'start_date', 'date')
     end_date = safe_get_value(project, 'end_date', 'date')
@@ -125,6 +178,7 @@ def _serialize_project(project, detail=False):
     team_role_message = 'TPM: %s, PL/QL: %s, R&D: %s' % (
         tpm_count, pl_ql_count, rnd_count,
     )
+    budget_summary = _project_budget_summary(project)
     data = {
         'id': project.id,
         'name': project.name or '',
@@ -149,6 +203,15 @@ def _serialize_project(project, detail=False):
         'blocker_by_state': '',
         'total_team_size': total_team_size,
         'team_role_message': team_role_message,
+        # Per-project budget rollup (approved phases only; pending/draft
+        # phases contribute 0). Feeds the project-card finance row.
+        'budget_amount': budget_summary['budget_amount'],
+        'consumed_amount': budget_summary['consumed_amount'],
+        'utilization': budget_summary['utilization'],
+        'exceeded': budget_summary['exceeded'],
+        'variance': budget_summary['variance'],
+        'budget_state': budget_summary['budget_state'],
+        'health': budget_summary['health'],
         'task_progress': [
             {'state': 'in_progress', 'total_count': 0},
             {'state': 'completed', 'total_count': 0},

@@ -9,7 +9,7 @@
     viewer table (the 30 Harbor tasks with per-model reward).
 
     Layout: standalone HTML (no portal.portal_layout). Dark editorial
-    section-numbered design with Raiden's AWS CLI DynamoDB RL content;
+    section-numbered design with Raiden's CLI-implementation RL content;
     all DOM IDs preserved for the raiden_portal.js hooks.
   -->
 
@@ -18,7 +18,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>RAIDEN &#xB7; AWS CLI S3 + DynamoDB RL Environment &#xB7; ETHARA AI</title>
+      <title>RAIDEN &#xB7; Stateful CLI RL Environment &#xB7; ETHARA AI</title>
       <meta name="description" content="Raiden is a reinforcement-learning environment for agentic code generation: two scoped deliveries (10 aws s3 and 10 aws dynamodb Harbor-format tasks) that ask a model to implement the CLI surface from scratch, graded by a held-out suite of 1,577 E2E tests against simulated MinIO and DynamoDB Local backends."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -41,12 +41,12 @@
       <!-- Raiden dark editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
            does not override the design). -->
-      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=44"/>
+      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css?v=45"/>
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer="defer"/>
-      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=44" defer="defer"/>
+      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js?v=45" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -89,7 +89,7 @@
       <span class="badge mono">AGENTIC CODING · RL ENVIRONMENT</span>
     </div>
     <hr class="rule"/>
-    <p class="thesis">Can a coding agent build a stateful AWS CLI from a spec it is never tested against?</p>
+    <p class="thesis">Can a coding agent build a stateful command-line tool from a spec it is never tested against?</p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
     <div class="hero-actions">
       <a class="rd-link-btn" href="https://github.com/EtharaOrion/raiden-samples" target="_blank" rel="noopener">
@@ -141,7 +141,7 @@
   <!-- ================= §02 KEY METRICS ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label">
     <p class="section-label" id="scale-label">02 · Key metrics</p>
-    <p class="section-desc">Three numbers that define the scope of the Raiden delivery, across two AWS CLI surfaces.</p>
+    <p class="section-desc">Three numbers that define the scope of the Raiden delivery, across its two CLI surfaces.</p>
     <div class="kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
       <div class="kpi-card">
         <p class="kpi-label">Harbor Tasks</p>

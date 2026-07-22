@@ -69,6 +69,11 @@ def _serialize(applicant):
         "currentStage": _canon_current_stage(applicant),
         "currentStatus": _canon_current_status(applicant),
         "resumeUrl": applicant.resume_url or None,
+        "expectedCTC": applicant.expected_ctc or None,
+        "budgetCtc": (
+            applicant.job_id.budget_ctc if applicant.job_id else None
+        ) or None,
+        "ctcBudgetExceeded": bool(applicant.ctc_budget_exceeded),
         "matchScore": (applicant.resume_score or 0) if screened else 0,
         "screeningScore": (applicant.resume_score or 0) if screened else 0,
         "screeningSummary": (applicant.resume_summary or "") if screened else "",

@@ -1,6 +1,6 @@
 {
     'name': 'Ethara Project',
-    'version': '19.0.1.5.2',
+    'version': '19.0.1.6.0',
     'category': 'Project',
     'summary': 'Ethara project registry with role-scoped team assignment and S3-backed attachments',
     'description': """

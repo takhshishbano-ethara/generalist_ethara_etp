@@ -30,6 +30,7 @@ so the controller relies on the model's own `create()` for that behaviour and
 does not duplicate it.
 """
 
+import json
 import logging
 
 from odoo import fields, http
@@ -51,6 +52,8 @@ _logger = logging.getLogger(__name__)
 
 PHASE_MODEL = "ethara.project.phase"
 DAILY_TASK_MODEL = "ethara.project.phase.daily.task"
+DAILY_TASK_MODEL_LINE = "ethara.project.phase.daily.task.model"
+AI_MODEL_MODEL = "ethara.project.ai.model"
 COST_LINE_MODEL = "ethara.project.cost.line"
 
 VALID_HEALTH = ("healthy", "warning", "critical", "unknown")
@@ -95,10 +98,17 @@ def _derive_health(per_task_cost, ideal):
     return "critical"
 
 
-def _derive_daily_task_vals(phase, entry_date, done_count, total_cost, note):
+def _derive_daily_task_vals(
+    phase, entry_date, done_count, total_cost, note, no_of_trajectory=None
+):
     model_lines = phase.model_line_ids
     iterations_per_task = sum(model_lines.mapped("iterations"))
-    no_of_trajectory = (done_count or 0) * iterations_per_task
+    # Honour a user-entered "Successful trajectories" value from the popup;
+    # otherwise fall back to done_count × iterations-per-task.
+    if no_of_trajectory and no_of_trajectory > 0:
+        no_of_trajectory = int(no_of_trajectory)
+    else:
+        no_of_trajectory = (done_count or 0) * iterations_per_task
     per_task_cost = (
         (total_cost / done_count) if (done_count and total_cost) else 0.0
     )
@@ -130,6 +140,48 @@ def _derive_daily_task_vals(phase, entry_date, done_count, total_cost, note):
         "health_status": _derive_health(per_task_cost, ideal_per_task_cost),
         "note": (note or "").strip() or False,
     }
+
+
+def _parse_task_quantity(value):
+    """Mirror the popup's `getRowTaskQuantity`: a numeric Task cell is the task
+    count for that row; any non-numeric (or <= 0) text counts as one task."""
+    qty = _coerce_int(value)
+    return qty if qty and qty > 0 else 1
+
+
+def _build_model_breakdown_cmds(rows):
+    """Translate the popup's manual `model_rows` into `model_breakdown_ids`
+    create commands. Rows whose `model_id` doesn't resolve to a live
+    `ethara.project.ai.model` are skipped. Returns [] when nothing usable."""
+    if isinstance(rows, str):
+        try:
+            rows = json.loads(rows)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(rows, (list, tuple)):
+        return []
+    ai_model_env = request.env[AI_MODEL_MODEL].sudo()
+    cmds = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        model_id = _coerce_int(row.get("model_id"))
+        if not model_id or not ai_model_env.browse(model_id).exists():
+            continue
+        cost = _coerce_float(row.get("cost"), 0.0) or 0.0
+        task_qty = _parse_task_quantity(row.get("task"))
+        cmds.append((0, 0, {
+            "ai_model_id": model_id,
+            "ai_model_name": (row.get("model_name") or "").strip() or False,
+            "cost_type": "per_task",
+            "task_label": (str(row.get("task") or "").strip() or False),
+            "runs": (str(row.get("runs") or "").strip() or False),
+            "input_tokens": _coerce_float(row.get("input_tokens"), 0.0) or 0.0,
+            "output_tokens": _coerce_float(row.get("output_tokens"), 0.0) or 0.0,
+            "line_cost": cost,
+            "per_task_cost": (cost / task_qty) if task_qty else cost,
+        }))
+    return cmds
 
 
 def _dt_to_string(value):
@@ -191,6 +243,11 @@ def _daily_task_model_brief(mb):
             )
         ),
         "cost_type": mb.cost_type or "",
+        "task_label": mb.task_label or "",
+        "runs": mb.runs or "",
+        "input_tokens": mb.input_tokens or 0.0,
+        "output_tokens": mb.output_tokens or 0.0,
+        "line_cost": mb.line_cost or 0.0,
         "per_task_cost": mb.per_task_cost or 0.0,
         "per_trajectory_cost": mb.per_trajectory_cost or 0.0,
         "iterations": mb.iterations or 0,
@@ -227,6 +284,10 @@ def _daily_task_brief(dt):
         "health_status_label": _health_label(dt.health_status),
         "note": dt.note or "",
         "model_breakdown_count": len(dt.model_breakdown_ids),
+        # Day-level token totals rolled up from the per-model breakdown rows
+        # (populated by the "Log daily task" popup).
+        "input_tokens": sum(dt.model_breakdown_ids.mapped("input_tokens")),
+        "output_tokens": sum(dt.model_breakdown_ids.mapped("output_tokens")),
     }
 
 
@@ -281,7 +342,6 @@ def _batch_view_brief(phase):
     cost_lines = _phase_cost_lines(phase)
     llm_lines = cost_lines.filtered(_is_llm_line)
     actual = sum(llm_lines.mapped("amount_source"))
-    variance = estimated - actual
     project = phase.ethara_project_id
     project_budget = phase.budget_id
     requests = phase.request_ids.sorted(
@@ -290,6 +350,19 @@ def _batch_view_brief(phase):
         ),
         reverse=True,
     )
+    approved = phase.approved_amount or 0.0
+    consumed = sum(phase.daily_task_ids.mapped('total_cost'))
+    variance = approved - consumed
+    utilization = (consumed / approved * 100.0) if approved else 0.0
+    if utilization >= 100.0:
+        health = 'over'
+        health_label = 'Over'
+    elif utilization >= 85.0:
+        health = 'watch'
+        health_label = 'Watch'
+    else:
+        health = 'healthy'
+        health_label = 'Healthy'
     return {
         "id": phase.id,
         "name": phase.name or "",
@@ -305,12 +378,15 @@ def _batch_view_brief(phase):
         "actual": actual,
         "estimated": estimated,
         "variance": variance,
-        "health": phase.health_status or "unknown",
-        "health_label": _phase_health_label(phase.health_status),
+        "health": health,
+        "health_label": health_label,
         "total_task_count": phase.total_tasks or 0,
         "done_task_count": phase.done_tasks or 0,
         "remaining_task_count": phase.remaining_tasks or 0,
         "avg_qc": None,
+        "models": ", ".join(
+            name for name in phase.model_line_ids.mapped("ai_model_name") if name
+        ),
         "created_date": _dt_to_string(phase.create_date),
         "requests": [_batch_view_request_brief(r) for r in requests],
     }
@@ -390,7 +466,16 @@ class EtharaBudgetEstimationController(http.Controller):
 
         vals = _derive_daily_task_vals(
             phase, entry_date, done_count, total_cost, jdata.get("note"),
+            no_of_trajectory=_coerce_int(jdata.get("no_of_trajectory")),
         )
+
+        # When the popup sends per-model rows, persist them as the daily task's
+        # model breakdown. Supplying `model_breakdown_ids` here suppresses the
+        # model's auto-seed from the phase's model lines (see the daily-task
+        # model's `create()` — it only seeds when the breakdown is empty).
+        breakdown_cmds = _build_model_breakdown_cmds(jdata.get("model_rows"))
+        if breakdown_cmds:
+            vals["model_breakdown_ids"] = breakdown_cmds
 
         try:
             record = request.env[DAILY_TASK_MODEL].sudo().create(vals)

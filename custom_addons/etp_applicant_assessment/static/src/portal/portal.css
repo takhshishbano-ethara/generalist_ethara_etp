@@ -1073,9 +1073,11 @@
     animation: eaa-alert-in 0.18s ease-out;
 }
 /* Guard sits under the phone alert so its dismiss button stays reachable;
-   both sit under the consent modal (9999). */
+   the permission-setup card sits above both; all under the consent
+   modal (9999). */
 .eaa-alert--fs { z-index: 9995; }
 .eaa-alert--phone { z-index: 9996; }
+.eaa-alert--setup { z-index: 9997; }
 .eaa-alert.d-none { display: none !important; }
 
 .eaa-alert__card {
@@ -1118,6 +1120,16 @@
 .eaa-alert__icon--fs {
     background: var(--eaa-warn-bg);
     color: var(--eaa-warn-text);
+}
+.eaa-alert--setup .eaa-alert__card { border-color: rgba(132, 174, 249, 0.4); }
+.eaa-alert--setup .eaa-alert__title { color: var(--eaa-info-text); }
+.eaa-alert__icon--cam {
+    background: var(--eaa-info-bg);
+    color: var(--eaa-info-text);
+}
+.eaa-alert__icon--cam::before {
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5'/%3e%3crect x='2' y='6' width='14' height='12' rx='2'/%3e%3c/svg%3e") no-repeat center / contain;
+    mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5'/%3e%3crect x='2' y='6' width='14' height='12' rx='2'/%3e%3c/svg%3e") no-repeat center / contain;
 }
 .eaa-alert__icon--fs::before {
     -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M8 3H5a2 2 0 0 0-2 2v3'/%3e%3cpath d='M21 8V5a2 2 0 0 0-2-2h-3'/%3e%3cpath d='M3 16v3a2 2 0 0 0 2 2h3'/%3e%3cpath d='M16 21h3a2 2 0 0 0 2-2v-3'/%3e%3c/svg%3e") no-repeat center / contain;

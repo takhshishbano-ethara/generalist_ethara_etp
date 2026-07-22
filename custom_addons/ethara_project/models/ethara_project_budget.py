@@ -29,6 +29,17 @@ BUDGET_TYPE_SELECTION = [
     ('operations', 'Production'),
 ]
 
+# Team that owns the budget. Chosen first in the create flow; it gates which
+# Budget Type options are offered (Generalist/Technical -> Production only;
+# R&D -> Testing/Sampling) and, together with budget_sub_type, forms the
+# per-project uniqueness key. Purely a classification dimension — phase/cost
+# logic still keys off project_type.
+TEAM_TYPE_SELECTION = [
+    ('generalist', 'Generalist'),
+    ('technical', 'Technical'),
+    ('rnd', 'R&D'),
+]
+
 PRIORITY_SELECTION = [
     ('low', 'Low'),
     ('normal', 'Normal'),
@@ -119,6 +130,14 @@ class EtharaProjectBudget(models.Model):
         string='R&D Sub-type',
         tracking=True,
     )
+    # Owning team. Generalist/Technical map to project_type='operations'
+    # (Production); R&D maps to project_type='rnd' + a budget_sub_type.
+    # Per-project uniqueness is keyed on (team_type, budget_sub_type).
+    team_type = fields.Selection(
+        selection=TEAM_TYPE_SELECTION,
+        string='Team Type',
+        tracking=True,
+    )
     active = fields.Boolean(default=True)
     state = fields.Selection(
         selection=BUDGET_STATE_SELECTION,
@@ -132,6 +151,19 @@ class EtharaProjectBudget(models.Model):
     budget_amount = fields.Float(string='Budget (USD)', tracking=True)
     buffer_pct = fields.Float(string='Buffer %', default=0.0, tracking=True)
     total_tasks = fields.Integer(string='Total Tasks', default=0, tracking=True)
+    est_trajectories_per_task = fields.Integer(
+        string='Est. Trajectories / Task',
+        default=0,
+        tracking=True,
+        help='Optional estimate of trajectories each task will produce. '
+             'Used by Sampling R&D flow to compute total trajectories.',
+    )
+    total_trajectories = fields.Integer(
+        string='Total Trajectories',
+        compute='_compute_total_trajectories',
+        store=True,
+        tracking=True,
+    )
     description = fields.Text(string='Description', tracking=True)
     priority = fields.Selection(
         selection=PRIORITY_SELECTION,
@@ -142,6 +174,16 @@ class EtharaProjectBudget(models.Model):
     attachment_urls = fields.Text(
         string='Attachment URLs',
         help='Comma-separated URLs of files attached to this budget.',
+    )
+
+    batch_budget_remain = fields.Float(
+        string='Delivered Leftover Pool (USD)',
+        default=0.0,
+        readonly=True,
+        copy=False,
+        tracking=True,
+        help='Unused approved amount from delivered phases. Auto-allocated '
+             'to the next new or restarted phase.',
     )
 
     model_line_ids = fields.One2many(
@@ -281,6 +323,11 @@ class EtharaProjectBudget(models.Model):
     def _compute_is_rnd(self):
         for rec in self:
             rec.is_rnd = rec.project_type == 'rnd'
+
+    @api.depends('total_tasks', 'est_trajectories_per_task')
+    def _compute_total_trajectories(self):
+        for rec in self:
+            rec.total_trajectories = (rec.total_tasks or 0) * (rec.est_trajectories_per_task or 0)
 
     @api.depends(
         'budget_amount',

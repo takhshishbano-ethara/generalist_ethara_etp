@@ -10,7 +10,7 @@ DEFAULT_HUGGINGFACE_URL = "https://huggingface.co/datasets/ethara/erza-samples"
 
 class ErzaController(http.Controller):
 
-    @http.route("/erza", type="http", auth="public", website=True, sitemap=True)
+    @http.route("/erza-samples", type="http", auth="public", website=True, sitemap=True)
     def portal_page(self, **_kw):
         param = request.env["ir.config_parameter"].sudo()
         module = request.env["ir.module.module"].sudo().search(
@@ -28,19 +28,19 @@ class ErzaController(http.Controller):
             },
         )
 
-    @http.route("/erza/api/summary", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza-samples/api/summary", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_summary(self, **_kw):
         return self._json(self._build_summary())
 
-    @http.route("/erza/api/tasks", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza-samples/api/tasks", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_tasks(self, **_kw):
         return self._json(self._build_tasks())
 
-    @http.route("/erza/api/runs", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza-samples/api/runs", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_runs(self, **_kw):
         return self._json(self._build_runs())
 
-    @http.route("/erza/api/dataset", type="http", auth="public", website=True, sitemap=False, csrf=False)
+    @http.route("/erza-samples/api/dataset", type="http", auth="public", website=True, sitemap=False, csrf=False)
     def api_dataset(self, **_kw):
         return self._json({
             "summary": self._build_summary(),

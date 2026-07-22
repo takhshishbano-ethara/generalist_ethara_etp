@@ -134,9 +134,9 @@ def _httpx():
 
 def _minted_bearer(env):
     ICP = env["ir.config_parameter"].sudo()
-    sa_json = ICP.get_param(
-        "etp_assessment_pro.vertex_service_account_json", ""
-    ) or ""
+    from . import secret_store
+    sa_json = secret_store.get_secret(
+        env, "etp_assessment_pro.vertex_service_account_json", "") or ""
     if not sa_json or "PLACEHOLDER" in sa_json:
         return ""
     cached = ICP.get_param("etp_assessment_pro.vertex_minted_token", "") or ""
@@ -2245,6 +2245,250 @@ def _resolve_item_type(item, allowed):
     return qtype if qtype in allowed else None
 
 
+def _selfheal_enabled(env):
+    return (env["ir.config_parameter"].sudo().get_param(
+        "etp_assessment_pro.gen_selfheal", "1") or "1").strip() != "0"
+
+
+def _critique_enabled(env):
+    return (env["ir.config_parameter"].sudo().get_param(
+        "etp_assessment_pro.gen_critique", "1") or "1").strip() != "0"
+
+
+def _item_title(it):
+    return (it.get("name") or it.get("title") or "").strip()
+
+
+def _uncovered_elements(prompt_record, items):
+    """[(id, description)] for the SOP's required_elements that no item's
+    covers_elements references yet. Reads the profile captured on the generator
+    (required_elements_json), so coverage is measured against what the SOP said it
+    needed - the same signal the harness targets its top-up passes at."""
+    try:
+        req = json.loads(prompt_record.required_elements_json or "[]")
+    except Exception:  # noqa: BLE001
+        req = []
+    if not isinstance(req, list) or not req:
+        return []
+    covered = set()
+    for it in items:
+        ce = it.get("covers_elements")
+        if isinstance(ce, list):
+            covered |= {str(c) for c in ce}
+    out = []
+    for e in req:
+        if isinstance(e, dict):
+            eid = e.get("id") or e.get("key")
+            desc = e.get("description") or e.get("text") or ""
+        else:
+            eid, desc = e, ""
+        if eid and str(eid) not in covered:
+            out.append((str(eid), desc))
+    return out
+
+
+def _topup_items(env, model, system_prompt, base_parts, existing, want,
+                 allowed, target_elements=None, usage_ctx=None):
+    """Request WANT more items when the primary run came up short (early
+    truncation) or to close a coverage gap. Passes the titles already authored so
+    the model does not duplicate, and asks for exactly the shortfall. Returns raw
+    item dicts (with any solutions attached); the caller's validate/create loop
+    is the single gate that shapes and persists them."""
+    made = [{"name": _item_title(q), "question_type": q.get("question_type")}
+            for q in existing]
+    focus = ""
+    if target_elements:
+        focus = ("\n\nEach new item MUST cover one or more of these so-far-"
+                 "UNTESTED required elements (put their ids in covers_elements):\n"
+                 + "\n".join("- %s: %s" % (eid, desc)
+                             for eid, desc in target_elements))
+    allow_clause = ""
+    if allowed:
+        allow_clause = (" Every item's question_type MUST be one of ["
+                        + ", ".join(allowed) + "].")
+    directive = (
+        "You already authored these %d assessment items:\n%s\n\n"
+        "Author %d MORE, in the SAME schema/format as the system instructions, "
+        "covering DIFFERENT elements and angles - do NOT repeat or paraphrase any "
+        "listed above.%s%s\n\nReturn ONE JSON object "
+        '{"questions":[...],"solutions":[...]} with exactly %d questions and their '
+        "%d solutions, nothing else."
+        % (len(existing), json.dumps(made, ensure_ascii=False), want,
+           allow_clause, focus, want, want))
+    parts = list(base_parts) + [{"text": directive}]
+    try:
+        raw = _call_vertex(
+            env, system_prompt, user_text="", user_parts=parts, model=model,
+            max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.6,
+            response_json=True, usage_ctx=usage_ctx)
+    except (ValueError, LLMRefusalError) as exc:
+        _logger.warning("etp_assessment top-up call failed: %s", exc)
+        return []
+    try:
+        items = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
+    except ValueError:
+        return []
+    sols = _extract_solutions(raw)
+    if sols:
+        _attach_solutions(
+            items, sols, usage_ctx.get("prompt_id") if usage_ctx else 0)
+    return items
+
+
+def _backfill_solutions(env, model, base_parts, items, usage_ctx=None):
+    """Regenerate answer keys from the FINALIZED items in a dedicated bounded
+    call. Solutions are emitted LAST in the envelope, so a big-metadata SOP that
+    truncates drops them first; this guarantees one keyed answer per item on its
+    own token budget. Attaches results in place; returns the count backfilled."""
+    slim = []
+    for it in items:
+        keep = {k: it.get(k) for k in ("name", "prompt", "question_type")
+                if it.get(k) is not None}
+        for k in ("options", "correct_answer", "rubric", "official_reasoning"):
+            if it.get(k) is not None:
+                keep[k] = it[k]
+        slim.append(keep)
+    directive = (
+        "You are completing an assessment. Below are the FINALIZED questions, in "
+        "order. Output ONLY a JSON object {\"solutions\":[...]} with exactly one "
+        "object per question, SAME ORDER: "
+        '{"question_ref":"<the exact question name>","answers":<the ideal worker '
+        'answer>,"rationale":"<how it is known>"}. Return ONLY that JSON object.'
+        "\n\nQUESTIONS:\n" + json.dumps(slim, ensure_ascii=False, indent=2))
+    parts = list(base_parts) + [{"text": directive}]
+    try:
+        raw = _call_vertex(
+            env, None, user_text="", user_parts=parts, model=model,
+            max_tokens=_RETRY_OUTPUT_TOKENS_CEILING, temperature=0.3,
+            response_json=True, usage_ctx=usage_ctx)
+    except (ValueError, LLMRefusalError) as exc:
+        _logger.warning("etp_assessment solution backfill failed: %s", exc)
+        return 0
+    sols = _extract_solutions(raw)
+    if not sols:
+        return 0
+    need = [it for it in items if not isinstance(it.get("_solution"), dict)]
+    before = len(need)
+    _attach_solutions(items, sols, usage_ctx.get("prompt_id") if usage_ctx else 0)
+    still = sum(1 for it in items if not isinstance(it.get("_solution"), dict))
+    return max(0, before - still)
+
+
+def _critique_revise(env, model, base_parts, items, usage_ctx=None):
+    """Strict second-opinion audit of the assembled answer keys against the SOP.
+    Only answer-key corrections are auto-applied (safe - no media change); item /
+    prompt issues are logged. This is the main content-quality lever, and the
+    discipline that catches a wrong or ambiguous key before candidates sit it.
+    Returns the list of flagged issues."""
+    pack = []
+    for it in items:
+        keep = {k: it.get(k) for k in ("name", "prompt", "question_type")
+                if it.get(k) is not None}
+        for k in ("options", "correct_answer", "rubric", "official_reasoning"):
+            if it.get(k) is not None:
+                keep[k] = it[k]
+        sol = it.get("_solution") if isinstance(it.get("_solution"), dict) else {}
+        keep["_solution"] = {"answers": sol.get("answers"),
+                             "rationale": sol.get("rationale")}
+        pack.append(keep)
+    directive = (
+        "You are a STRICT assessment reviewer. Audit the bank below against the "
+        "SOP for ANSWER-KEY correctness, completeness and unambiguity. For EACH "
+        "item decide whether its solution's answers is right and defensible given "
+        "the item + SOP.\nReturn ONLY JSON: {\"solutions\":[<the FULL corrected "
+        "solutions array, one object per item in the SAME ORDER, each "
+        '{"question_ref","answers","rationale"}; fix any wrong/incomplete/'
+        "ambiguous answer, keep correct ones unchanged>], \"issues\":"
+        '[{"item":<1-based index>,"field":"answers|prompt|coverage|difficulty",'
+        '"problem":"one sentence"}]}. Do not reword the questions; only correct '
+        "solutions.\n\nBANK:\n" + json.dumps(pack, ensure_ascii=False, indent=2))
+    parts = list(base_parts) + [{"text": directive}]
+    try:
+        raw = _call_vertex(
+            env, None, user_text="", user_parts=parts, model=model,
+            max_tokens=_MAX_OUTPUT_TOKENS_CEILING, temperature=0.2,
+            response_json=True, usage_ctx=usage_ctx)
+    except (ValueError, LLMRefusalError) as exc:
+        _logger.warning("etp_assessment critique pass failed: %s", exc)
+        return []
+    corr = _extract_solutions(raw)
+    issues = []
+    try:
+        text = re.sub(r"```$", "", re.sub(
+            r"^```(?:json)?", "", (raw or "").strip())).strip()
+        obj = json.loads(text)
+        if isinstance(obj, dict) and isinstance(obj.get("issues"), list):
+            issues = obj["issues"]
+    except Exception:  # noqa: BLE001
+        pass
+    # Only apply a fully-aligned 1:1 correction set - never a partial remap that
+    # could key an answer to the wrong item.
+    if isinstance(corr, list) and len(corr) == len(items):
+        for it in items:
+            it.pop("_solution", None)
+        _attach_solutions(
+            items, corr, usage_ctx.get("prompt_id") if usage_ctx else 0)
+    return issues
+
+
+def _selfheal_generation(env, prompt_record, items, base_parts, system_prompt,
+                         model, count, allowed):
+    """Harness-aligned robustness layer over a raw generation result: top up a
+    short/truncated batch (targeting uncovered SOP elements), backfill any missing
+    answer keys, then a critique pass to correct wrong/ambiguous keys. Each stage
+    is config-gated and best-effort - a failure here never sinks the base batch."""
+    prompt_id = prompt_record.id
+    base = {"operation": "generate_questions", "prompt_id": prompt_id}
+    if _selfheal_enabled(env) and count and len(items) < count:
+        tries = 0
+        while len(items) < count and tries < 3:
+            tries += 1
+            want = count - len(items)
+            gaps = _uncovered_elements(prompt_record, items)
+            _logger.info(
+                "etp_assessment self-heal: %d/%d items, topping up %d%s",
+                len(items), count, want,
+                " (targeting %d uncovered element(s))" % len(gaps)
+                if gaps else "")
+            new_items = _topup_items(
+                env, model, system_prompt, base_parts, items, want, allowed,
+                target_elements=gaps or None,
+                usage_ctx=dict(base, note="topup"))
+            if not new_items:
+                break
+            items += new_items
+        # Never exceed the requested count: a top-up call can over-deliver past
+        # the shortfall, so trim back to what the admin asked for (matches the
+        # harness's questions[:n] cap). Solutions ride on each item dict, so the
+        # slice keeps every kept item's answer key intact.
+        if count and len(items) > count:
+            items = items[:count]
+    if _selfheal_enabled(env):
+        missing = [it for it in items
+                   if not isinstance(it.get("_solution"), dict)]
+        if missing:
+            n = _backfill_solutions(
+                env, model, base_parts, items,
+                usage_ctx=dict(base, note="backfill_solutions"))
+            _logger.info(
+                "etp_assessment self-heal: backfilled %d/%d missing answer key(s)",
+                n, len(missing))
+    if _critique_enabled(env) and any(
+            isinstance(it.get("_solution"), dict) for it in items):
+        issues = _critique_revise(
+            env, _scoring_model(env), base_parts, items,
+            usage_ctx=dict(base, note="critique"))
+        if issues:
+            _logger.info(
+                "etp_assessment critique flagged %d answer-key issue(s) on "
+                "prompt %s: %s", len(issues), prompt_id,
+                "; ".join(
+                    "item %s [%s] %s" % (i.get("item"), i.get("field"),
+                                         i.get("problem"))
+                    for i in issues[:8]))
+    return items
+
+
 def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
                                 allowed_types=()):
     doc_parts = _sop_doc_parts(prompt_record.resource_ids)
@@ -2347,6 +2591,19 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
                          "%s (retry)" % (prompt_record.name or "SOP"))
         except ValueError:
             items = []
+    # Harness-aligned self-heal: top up a short/truncated batch (targeting
+    # uncovered SOP elements), backfill missing answer keys, then a critique pass
+    # that corrects wrong/ambiguous keys before any draft is persisted. All stages
+    # are config-gated and best-effort - never sink the base batch.
+    if items:
+        try:
+            items = _selfheal_generation(
+                env, prompt_record, items, user_parts, system_prompt, model,
+                count, allowed)
+        except Exception:  # noqa: BLE001
+            _logger.exception(
+                "etp_assessment self-heal layer failed on prompt %s; keeping the "
+                "base batch of %d item(s).", prompt_record.id, len(items))
     PromptQuestion = env["etp.assessment.pro.prompt.question"].sudo()
     draft_ids = []
     dropped_out_of_scope = 0

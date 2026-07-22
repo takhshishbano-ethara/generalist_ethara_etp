@@ -33,7 +33,8 @@
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
             } else {
-              document.documentElement.setAttribute('data-theme', 'dark');
+              var sysDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+              document.documentElement.setAttribute('data-theme', sysDark ? 'dark' : 'light');
             }
           } catch(e) {}
         })();
@@ -41,7 +42,7 @@
 
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&amp;family=Roboto:wght@300;400;500;700&amp;display=swap"/>
 
       <!-- Aurora dark editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
@@ -50,6 +51,7 @@
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer="defer"/>
       <script src="/aurora_dashboard/static/src/portal/js/aurora_portal.js" defer="defer"/>
     </head>
     <body>
@@ -101,7 +103,7 @@
 
   <!-- ================= §01 Overview ================= -->
   <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
-    <p class="section-label" id="overview-label">§01 · Overview</p>
+    <p class="section-label" id="overview-label">01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
         <p>MILO-Bench trains AI agents to perform long-horizon software evolution extended from SWE-EVO. Given real-world codebases and their development history, the system works through sequences of 2 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++. Unlike single-issue setups, it requires maintaining coherent, consistent development over extended timelines. Each instance reconstructs a milestone from post-training-cutoff repositories, with hermetic Docker environments.</p>
@@ -118,8 +120,8 @@
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
-          <div class="glance-row"><dt>Models</dt><dd><b>2</b></dd></div>
-          <div class="glance-row"><dt>Trajectories</dt><dd><b>60,000</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>3</b></dd></div>
+          <div class="glance-row"><dt>Trajectories</dt><dd><b>90,000</b></dd></div>
           <div class="glance-row"><dt>Phases</dt><dd><b>3</b></dd></div>
           <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Runtime</dt><dd>Hermetic · Docker</dd></div>
@@ -131,7 +133,7 @@
 
   <!-- ================= §02 KEY METRICS ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label">
-    <p class="section-label" id="scale-label">§02 · Key metrics</p>
+    <p class="section-label" id="scale-label">02 · Key metrics</p>
     <p class="section-desc">Three numbers that define the scope of MILO-Bench.</p>
     <div class="kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
       <div class="kpi-card">
@@ -141,20 +143,20 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Models Evaluated</p>
-        <p class="kpi-value"><span class="kpi-big">2</span></p>
-        <p class="kpi-sub mono">GLM 5 · Kimi K2.5</p>
+        <p class="kpi-value"><span class="kpi-big">3</span></p>
+        <p class="kpi-sub mono">Claude Opus 4.8 · GPT-5.5 · Gemini 3.1 Pro</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Trajectories Generated</p>
-        <p class="kpi-value"><span class="kpi-big">60,000</span></p>
-        <p class="kpi-sub mono">2 models × 3 seeds × 10,000 instances</p>
+        <p class="kpi-value"><span class="kpi-big">90,000</span></p>
+        <p class="kpi-sub mono">3 models × 3 seeds × 10,000 instances</p>
       </div>
     </div>
   </section>
 
   <!-- ================= §03 METHODOLOGY ================= -->
   <section class="section" id="methodology" aria-labelledby="methodology-label">
-    <p class="section-label" id="methodology-label">§03 · Methodology</p>
+    <p class="section-label" id="methodology-label">03 · Methodology</p>
     <p class="section-desc">How the metrics and scores are computed. Four principles govern the MILO-Bench scoring system.</p>
 
     <div class="pipeline-frame">
@@ -165,7 +167,7 @@
           <ul class="phase-body">
             <li>Tasks span multi-step, multi-commit evolution chains across entire repositories</li>
             <li>Each trajectory requires understanding of full codebase context and history</li>
-            <li>60,000 trajectories generated across 10,000 instances</li>
+            <li>90,000 trajectories generated across 10,000 instances</li>
           </ul>
         </article>
         <article class="phase">
@@ -188,11 +190,11 @@
         </article>
         <article class="phase">
           <p class="phase-label">Principle 04</p>
-          <h4 class="phase-title">Two-Model Evaluation</h4>
+          <h4 class="phase-title">Three-Model Evaluation</h4>
           <ul class="phase-body">
-            <li>GLM 5 and Kimi K2.5 evaluated head-to-head</li>
-            <li>Each model gets exactly one attempt per instance (Pass@1)</li>
-            <li>No retries - measures true first-attempt evolution capability</li>
+            <li>Claude Opus 4.8, GPT-5.5, and Gemini 3.1 Pro evaluated head-to-head</li>
+            <li>Each model gets three attempts per instance (Pass@3)</li>
+            <li>Three seeds per model - 90,000 trajectories for reproducible scoring</li>
           </ul>
         </article>
       </div>
@@ -201,7 +203,7 @@
 
   <!-- ================= §04 PIPELINE ================= -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label" data-animate="fade-up">
-    <p class="section-label" id="pipeline-label">§04 · Evaluation pipeline</p>
+    <p class="section-label" id="pipeline-label">04 · Evaluation pipeline</p>
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
@@ -224,7 +226,7 @@
           <h4 class="phase-title">Agent Interaction</h4>
           <ul class="phase-body">
             <li>Run AI agents in sandboxed Docker environments</li>
-            <li>2 models × 3 seeds × 10,000 instances</li>
+            <li>3 models × 3 seeds × 10,000 instances</li>
             <li>Agents receive issue context and produce git diff patches</li>
             <li>Tool-use interaction across long-horizon sequences</li>
           </ul>
@@ -245,29 +247,25 @@
 
   <!-- ================= §05 RESULTS ================= -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
-    <p class="section-label" id="results-label">§05 · Results</p>
+    <p class="section-label" id="results-label">05 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
-        Pass@3 by PR horizon range for two frontier models (Kimi K2.5, GLM 5).
+        Pass@3 by difficulty tier for three frontier models (Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro).
       </p>
       <p class="reveal-line reveal-kicker">
-        All models show sharp performance degradation as horizon increases from ~60% at 2–5 PRs to near 0% beyond 40 PRs.
+        All models clear Trivial tasks, but pass rates fall off sharply through Medium and Hard — reaching 0% at the Expert tier.
       </p>
     </div>
 
     <div class="charts">
       <figure class="chart chart--hero">
-        <button type="button" class="chart-trigger" aria-label="Preview Combined Pass Rate chart full size">
-          <img class="au-chart-card au-chart-light" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_light.png" alt="Combined Pass Rate by PR Range - both models" loading="lazy"/>
-          <img class="au-chart-card au-chart-dark" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_dark.png" alt="Combined Pass Rate by PR Range - both models" loading="lazy"/>
-          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
-        </button>
-        <figcaption>Fig. 1 - Combined pass rate by PR range (all models)</figcaption>
+        <div class="chart-canvas chart-canvas--wide"><canvas id="au-chart-pass-tier" aria-label="Pass@3 by difficulty tier for three frontier models"/></div>
+        <figcaption>Fig. 1 - Pass@3 by difficulty tier (Trivial to Expert)</figcaption>
       </figure>
     </div>
 
-    <p class="section-desc">Distribution of best Pass@3 rate (highest of Kimi K2.5 and GLM 5).</p>
+    <p class="section-desc">Distribution of best Pass@3 rate (highest of Claude Opus 4.8, GPT-5.5, and Gemini 3.1 Pro).</p>
 
     <div class="quality-grid">
       <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
@@ -300,7 +298,7 @@
 
   <!-- ================= §06 DATASET VIEWER ================= -->
   <section class="section" id="au-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
-    <p class="section-label" id="viewer-label">§06 · Dataset Viewer</p>
+    <p class="section-label" id="viewer-label">06 · Dataset Viewer</p>
 
     <!-- KPI row -->
     <div class="kpi-row" aria-label="Headline statistics for the evaluation">
@@ -310,11 +308,11 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Models</p>
-        <p class="kpi-value"><span class="kpi-big">2</span></p>
+        <p class="kpi-value"><span class="kpi-big">3</span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Total Runs</p>
-        <p class="kpi-value"><span class="kpi-big">60,000</span></p>
+        <p class="kpi-value"><span class="kpi-big">90,000</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Mean Pass Rate</p>
@@ -344,8 +342,9 @@
           <option value="instance_id">Instance (A-Z)</option>
           <option value="pr_range">PR Range</option>
           <option value="language">Language</option>
-          <option value="glm_pass" selected="selected">GLM 5</option>
-          <option value="kimi_pass">Kimi K2.5</option>
+          <option value="opus_pass" selected="selected">Claude Opus 4.8</option>
+          <option value="gpt_pass">GPT-5.5</option>
+          <option value="gemini_pass">Gemini 3.1 Pro</option>
         </select>
         <button type="button" id="au-eval-sort-dir-btn" class="sort-dir-btn" title="Descending – click to reverse">↓</button>
       </div>
@@ -362,8 +361,9 @@
             <th class="eth-instance">Instance</th>
             <th class="eth-prrange">PR Range</th>
             <th class="eth-lang">Language</th>
-            <th class="eth-glm">GLM 5</th>
-            <th class="eth-kimi">Kimi K2.5</th>
+            <th class="eth-opus">Claude Opus 4.8</th>
+            <th class="eth-gpt">GPT-5.5</th>
+            <th class="eth-gemini">Gemini 3.1 Pro</th>
             <th class="eth-repo">Repo</th>
             <th class="eth-expand"></th>
           </tr>
@@ -376,12 +376,21 @@
 
   <!-- ================= §07 MODEL COMPARISON ================= -->
   <section class="section" id="models" aria-labelledby="models-label">
-    <p class="section-label" id="models-label">§07 · Model comparison</p>
-    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models on long-horizon evolution tasks.</p>
+    <p class="section-label" id="models-label">07 · Model comparison</p>
+    <p class="section-desc">Head-to-head breakdown of all three evaluated frontier models on long-horizon evolution tasks.</p>
 
-    <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="kpi-row" style="grid-template-columns: repeat(3, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
+        <p class="kpi-label"><span class="tok-opus">Claude Opus 4.8</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>38.6%</b></dd></div>
+          <div class="glance-row"><dt>Short Trajectories</dt><dd><b>51.2%</b></dd></div>
+          <div class="glance-row"><dt>Long Trajectories</dt><dd><b>24.8%</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.07</b></dd></div>
+        </dl>
+      </div>
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label">GPT-5.5</p>
         <dl class="glance-list" style="margin-top: 12px;">
           <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>36.4%</b></dd></div>
           <div class="glance-row"><dt>Short Trajectories</dt><dd><b>49.7%</b></dd></div>
@@ -390,7 +399,7 @@
         </dl>
       </div>
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label">GLM 5</p>
+        <p class="kpi-label">Gemini 3.1 Pro</p>
         <dl class="glance-list" style="margin-top: 12px;">
           <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>31.2%</b></dd></div>
           <div class="glance-row"><dt>Short Trajectories</dt><dd><b>44.5%</b></dd></div>
@@ -403,13 +412,13 @@
 
   <!-- ================= §08 RESOURCES ================= -->
   <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
-    <p class="section-label" id="resources-label">§08 · Resources</p>
+    <p class="section-label" id="resources-label">08 · Resources</p>
     <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
 <!--      <a class="resource" href="https://github.com/Ethara-Ai/milo-bench-paper" target="_blank" rel="noopener">-->
-      <a class="resource" href="https://github.com/Ethara-Ai/milo-bench" target="_blank" rel="noopener">
+      <a class="resource" href="https://github.com/Ethara-Ai/aurora" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
         <p class="res-title">Harness</p>
-        <p class="res-url mono">github.com/Ethara-Ai/Milo</p>
+        <p class="res-url mono">github.com/Ethara-Ai/aurora</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="resource" href="https://huggingface.co/datasets/ethara/MILO-Bench" target="_blank" rel="noopener">

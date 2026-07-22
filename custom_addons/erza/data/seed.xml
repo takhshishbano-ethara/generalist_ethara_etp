@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!--
+    Seed / re-seed the mock bundle from data/erza_dataset.json on install AND on
+    every module upgrade. seed_from_bundle is idempotent (searches before
+    create/write), so `-u erza` after editing the JSON refreshes the data - this
+    is why the viewer stays populated instead of showing "0 tasks".
+  -->
+  <function model="erza.bench.run" name="seed_from_bundle"/>
+</odoo>

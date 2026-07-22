@@ -8,6 +8,7 @@
             <list string="Ethara Project Budgets">
                 <field name="name"/>
                 <field name="ethara_project_id"/>
+                <field name="team_type"/>
                 <field name="project_type"/>
                 <field name="budget_amount"/>
                 <field name="consumed_amount" optional="show"/>
@@ -72,7 +73,9 @@
                         <group>
                             <field name="ethara_project_id"
                                    options="{'no_create': True}"/>
+                            <field name="team_type"/>
                             <field name="project_type"/>
+                            <field name="budget_sub_type"/>
                             <field name="priority"/>
                             <field name="is_rnd" readonly="1" invisible="1"/>
                         </group>
@@ -269,6 +272,8 @@
                             context="{'group_by': 'state'}"/>
                     <filter name="group_type" string="Budget Type"
                             context="{'group_by': 'project_type'}"/>
+                    <filter name="group_team_type" string="Team Type"
+                            context="{'group_by': 'team_type'}"/>
                     <filter name="group_health" string="Health"
                             context="{'group_by': 'health_status'}"/>
                 </group>

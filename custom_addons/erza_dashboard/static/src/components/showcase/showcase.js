@@ -40,7 +40,7 @@ export class ErzaShowcase extends Component {
 
     async _fetchSummary() {
         try {
-            const response = await fetch("/erza/api/summary", {
+            const response = await fetch("/erza-samples/api/summary", {
                 headers: { Accept: "application/json" },
                 cache: "no-store",
             });
@@ -90,7 +90,7 @@ export class ErzaShowcase extends Component {
     }
 
     openPortal() {
-        window.open("/erza", "_blank");
+        window.open("/erza-samples", "_blank");
     }
 }
 

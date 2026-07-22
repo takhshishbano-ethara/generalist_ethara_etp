@@ -241,6 +241,20 @@ class EtharaCandidateMeApi(http.Controller):
             "email_from": partner.email or user.login,
             "partner_phone": partner.mobile or partner.phone or "",
         }
+        raw_expected_ctc = body.get("expectedCTC")
+        if raw_expected_ctc is None:
+            raw_expected_ctc = body.get("expected_ctc")
+        if raw_expected_ctc not in (None, ""):
+            try:
+                expected_ctc = float(raw_expected_ctc)
+            except (TypeError, ValueError):
+                expected_ctc = -1.0
+            if expected_ctc < 0:
+                return return_Response(
+                    message="`expectedCTC` must be a non-negative number.",
+                    status=400,
+                )
+            vals["expected_ctc"] = expected_ctc
         if job.department_id:
             vals["department_id"] = job.department_id.id
         applicant = request.env["hr.applicant"].sudo().create(vals)

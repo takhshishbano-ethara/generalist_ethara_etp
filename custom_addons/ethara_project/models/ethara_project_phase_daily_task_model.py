@@ -41,6 +41,16 @@ class EtharaProjectPhaseDailyTaskModel(models.Model):
     per_task_cost = fields.Float(string="Per Task Cost (USD)")
     per_trajectory_cost = fields.Float(string="Per Trajectory Cost (USD)")
     iterations = fields.Integer(string="Trajectories per Task")
+
+    # Per-row detail captured from the "Log daily task" popup's manual input
+    # table. Populated only when the client sends `model_rows`; the phase's
+    # auto-seeded breakdown leaves them empty.
+    task_label = fields.Char(string="Task")
+    runs = fields.Char(string="Runs")
+    input_tokens = fields.Float(string="Input Tokens")
+    output_tokens = fields.Float(string="Output Tokens")
+    line_cost = fields.Float(string="Row Cost (USD)")
+
     done_count = fields.Integer(
         string="Done Tasks",
         related="daily_task_id.done_count",

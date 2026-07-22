@@ -1,6 +1,6 @@
 {
     "name": "ETP Assessment Pro",
-    "version": "19.0.1.121.0",
+    "version": "19.0.1.123.0",
     "summary": "SOP-direct Question Bank + Assessment lifecycle (LLM-driven, Vertex AI)",
     "author": "Ethara",
     "website": "https://www.ethara.com",
@@ -20,6 +20,7 @@
         "views/hr_applicant_views.xml",
         "views/analytics_views.xml",
         "views/dashboard_views.xml",
+        "views/sop_ranking_views.xml",
         "views/llm_dashboard_views.xml",
         "views/tag_views.xml",
         "views/portal_templates.xml",
@@ -29,7 +30,12 @@
         "views/llm_usage_views.xml",
     ],
     "external_dependencies": {
-        "python": ["PyJWT", "httpx", "boto3", "cryptography", "defusedxml"],
+        # M-3: pin Pillow to the libwebp-CVE-patched line (CVE-2023-4863 class).
+        # The runtime decompression-bomb cap lives in services/imaging.py
+        # (_harden_pillow sets MAX_IMAGE_PIXELS); this floors the library version
+        # so a stale base image cannot ship the vulnerable libwebp build.
+        "python": ["PyJWT", "httpx", "boto3", "cryptography", "defusedxml",
+                   "Pillow>=10.3.0"],
     },
     "assets": {
         "web.assets_frontend": [

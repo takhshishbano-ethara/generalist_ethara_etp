@@ -94,7 +94,7 @@
     <p class="thesis">Can a model stay coherent enough to run a startup for a simulated year, judged only by the business it leaves behind?</p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
     <div class="hero-actions">
-      <a class="rd-link-btn" href="https://github.com/Ethara-Ai/rinzler" target="_blank" rel="noopener">
+      <a class="rd-link-btn" href="https://github.com/EtharaOrion/rinzler-samples" target="_blank" rel="noopener">
         <svg class="rd-brand-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-github"/></svg>
         GitHub
       </a>
@@ -424,10 +424,10 @@
   <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
     <p class="section-label" id="resources-label">08 · Resources</p>
     <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
-      <a class="resource" href="https://github.com/Ethara-Ai/rinzler" target="_blank" rel="noopener">
+      <a class="resource" href="https://github.com/EtharaOrion/rinzler-samples" target="_blank" rel="noopener">
         <p class="res-label mono"><svg class="rd-brand-ico rd-brand-ico--sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#rd-icon-github"/></svg>GitHub</p>
-        <p class="res-title">rinzler</p>
-        <p class="res-url mono">github.com/Ethara-Ai/rinzler</p>
+        <p class="res-title">rinzler-samples</p>
+        <p class="res-url mono">github.com/EtharaOrion/rinzler-samples</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="resource" href="https://huggingface.co/datasets/ethara/rinzler-samples" target="_blank" rel="noopener">

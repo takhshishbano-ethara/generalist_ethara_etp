@@ -262,7 +262,7 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════
-     §10 - DATASET VIEWER (Raiden · AWS CLI DynamoDB tasks)
+     §10 - DATASET VIEWER (Raiden · CLI implementation tasks)
      Renders the 30 Harbor tasks with per-model reward (Claude Opus 4.8
      and Claude Haiku 4.5), filterable by difficulty tier and searchable
      by task UUID / command. Data comes from /raiden/api/instances.

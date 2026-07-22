@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="etp_assessment_pro_sop_ranking_form" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.sop.ranking.form</field>
+        <field name="model">etp.assessment.pro.sop.ranking</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false" class="etp-dashboard">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>SOP Rankings</h1>
+                        <p class="text-muted">
+                            Every generator (SOP) ranked by how its candidates
+                            performed - attempt-weighted average score, pass
+                            rate, unique candidates, and published question
+                            count. Click a row to open the SOP.
+                        </p>
+                    </div>
+                    <div class="row mt-2 mb-3">
+                        <div class="col-4 text-center">
+                            <h2><field name="total_sops"/></h2>
+                            <span class="text-muted">SOPs Ranked</span>
+                        </div>
+                        <div class="col-4 text-center">
+                            <h2><field name="total_submitted"/></h2>
+                            <span class="text-muted">Submitted Attempts</span>
+                        </div>
+                        <div class="col-4 text-center">
+                            <h2><field name="overall_avg"/>%</h2>
+                            <span class="text-muted">Overall Avg Score</span>
+                        </div>
+                    </div>
+                    <field name="ranking_html" nolabel="1"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_pro_sop_ranking" model="ir.actions.act_window">
+        <field name="name">SOP Rankings</field>
+        <field name="res_model">etp.assessment.pro.sop.ranking</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="etp_assessment_pro_sop_ranking_form"/>
+        <field name="target">current</field>
+        <field name="context">{}</field>
+    </record>
+
+</odoo>

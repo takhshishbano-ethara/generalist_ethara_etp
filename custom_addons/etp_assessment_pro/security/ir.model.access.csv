@@ -31,3 +31,4 @@ access_dashboard_evaluator,etp.assessment.pro.dashboard.evaluator,model_etp_asse
 access_dashboard_manager,etp.assessment.pro.dashboard.manager,model_etp_assessment_pro_dashboard,etp_assessment_pro.group_assessment_manager,1,1,1,1
 access_llm_dashboard_evaluator,etp.assessment.pro.llm.dashboard.evaluator,model_etp_assessment_pro_llm_dashboard,etp_assessment_pro.group_assessment_evaluator,1,1,1,0
 access_llm_dashboard_manager,etp.assessment.pro.llm.dashboard.manager,model_etp_assessment_pro_llm_dashboard,etp_assessment_pro.group_assessment_manager,1,1,1,1
+access_sop_ranking_manager,etp.assessment.pro.sop.ranking.manager,model_etp_assessment_pro_sop_ranking,etp_assessment_pro.group_assessment_manager,1,1,1,1

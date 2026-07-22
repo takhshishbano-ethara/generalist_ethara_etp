@@ -193,9 +193,39 @@ class ErzaRun(models.Model):
                 self.create(values)
                 created += 1
 
+        # The JSON bundle is the single source of truth for this sample
+        # delivery: prune task / model records no longer present in the payload
+        # (e.g. a task replaced by one carrying a new UUID) so reseeding fully
+        # REPLACES the prior sample rather than accumulating stale rows. Runs
+        # cascade-delete with their task (erza.run.task_id ondelete="cascade").
+        # Guarded on a non-empty payload so a malformed load can never wipe data.
+        payload_task_uuids = [e["uuid"] for e in payload.get("tasks", [])]
+        payload_model_keys = [e["key"] for e in payload.get("models", [])]
+        pruned_tasks = pruned_models = 0
+        if payload_task_uuids:
+            stale_tasks = Task.search([("uuid", "not in", payload_task_uuids)])
+            pruned_tasks = len(stale_tasks)
+            if stale_tasks:
+                _logger.info(
+                    "erza_dashboard: pruning %s stale task(s): %s",
+                    pruned_tasks, stale_tasks.mapped("uuid"),
+                )
+                stale_tasks.unlink()
+        if payload_model_keys:
+            stale_models = Model.search([("key", "not in", payload_model_keys)])
+            pruned_models = len(stale_models)
+            if stale_models:
+                _logger.info(
+                    "erza_dashboard: pruning %s stale model(s): %s",
+                    pruned_models, stale_models.mapped("key"),
+                )
+                stale_models.unlink()
+
         _logger.info(
-            "erza_dashboard: seeded %s models, %s tasks, %s runs created, %s runs updated",
+            "erza_dashboard: seeded %s models, %s tasks, %s runs created, %s runs updated, "
+            "%s tasks pruned, %s models pruned",
             len(model_by_key), len(task_by_uuid), created, updated,
+            pruned_tasks, pruned_models,
         )
         return True
 

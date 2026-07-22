@@ -21,11 +21,21 @@ def _param(env, key, default=""):
     return val or default
 
 
+def _secret(env, key, default=""):
+    """M-8: read a secret param through the encryption-at-rest store (decrypts a
+    stored ciphertext; passes legacy plaintext through unchanged)."""
+    from . import secret_store
+    val = secret_store.get_secret(env, key, default)
+    if val and "PLACEHOLDER" in str(val):
+        return ""
+    return val or default
+
+
 def is_configured(env):
     return bool(
         _param(env, "etp_assessment_pro.s3_bucket")
         and _param(env, "etp_assessment_pro.s3_access_key_id")
-        and _param(env, "etp_assessment_pro.s3_secret_key")
+        and _secret(env, "etp_assessment_pro.s3_secret_key")
     )
 
 
@@ -44,7 +54,7 @@ def _client(env):
     from botocore.config import Config
     region = _param(env, "etp_assessment_pro.s3_region", "us-east-1")
     ak = _param(env, "etp_assessment_pro.s3_access_key_id")
-    sk = _param(env, "etp_assessment_pro.s3_secret_key")
+    sk = _secret(env, "etp_assessment_pro.s3_secret_key")
     cache_key = (ak, sk, region)
     cli = _S3_CLIENT_CACHE.get(cache_key)
     if cli is None:
