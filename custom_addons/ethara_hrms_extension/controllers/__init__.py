@@ -9,3 +9,5 @@ from . import screening
 from . import candidates
 from . import candidate_me
 from . import selection_form
+from . import selection_form_data
+from . import selection_form_admin

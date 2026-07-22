@@ -8,4 +8,5 @@ from . import ethara_lead
 from . import hr_applicant
 from . import hr_applicant_document
 from . import hr_applicant_job_history
+from . import hr_applicant_reference
 from . import res_users
