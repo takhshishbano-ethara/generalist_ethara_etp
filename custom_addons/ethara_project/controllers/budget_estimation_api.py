@@ -342,7 +342,6 @@ def _batch_view_brief(phase):
     cost_lines = _phase_cost_lines(phase)
     llm_lines = cost_lines.filtered(_is_llm_line)
     actual = sum(llm_lines.mapped("amount_source"))
-    variance = estimated - actual
     project = phase.ethara_project_id
     project_budget = phase.budget_id
     requests = phase.request_ids.sorted(
@@ -351,6 +350,19 @@ def _batch_view_brief(phase):
         ),
         reverse=True,
     )
+    approved = phase.approved_amount or 0.0
+    consumed = sum(phase.daily_task_ids.mapped('total_cost'))
+    variance = approved - consumed
+    utilization = (consumed / approved * 100.0) if approved else 0.0
+    if utilization >= 100.0:
+        health = 'over'
+        health_label = 'Over'
+    elif utilization >= 85.0:
+        health = 'watch'
+        health_label = 'Watch'
+    else:
+        health = 'healthy'
+        health_label = 'Healthy'
     return {
         "id": phase.id,
         "name": phase.name or "",
@@ -366,8 +378,8 @@ def _batch_view_brief(phase):
         "actual": actual,
         "estimated": estimated,
         "variance": variance,
-        "health": phase.health_status or "unknown",
-        "health_label": _phase_health_label(phase.health_status),
+        "health": health,
+        "health_label": health_label,
         "total_task_count": phase.total_tasks or 0,
         "done_task_count": phase.done_tasks or 0,
         "remaining_task_count": phase.remaining_tasks or 0,
