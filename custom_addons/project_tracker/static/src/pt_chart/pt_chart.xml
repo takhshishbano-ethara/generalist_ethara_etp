@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="project_tracker.PtChart">
+        <div t-attf-class="o_pt_chart #{props.class or ''}">
+            <canvas t-ref="canvas"/>
+        </div>
+    </t>
+</templates>

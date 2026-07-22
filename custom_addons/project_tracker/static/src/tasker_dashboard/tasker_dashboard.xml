@@ -25,71 +25,135 @@
             </t>
             <t t-else="">
 
-            <!-- ===================== KPIs ===================== -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header"><i class="fa fa-tachometer me-2"/>OVERVIEW</div>
-                <div class="o_ktd_cards o_ktd_cards_kpi">
-                    <t t-foreach="state.kpis" t-as="card" t-key="card.key">
-                        <div t-attf-class="o_ktd_metric_card o_ktd_metric_#{card.key}">
-                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
-                            <div class="o_ktd_metric_value"><t t-out="fmt(card.value, card.suffix)"/></div>
-                        </div>
-                    </t>
-                </div>
+            <!-- Overview / Charts toggle -->
+            <div class="o_ktd_viewtabs" role="tablist">
+                <button class="o_ktd_viewtab" type="button" role="tab"
+                        t-att-class="{ 'o_ktd_viewtab_active': state.viewMode === 'overview' }"
+                        t-att-aria-selected="state.viewMode === 'overview'"
+                        t-on-click="() => this.setViewMode('overview')">
+                    <i class="fa fa-th-list me-1"/>Overview
+                </button>
+                <button class="o_ktd_viewtab" type="button" role="tab"
+                        t-att-class="{ 'o_ktd_viewtab_active': state.viewMode === 'charts' }"
+                        t-att-aria-selected="state.viewMode === 'charts'"
+                        t-on-click="() => this.setViewMode('charts')">
+                    <i class="fa fa-pie-chart me-1"/>Charts
+                </button>
             </div>
 
-            <!-- ===================== My Pipeline ===================== -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header"><i class="fa fa-filter me-2"/>MY PIPELINE</div>
-                <div class="o_ktd_cards">
-                    <t t-foreach="state.funnel" t-as="card" t-key="card.key">
-                        <div t-attf-class="o_ktd_funnel_card o_ktd_funnel_#{card.key}">
-                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
-                            <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
-                        </div>
-                    </t>
-                </div>
-            </div>
+            <!-- ============================ OVERVIEW ============================ -->
+            <t t-if="state.viewMode === 'overview'">
 
-            <!-- ===================== Recent tasks ===================== -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header"><i class="fa fa-history me-2"/>RECENT TASKS</div>
-                <div class="o_ktd_table_wrap">
-                    <table class="o_ktd_table">
-                        <thead>
-                            <tr>
-                                <th class="o_ktd_col_pl">Task ID</th>
-                                <th>Stage</th>
-                                <th class="o_ktd_col_pl">Persona</th>
-                                <th>Status</th>
-                                <th>Overall</th>
-                                <th>Assigned</th>
-                                <th>Completed</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <t t-if="state.recent.length === 0">
-                                <tr><td colspan="7" class="o_ktd_empty">
-                                    <i class="fa fa-inbox me-1"/>No tasks yet.
-                                </td></tr>
-                            </t>
-                            <t t-foreach="state.recent" t-as="row" t-key="row.id">
-                                <tr class="o_ktd_clickable" t-on-click="() => this.openTask(row)"
-                                    t-on-keydown="(ev) => this.onRowKeydown(ev, row)"
-                                    tabindex="0" role="button">
-                                    <td class="o_ktd_col_pl"><t t-out="row.task_id"/></td>
-                                    <td><t t-out="row.stage"/> / <t t-out="row.total_stages"/></td>
-                                    <td class="o_ktd_col_pl"><t t-out="row.persona"/></td>
-                                    <td><t t-out="row.status_label"/></td>
-                                    <td><t t-out="fmt(row.overall, '%')"/></td>
-                                    <td><t t-out="row.assigned or '—'"/></td>
-                                    <td><t t-out="row.completed or '—'"/></td>
+                <!-- Summary metrics -->
+                <div class="o_ktd_section">
+                    <div class="o_ktd_section_header"><i class="fa fa-tachometer me-2"/>MY SUMMARY</div>
+                    <div class="o_ktd_cards o_ktd_cards_kpi">
+                        <t t-foreach="state.kpis" t-as="card" t-key="card.key">
+                            <div t-attf-class="o_ktd_metric_card o_ktd_metric_#{card.key}">
+                                <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                                <div class="o_ktd_metric_value"><t t-out="fmt(card.value, card.suffix)"/></div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- Where my tasks are -->
+                <div class="o_ktd_section">
+                    <div class="o_ktd_section_header"><i class="fa fa-filter me-2"/>WHERE MY TASKS ARE</div>
+                    <div class="o_ktd_cards">
+                        <t t-foreach="state.funnel" t-as="card" t-key="card.key">
+                            <div t-attf-class="o_ktd_funnel_card o_ktd_funnel_#{card.key}">
+                                <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                                <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- Recent tasks -->
+                <div class="o_ktd_section">
+                    <div class="o_ktd_section_header"><i class="fa fa-history me-2"/>MY RECENT TASKS</div>
+                    <div class="o_ktd_table_wrap">
+                        <table class="o_ktd_table">
+                            <thead>
+                                <tr>
+                                    <th class="o_ktd_col_pl">Task ID</th>
+                                    <th>Stage</th>
+                                    <th class="o_ktd_col_pl">Persona</th>
+                                    <th>Status</th>
+                                    <th>Overall</th>
+                                    <th>Assigned</th>
+                                    <th>Completed</th>
                                 </tr>
-                            </t>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <t t-if="state.recent.length === 0">
+                                    <tr><td colspan="7" class="o_ktd_empty">
+                                        <i class="fa fa-inbox me-1"/>No tasks yet.
+                                    </td></tr>
+                                </t>
+                                <t t-foreach="state.recent" t-as="row" t-key="row.id">
+                                    <tr class="o_ktd_clickable" t-on-click="() => this.openTask(row)"
+                                        t-on-keydown="(ev) => this.onRowKeydown(ev, row)"
+                                        tabindex="0" role="button">
+                                        <td class="o_ktd_col_pl"><t t-out="row.task_id"/></td>
+                                        <td><t t-out="row.stage"/> / <t t-out="row.total_stages"/></td>
+                                        <td class="o_ktd_col_pl"><t t-out="row.persona"/></td>
+                                        <td><t t-out="row.status_label"/></td>
+                                        <td><t t-out="fmt(row.overall, '%')"/></td>
+                                        <td><t t-out="row.assigned or '—'"/></td>
+                                        <td><t t-out="row.completed or '—'"/></td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
+            </t>
+
+            <!-- ============================= CHARTS ============================= -->
+            <t t-if="state.viewMode === 'charts'">
+                <div class="o_ktd_chart_grid">
+                    <div class="o_ktd_chart_panel o_ktd_chart_wide">
+                        <div class="o_ktd_chart_title">My Tasks Completed per Day</div>
+                        <div class="o_ktd_chart_body">
+                            <PtChart type="'bar'" data="trendComboChartData" options="comboOptions"/>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">My Completion Rate</div>
+                        <div class="o_ktd_chart_body o_ktd_chart_body_sm o_ktd_gauge">
+                            <PtChart type="'doughnut'" data="gaugeChartData" options="gaugeOptions"/>
+                            <div class="o_ktd_gauge_value">
+                                <t t-if="gaugeValue === null">—</t>
+                                <t t-else=""><t t-out="gaugeValue"/>%</t>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">My Tasks by Pipeline Stage</div>
+                        <div class="o_ktd_chart_body">
+                            <PtChart type="'doughnut'" data="pipelineChartData" options="pipelineChartOptions"/>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">My Tasks by Stage</div>
+                        <div class="o_ktd_chart_body o_ktd_chart_body_sm">
+                            <PtChart type="'doughnut'" data="stageMixChartData" options="doughnutOptions"/>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">My Feedback Outcomes</div>
+                        <div class="o_ktd_chart_body o_ktd_chart_body_sm">
+                            <PtChart type="'doughnut'" data="feedbackChartData" options="doughnutOptions"/>
+                        </div>
+                    </div>
+                </div>
+            </t>
 
             </t>
         </div>

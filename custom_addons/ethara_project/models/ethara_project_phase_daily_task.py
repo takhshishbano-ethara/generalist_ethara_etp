@@ -15,6 +15,11 @@ class EtharaProjectPhaseDailyTask(models.Model):
     _description = "Ethara Project Phase Daily Task Log"
     _order = "entry_date desc, id desc"
 
+    active = fields.Boolean(
+        default=True,
+        string="Active",
+        tracking=True,
+    )
     phase_id = fields.Many2one(
         "ethara.project.phase",
         string="Phase",
