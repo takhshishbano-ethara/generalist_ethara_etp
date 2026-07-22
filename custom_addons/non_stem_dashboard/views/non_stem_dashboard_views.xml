@@ -22,9 +22,6 @@
                             invisible="state not in ('done', 'error')"
                             groups="non_stem_dashboard.group_admin"
                             confirm="This will re-run the pipeline. Continue?"/>
-                    <field name="pipeline_mode" widget="selection"
-                           invisible="state not in ('draft', 'done', 'error')"
-                           groups="non_stem_dashboard.group_admin"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,running,done"/>
                 </header>
@@ -43,25 +40,32 @@
                         <group string="Output" invisible="state != 'done'">
                             <field name="output_dir"
                                    groups="non_stem_dashboard.group_admin"/>
-                            <div colspan="2">
+                            <div colspan="2" class="d-flex gap-2 mb-2">
                                 <button type="object"
                                         name="action_view_tasker_dashboard"
                                         string="View Tasker Dashboard"
-                                        class="btn-primary me-2"
+                                        class="btn-primary"
                                         icon="fa-bar-chart"
                                         invisible="current_user_role == 'viewer'"/>
-                                <button type="object"
-                                        name="action_copy_public_link"
-                                        string="Copy Public Link"
-                                        class="btn-outline-secondary me-2"
-                                        icon="fa-link"
-                                        invisible="not is_current_user_manager"/>
                                 <button type="object"
                                         name="action_view_management_dashboard"
                                         string="View Management Dashboard"
                                         class="btn-success"
                                         icon="fa-dashboard"
                                         invisible="current_user_role == 'user'"/>
+                            </div>
+                            <div colspan="2" class="d-flex gap-2"
+                                 invisible="not is_current_user_manager">
+                                <button type="object"
+                                        name="action_copy_public_tasker_link"
+                                        string="Copy Public Tasker Link"
+                                        class="btn-outline-secondary"
+                                        icon="fa-link"/>
+                                <button type="object"
+                                        name="action_copy_public_management_link"
+                                        string="Copy Public Management Link"
+                                        class="btn-outline-secondary"
+                                        icon="fa-link"/>
                             </div>
                             <field name="public_url" invisible="1"/>
                             <field name="is_current_user_manager" invisible="1"/>

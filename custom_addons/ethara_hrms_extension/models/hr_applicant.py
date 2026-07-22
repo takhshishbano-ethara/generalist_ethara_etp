@@ -210,6 +210,11 @@ class HrApplicant(models.Model):
         'res.users', string='Selection Form Sent By',
         ondelete='set null', copy=False,
     )
+    selection_form_reopen_reason = fields.Text(
+        string='Selection Form Reopen Reason', copy=False,
+        help='Reason recorded when HR reopens a submitted/approved/rejected '
+             'form so the candidate can amend and resubmit.',
+    )
 
     _AADHAAR_RE = re.compile(r'^\d{12}$')
     _PAN_RE = re.compile(r'^[A-Z]{5}[0-9]{4}[A-Z]$')

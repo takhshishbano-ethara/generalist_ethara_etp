@@ -139,6 +139,7 @@ class ApplicantSelectionFormDocumentController(http.Controller):
             }
 
             if existing:
+                vals.update({'verification_status': 'pending'})
                 existing.write(vals)
                 record = existing
             else:
@@ -147,15 +148,6 @@ class ApplicantSelectionFormDocumentController(http.Controller):
                     'document_type': document_type,
                     **vals,
                 })
-
-            if wait:
-                try:
-                    record._run_verification_sync()
-                except Exception:
-                    _logger.exception(
-                        'sync verification failed for doc %s', record.id,
-                    )
-                record.invalidate_recordset()
 
             return return_Response(
                 'Document uploaded', 200,

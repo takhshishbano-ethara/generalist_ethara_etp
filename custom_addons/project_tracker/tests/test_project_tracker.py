@@ -17,6 +17,7 @@ Read ``test_etp_only_user_cannot_see_other_taskers`` first: it is the case the
 original design forgot, and the reason a whole ETP role ladder had unscoped
 read/write on every allocation in the table.
 """
+import base64
 import json
 import re
 import uuid
@@ -238,6 +239,7 @@ class TestTrackerAccessControl(Kensei2TrackerCommon):
             "pytest_score": 80.0,
             "overall_score": 80.0,
             "qced_by": self.env.user.id,
+            "manual_qc_by": self.env.user.id,
             "manual_qc_status": "done",
         })
         self.assertEqual(alloc.status, "deliverable")
@@ -425,7 +427,7 @@ class TestTrackerStatusLadder(Kensei2TrackerCommon):
         self.assertEqual(alloc.status, "baseline_generated")
         alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id, "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0})
         self.assertEqual(alloc.status, "manual_qc")
-        alloc.manual_qc_status = "done"
+        alloc.write({"manual_qc_status": "done", "manual_qc_by": self.env.user.id})
         # the FINAL stage is the only one that can deliver
         self.assertEqual(alloc.status, "deliverable")
         self.assertEqual(alloc.final_status, "deliverable")
@@ -668,6 +670,7 @@ class TestTrackerStageHandoff(Kensei2TrackerCommon):
             "pytest_score": 80.0,
             "overall_score": 80.0,
             "qced_by": self.env.user.id,
+            "manual_qc_by": self.env.user.id,
             "manual_qc_status": "done",
         }
         # 1) the client's onchange — this is what turns the fields readonly
@@ -792,6 +795,7 @@ class TestTrackerReopen(Kensei2TrackerCommon):
             "pytest_score": 80.0,
             "overall_score": 80.0,
             "qced_by": self.env.user.id,
+            "manual_qc_by": self.env.user.id,
             "manual_qc_status": "done",
         })
         self.assertEqual(alloc.status, "deliverable")
@@ -813,6 +817,7 @@ class TestTrackerReopen(Kensei2TrackerCommon):
             "pytest_score": 80.0,
             "overall_score": 80.0,
             "qced_by": self.env.user.id,
+            "manual_qc_by": self.env.user.id,
             "manual_qc_status": "done",
         })
         with self.assertRaises(AccessError):
@@ -871,6 +876,7 @@ class TestTrackerFailedStateDocumentation(Kensei2TrackerCommon):
             "baseline_gen_status": "done",
             "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0,
             "qced_by": self.env.user.id,
+            "manual_qc_by": self.env.user.id,
             "manual_qc_status": "done",
         })
         self.assertEqual(alloc.status, "deliverable")
@@ -972,7 +978,8 @@ class TestTrackerScoreValidation(Kensei2TrackerCommon):
         alloc = self._at_baseline_generated()
         alloc.write({"baseline_gen_status": "done", "qced_by": self.env.user.id,
                      "rubric_score": 90.0, "pytest_score": 88.0,
-                     "overall_score": 91.0, "manual_qc_status": "done"})
+                     "overall_score": 91.0, "manual_qc_by": self.env.user.id,
+                     "manual_qc_status": "done"})
         self.assertEqual(alloc.status, "deliverable")
 
 
@@ -1270,7 +1277,7 @@ class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
         s2 = self._make_alloc(suffix="sd-term-2", stage_no=2)
         s2.write({"baseline_drive_link": "https://drive.example.com/pik",
                   "baseline_gen_status": "done", "qced_by": self.env.user.id, "rubric_score": 80.0, "pytest_score": 80.0, "overall_score": 80.0,
-                  "manual_qc_status": "done"})
+                  "manual_qc_by": self.env.user.id, "manual_qc_status": "done"})
         self.assertTrue(s2.is_final_stage)
         self.assertEqual(s2.status, "deliverable")
         self.assertNotEqual(s2.status, "ready_next_stage")
@@ -1596,6 +1603,7 @@ class TestTrackerDailyEndpoint(HttpCase):
                 "pytest_score": 80.0,
                 "overall_score": 80.0,
                 "qced_by": self.env.user.id,
+                "manual_qc_by": self.env.user.id,
                 "manual_qc_status": "done",
             }
             if stage_no == 1:                      # stage 1 has an authoring half
@@ -1815,8 +1823,11 @@ class TestTrackerBulkAllocation(Kensei2TrackerCommon):
         Wiz = self.env["project.tracker.bulk.allocation"]
         personas = self.Persona.create(
             [{"name": "bulk-p-%s" % i} for i in range(5)])
+        project = self.env["project.tracker.project"].create(
+            {"name": "bulk-cap-project"})
 
         wizard = Wiz.create({
+            "project_id": project.id,
             "source_mode": "unassigned",
             "allocation_method": "sequential",
             "limit_mode": "limited",
@@ -1850,3 +1861,92 @@ class TestTrackerBulkAllocation(Kensei2TrackerCommon):
         self._make_alloc(suffix="probe", persona_id=fresh.id)
         fresh.invalidate_recordset()
         self.assertEqual(fresh.pt_assignment_status, "assigned")
+
+
+class TestTrackerEnhancements(Kensei2TrackerCommon):
+    """Enhancements: manually-selected Manual QCed By, utilisation-first bulk
+    allocation, and the redesigned dashboard aggregations."""
+
+    @staticmethod
+    def _b64(text):
+        return base64.b64encode(text.encode()).decode()
+
+    # ---- Manual QC By -------------------------------------------------- #
+    def test_manual_qc_by_is_selected_manually(self):
+        """Manual QCed By is picked by hand — never auto-captured."""
+        alloc = self._make_alloc(suffix="mqc-by")
+        self._complete_stage1(alloc)     # marks manual_qc_status = 'done'
+        self.assertFalse(
+            alloc.manual_qc_by,
+            "Manual QCed By must not be set automatically")
+        alloc.write({"manual_qc_by": self.user_ql.id})
+        self.assertEqual(alloc.manual_qc_by, self.user_ql,
+                         "Manual QCed By should be manually settable")
+
+    # ---- Utilisation-first bulk allocation ----------------------------- #
+    def test_bulk_allocation_prefers_least_utilised_persona(self):
+        """With capacity for only one, the LESS-used persona is allocated first."""
+        p_used = self.Persona.create({"name": "util-used"})
+        p_fresh = self.Persona.create({"name": "util-fresh"})
+        self._make_alloc(suffix="util-seed", persona_id=p_used.id)  # utilisation 1
+        p_used.invalidate_recordset()
+        self.assertEqual(p_used.pt_allocation_count, 1)
+
+        project = self.env["project.tracker.project"].create({"name": "util-proj"})
+        wiz = self.env["project.tracker.bulk.allocation"].create({
+            "project_id": project.id,
+            "source_mode": "file",
+            "csv_file": self._b64("Persona Name\nutil-used\nutil-fresh\n"),
+            "filename": "p.csv",
+            "allocation_method": "sequential",
+            "limit_mode": "limited",
+            "allocation_limit": 1,
+            "tasker_line_ids": [
+                (0, 0, {"member_id": self.member_tasker.id, "selected": True,
+                        "current_count": 0})],
+        })
+        wiz.action_start()
+        new_allocs = self.Alloc.search(
+            [("persona_id", "in", (p_used + p_fresh).ids),
+             ("project_id", "=", project.id)])
+        self.assertEqual(len(new_allocs), 1, "the per-tasker cap was breached")
+        self.assertEqual(new_allocs.persona_id, p_fresh,
+                         "the more-utilised persona was allocated before the fresh one")
+
+    # ---- Redesigned dashboard aggregations ----------------------------- #
+    def test_dashboard_aggregations_shapes(self):
+        """The new dashboard sections (trend, per-project, workload, aging,
+        persona pool) build without error and in the expected shape."""
+        project = self.env["project.tracker.project"].create({"name": "dash-proj"})
+        self._make_alloc(suffix="dash-1", project_id=project.id)
+        self._make_alloc(suffix="dash-2", project_id=project.id)
+        Alloc = self.Alloc
+        task_domain = [("is_current_stage", "=", True),
+                       ("project_id", "=", project.id)]
+
+        by_project = tracker._by_project(Alloc, task_domain)
+        row = next((r for r in by_project if r["project"] == "dash-proj"), None)
+        self.assertIsNotNone(row, "the project is missing from per-project health")
+        self.assertEqual(row["wip"], 2)
+        self.assertEqual(row["delivered"], 0)
+
+        workload = tracker._workload(Alloc, task_domain)
+        self.assertEqual(sum(r["wip"] for r in workload), 2)
+
+        trend = tracker._throughput_trend(
+            Alloc, [("project_id", "=", project.id)], None, None)
+        self.assertTrue(trend and "value" in trend[0] and "date" in trend[0])
+
+        stage_mix = tracker._stage_mix(Alloc, task_domain)
+        self.assertEqual(stage_mix["stage1"] + stage_mix["stage2"], 2)
+
+        comp_trend = tracker._completion_trend(
+            Alloc, [("tasker_user_id", "=", self.env.user.id)], None, None)
+        self.assertTrue(comp_trend and "value" in comp_trend[0])
+
+        feedback = tracker._feedback_outcomes(Alloc, task_domain)
+        self.assertIn("shippable", feedback)
+
+        pool = tracker._persona_pool(self.env)
+        self.assertIn("assigned", pool)
+        self.assertIn("unassigned", pool)

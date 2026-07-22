@@ -34,7 +34,7 @@ _STAGE1_MIRROR = (
     'baseline_drive_link', 'baseline_gen_status', 'baseline_gen_reason',
     'baseline_gen_notes',
     'rubric_score', 'pytest_score', 'overall_score', 'qced_by',
-    'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes',
+    'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes', 'manual_qc_by',
     'date_final',
 )
 # Stage 2 inherits a task that stage 1 already authored, PL-verified and signed off
@@ -45,7 +45,7 @@ _STAGE2_MIRROR = (
     'baseline_drive_link', 'baseline_gen_status', 'baseline_gen_reason',
     'baseline_gen_notes',
     'rubric_score', 'pytest_score', 'overall_score', 'qced_by',
-    'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes',
+    'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes', 'manual_qc_by',
     'date_final',
 )
 
@@ -389,6 +389,8 @@ class Kensei2TrackerAllocation(models.Model):
         string='Manual QC Reason', compute='_compute_stage_mirrors')
     s1_manual_qc_notes = fields.Text(
         string='Manual QC Notes', compute='_compute_stage_mirrors')
+    s1_manual_qc_by = fields.Many2one(
+        'res.users', string='Manual QCed By', compute='_compute_stage_mirrors')
     s1_date_final = fields.Datetime(
         string='Stage 1 Completed On', compute='_compute_stage_mirrors')
 
@@ -424,6 +426,8 @@ class Kensei2TrackerAllocation(models.Model):
         string='Manual QC Reason', compute='_compute_stage_mirrors')
     s2_manual_qc_notes = fields.Text(
         string='Manual QC Notes', compute='_compute_stage_mirrors')
+    s2_manual_qc_by = fields.Many2one(
+        'res.users', string='Manual QCed By', compute='_compute_stage_mirrors')
     s2_date_final = fields.Datetime(
         string='Stage 2 Completed On', compute='_compute_stage_mirrors')
 
@@ -487,6 +491,13 @@ class Kensei2TrackerAllocation(models.Model):
     )
     persona_id = fields.Many2one(
         'kensei2.persona', string='Persona', required=True, index=True, tracking=True)
+    # The persona's own Domain, surfaced on the task so it shows next to the
+    # persona wherever task details are displayed. Stored+indexed so it is
+    # searchable/groupable; it stays in sync via the related (Domain is a
+    # property of the persona, not the task).
+    persona_domain = fields.Char(
+        related='persona_id.pt_domain', string='Domain',
+        store=True, index=True, readonly=True)
     # TASK-level taxonomy, filled by the tasker (NOT on the persona — the same
     # persona can be worked under different taxonomies on different tasks). Which
     # of these the form shows follows the project type.
@@ -519,6 +530,21 @@ class Kensei2TrackerAllocation(models.Model):
         index=True, tracking=True,
     )
     notes = fields.Text(string='Notes')
+    # Lead feedback on the task — written by PL/QL/Admin on the Feedback tab.
+    # tracking=True so every change is logged (who + when) in the chatter.
+    feedback = fields.Text(string='Feedback', tracking=True)
+    # Quality rating out of 5 (star widget). Selection so the 'priority' widget
+    # renders clickable stars; '0' = not rated.
+    feedback_rating = fields.Selection(
+        [('0', 'Not rated'), ('1', '1'), ('2', '2'),
+         ('3', '3'), ('4', '4'), ('5', '5')],
+        string='Rating', default='0', tracking=True,
+        help='Quality rating out of 5.')
+    # The lead's review outcome for the task.
+    feedback_status = fields.Selection(
+        [('shippable', 'Shippable'), ('rework', 'Rework'), ('rejected', 'Rejected')],
+        string='Feedback Status', tracking=True,
+        help='Review outcome: Shippable, Rework or Rejected.')
 
     # ------------------------------------------------------------------ #
     #  Evaluation metrics (%) — captured at "Baseline Generated → Done"
@@ -580,6 +606,12 @@ class Kensei2TrackerAllocation(models.Model):
         default='in_progress', tracking=True,
     )
     manual_qc_reason = fields.Text(string='Manual QC Reason')
+    # Who signed off the Manual QC — picked by hand from the team roster (the
+    # dropdown is restricted to qc_candidate_ids on the form). copy=False so a
+    # duplicated task starts unattributed.
+    manual_qc_by = fields.Many2one(
+        'res.users', string='Manual QCed By', copy=False, tracking=True,
+        help='The team member who performed the Manual QC — select manually.')
 
     # Per-stage notes. Each one unlocks with its own stage (the form gates them on
     # the preceding stage) so a stage cannot be annotated before it is reachable.
@@ -893,6 +925,22 @@ class Kensei2TrackerAllocation(models.Model):
                 raise ValidationError(_(
                     "Complete the trajectory step before Manual QC — still needed: "
                     "%s.", ', '.join(missing)))
+
+    @api.constrains('manual_qc_status', 'manual_qc_by', 'stage_no')
+    def _check_stage2_manual_qc_by(self):
+        """Stage 2 must name WHO did the Manual QC before it is signed off Done.
+
+        Enforced on the server (not only via the form's ``required``) because
+        marking Manual QC Done recomputes the status to Deliverable — which locks
+        the record and turns this field read-only in the SAME round-trip, and the
+        web client skips required-validation on a read-only field. So the form
+        alone could be bypassed and the task would lock with no QCer recorded."""
+        for rec in self:
+            if (rec.stage_no and rec.stage_no >= 2
+                    and rec.manual_qc_status == 'done' and not rec.manual_qc_by):
+                raise ValidationError(_(
+                    "Select the Manual QCed By before marking Stage 2 Manual QC "
+                    "as Done."))
 
 
     # ------------------------------------------------------------------ #

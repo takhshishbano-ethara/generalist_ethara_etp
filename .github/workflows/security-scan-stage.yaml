@@ -63,7 +63,7 @@ jobs:
           rm -rf /tmp/aws /tmp/awscliv2.zip
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::426628337772:role/GitHubActionsRole
           aws-region: ap-south-1

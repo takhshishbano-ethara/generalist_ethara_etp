@@ -313,17 +313,12 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
 
         entries = self._persona_entries(create_missing)
 
-        # skip personas already assigned to an allocation (no duplicate personas)
-        existing_ids = [e['persona'].id for e in entries if e['persona']]
-        allocated_ids = set()
-        if existing_ids:
-            Alloc = self.env['project.tracker.allocation']
-            for p, in Alloc._read_group(
-                    [('persona_id', 'in', existing_ids)], ['persona_id']):
-                if p:
-                    allocated_ids.add(p.id)
+        # Personas are reusable: the same persona may be allocated again on
+        # another task/tasker, so nothing is skipped for a prior allocation.
+        # Distribution instead PRIORITISES the least-utilised personas (see
+        # action_start), so reuse spreads evenly across the pool.
         for e in entries:
-            e['skipped'] = bool(e['persona'] and e['persona'].id in allocated_ids)
+            e['skipped'] = False
 
         to_allocate = [e for e in entries if not e['skipped']]
 
@@ -458,12 +453,19 @@ class Kensei2TrackerBulkAllocation(models.TransientModel):
         lines, caps = plan['lines'], plan['caps']
         entries = plan['to_allocate']
 
+        # Prioritise the personas with the LOWEST utilisation (fewest existing
+        # allocations) first — reuse should spread across the pool, not pile onto
+        # the same few. Python's sort is STABLE, so equal-utilisation personas keep
+        # the method's own ordering (file/entry order for Sequential, the random
+        # shuffle for Random) — i.e. the tie-break is the existing allocation logic.
         personas = [e['persona'] for e in entries]
         if self.allocation_method == 'random':
             random.shuffle(personas)
+            personas.sort(key=lambda p: p.pt_allocation_count)
             assignments, unallocated = self._distribute_round_robin(
                 personas, lines, caps)
         else:
+            personas.sort(key=lambda p: p.pt_allocation_count)
             assignments, unallocated = self._distribute_least_loaded(
                 personas, lines, caps)
 
