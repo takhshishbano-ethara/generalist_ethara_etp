@@ -26,9 +26,13 @@
                             string="Merge Selected"
                             help="Merge the selected tags into the most-used one and repoint every project to it."/>
                 </header>
-                <field name="prefix" optional="show" readonly="1"/>
-                <field name="display" string="Readable Name"/>
-                <field name="name" string="Machine Key"/>
+                <field name="prefix" optional="show"
+                       placeholder="e.g. domain"/>
+                <field name="display" string="Readable Name"
+                       placeholder="e.g. AI Image Editing"/>
+                <field name="name" string="Machine Key" readonly="1"
+                       force_save="1"
+                       help="Auto-built from Prefix + Readable Name. Ranking reads this."/>
                 <field name="usage_count" string="Used in Projects" readonly="1"/>
                 <field name="color" widget="color_picker" optional="show"/>
             </list>
@@ -47,8 +51,10 @@
                     </div>
                     <group>
                         <group>
-                            <field name="name" string="Machine Key (facet:value)"/>
-                            <field name="prefix" readonly="1"/>
+                            <field name="prefix"
+                                   placeholder="domain / task / modality / output-format / skill"/>
+                            <field name="name" string="Machine Key (facet:value)"
+                                   readonly="1" force_save="1"/>
                             <field name="label" readonly="1"/>
                         </group>
                         <group>

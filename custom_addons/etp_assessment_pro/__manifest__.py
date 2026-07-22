@@ -18,9 +18,7 @@
         "views/res_config_settings_views.xml",
         "views/assessment_views.xml",
         "views/hr_applicant_views.xml",
-        "views/analytics_views.xml",
         "views/dashboard_views.xml",
-        "views/sop_ranking_views.xml",
         "views/llm_dashboard_views.xml",
         "views/tag_views.xml",
         "views/portal_templates.xml",
@@ -30,12 +28,14 @@
         "views/llm_usage_views.xml",
     ],
     "external_dependencies": {
-        # M-3: pin Pillow to the libwebp-CVE-patched line (CVE-2023-4863 class).
-        # The runtime decompression-bomb cap lives in services/imaging.py
-        # (_harden_pillow sets MAX_IMAGE_PIXELS); this floors the library version
-        # so a stale base image cannot ship the vulnerable libwebp build.
+        # M-3: Pillow floored to the libwebp-CVE-patched line (CVE-2023-4863 class).
+        # NB: Odoo checks each python entry by IMPORTING it, so the entry must be an
+        # import name (PIL), not a pip specifier ("Pillow>=10.3.0" is unimportable
+        # and blocks module install even when a new-enough Pillow is present). The
+        # version FLOOR is enforced at runtime in services/imaging.py (_harden_pillow),
+        # alongside the decompression-bomb cap (MAX_IMAGE_PIXELS).
         "python": ["PyJWT", "httpx", "boto3", "cryptography", "defusedxml",
-                   "Pillow>=10.3.0"],
+                   "PIL"],
     },
     "assets": {
         "web.assets_frontend": [

@@ -1008,8 +1008,14 @@ class TestImageLabelInlineDetection(_Base):
             "image_state": "pending"})
 
     def test_source_url_draft_preview_boxed_from_dense_map_without_detect(self):
+        # A source_url image whose live DOM capture is unavailable (Playwright off)
+        # falls back to the stored dense map for the ADMIN PREVIEW only — this is
+        # the source_url branch, unchanged by the label-position fix (which governs
+        # SYNTHETIC images). Patch Playwright off so the test is deterministic and
+        # never reaches the real page.
         draft = self._source_url_dense_draft()
-        ok, m = self._render(draft)
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", False):
+            ok, m = self._render(draft)
         self.assertTrue(ok)
         m.assert_not_called()                    # dense map -> ZERO Vertex detect
         spec = self._draft_spec(draft)
@@ -1430,30 +1436,46 @@ class TestImageLabelSourceUrlCapture(_Base):
                              "2": "Opens the cart"}}
         return item
 
-    def test_fallback_draws_boxes_from_dense_map_without_detect(self):
+    def test_fallback_detects_after_render_not_from_dense_map(self):
+        # CORRECTED CONTRACT (label-position fix): the generator's dense map holds
+        # coordinates the TEXT model guessed BEFORE the screenshot was rendered, so
+        # they never align with the image the IMAGE model actually drew — the cause
+        # of "labels at the wrong positions". When no live DOM capture is possible,
+        # we now DETECT on the actual rendered pixels (research renderers/ui.py),
+        # never draw the guessed boxes. So detection MUST run.
         img = self._capture_image_with_dense_map()
+        fake_dets = [
+            {"box_2d": [40, 30, 90, 300], "label": "Search",
+             "description": "Focuses the search field"},
+            {"box_2d": [40, 820, 90, 980], "label": "Cart",
+             "description": "Opens the cart"}]
         with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", False), \
-                patch.object(vertex, "detect_image_elements") as det:
+                patch.object(vertex, "detect_image_elements",
+                             return_value=fake_dets) as det:
             self.assertTrue(img._detect_and_annotate())
-        det.assert_not_called()                      # dense map -> ZERO detect calls
+        det.assert_called_once()                      # detect-after-render, not dense map
         img.invalidate_recordset()
         key = json.loads(img.detections_json)
         self.assertEqual([e["number"] for e in key], [1, 2])
         self.assertEqual(key[0]["label"], "Search")
         self.assertTrue(img.annotated_image)
 
-    def test_fallback_dense_map_used_on_capture_error_too(self):
+    def test_capture_error_falls_back_to_detect_after_render(self):
         img = self._capture_image_with_dense_map()
 
         def _boom(*a, **k):
             raise RuntimeError("net unreachable")
 
+        fake_dets = [
+            {"box_2d": [40, 30, 90, 300], "label": "Search",
+             "description": "Focuses the search field"}]
         with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", True), \
                 patch.object(dom_capture, "capture_and_annotate",
                              side_effect=_boom), \
-                patch.object(vertex, "detect_image_elements") as det:
+                patch.object(vertex, "detect_image_elements",
+                             return_value=fake_dets) as det:
             self.assertTrue(img._detect_and_annotate())
-        det.assert_not_called()                      # dense map covers the failure
+        det.assert_called_once()                      # detect-after-render covers the failure
         img.invalidate_recordset()
         self.assertTrue(img.detections_json)
         self.assertTrue(img.annotated_image)
@@ -1466,7 +1488,7 @@ class TestImageLabelSourceUrlCapture(_Base):
         self.assertEqual(geometry[0]["box_2d"], [40, 30, 90, 300])
         self.assertTrue(vals["behavioural_key_json"])
 
-    def test_approve_carries_dense_fallback_then_draws_without_detect(self):
+    def test_approve_carries_dense_map_then_detects_after_render(self):
         prompt = self.env["etp.assessment.pro.prompt"].create({"name": "SUD"})
         vals = vertex._build_image_draft_fields(
             self.env, "image_label", self._source_item_dense())
@@ -1492,10 +1514,19 @@ class TestImageLabelSourceUrlCapture(_Base):
             lambda i: i.slot == "single")[:1]
         self.assertTrue(img.label_boxes_json)        # dense fallback map carried
         self.assertFalse(img.detections_json)        # capture-primary still runs
+        # CORRECTED CONTRACT: with no live DOM capture available, the box geometry
+        # comes from DETECTION on the actual rendered pixels — not the generator's
+        # guessed dense map — so the labels land where the elements really are.
+        fake_dets = [
+            {"box_2d": [40, 30, 90, 300], "label": "Search",
+             "description": "Focuses the search field"},
+            {"box_2d": [40, 820, 90, 980], "label": "Cart",
+             "description": "Opens the cart"}]
         with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", False), \
-                patch.object(vertex, "detect_image_elements") as det:
+                patch.object(vertex, "detect_image_elements",
+                             return_value=fake_dets) as det:
             self.assertTrue(img._detect_and_annotate())
-        det.assert_not_called()
+        det.assert_called_once()
         img.invalidate_recordset()
         self.assertTrue(img.detections_json)
         self.assertTrue(img.annotated_image)

@@ -358,6 +358,12 @@
                                 <t t-if="row['correct']">
                                     <p class="mb-0 text-success"><strong>Correct answer: </strong><t t-out="', '.join(row['correct'])"/></p>
                                 </t>
+                                <t t-if="row.get('feedback')">
+                                    <div class="etp-feedback mt-3 p-3 rounded-3 border-start border-4">
+                                        <div class="fw-semibold small text-uppercase text-muted mb-1"><i class="fa fa-comment-o me-1"/>Grader feedback</div>
+                                        <div style="white-space:pre-wrap;font-size:.9rem" t-out="row['feedback']"/>
+                                    </div>
+                                </t>
                             </div>
                         </t>
                         <div class="d-flex gap-2 mt-4">
@@ -1570,6 +1576,10 @@
                     </p>
                 </div>
 
+                <t t-call="etp_assessment_pro.portal_candidate_nav">
+                    <t t-set="active_tab" t-value="'assessments'"/>
+                </t>
+
                 <t t-if="no_employee">
                     <div class="etp-exam-card etp-state is-info">
                         <div class="etp-state-icon"><i class="fa fa-user-o"/></div>
@@ -1611,67 +1621,6 @@
                         </div>
                     </div>
 
-                    <t t-if="kpis and kpis['scored'] &gt; 0">
-                        <section class="etp-my-analytics">
-                            <h2 class="etp-section-title">My Performance</h2>
-                            <div class="etp-my-hero">
-                                <div class="etp-my-rings">
-                                    <div t-attf-class="etp-acard-ring is-#{'pass' if kpis['pass_rate'] &gt;= 50 else 'fail'}"
-                                         t-attf-style="--etp-ring-pct: #{kpis['pass_rate']};"
-                                         role="img" t-attf-aria-label="Pass rate #{kpis['pass_rate']} percent">
-                                        <span class="etp-acard-ring-val"><b t-out="kpis['pass_rate']"/><small>%</small></span>
-                                    </div>
-                                    <div class="etp-my-ring-cap">Pass rate</div>
-                                </div>
-                                <div class="etp-my-rings">
-                                    <div class="etp-acard-ring is-pass"
-                                         t-attf-style="--etp-ring-pct: #{kpis['avg_score']};"
-                                         role="img" t-attf-aria-label="Average score #{kpis['avg_score']} percent">
-                                        <span class="etp-acard-ring-val"><b t-out="kpis['avg_score']"/><small>%</small></span>
-                                    </div>
-                                    <div class="etp-my-ring-cap">Average score</div>
-                                </div>
-                                <div class="etp-my-kpis">
-                                    <div class="etp-kpi">
-                                        <span class="etp-kpi-num"><t t-out="kpis['best_score']"/>%</span>
-                                        <span class="etp-kpi-label">Best score</span>
-                                    </div>
-                                    <div class="etp-kpi">
-                                        <span class="etp-kpi-num"><t t-out="kpis['passed']"/>/<t t-out="kpis['scored']"/></span>
-                                        <span class="etp-kpi-label">Passed</span>
-                                    </div>
-                                    <div class="etp-kpi">
-                                        <span class="etp-kpi-num"><t t-out="kpis['taken']"/></span>
-                                        <span class="etp-kpi-label">Completed</span>
-                                    </div>
-                                    <div class="etp-kpi" t-if="kpis['awaiting'] &gt; 0">
-                                        <span class="etp-kpi-num"><t t-out="kpis['awaiting']"/></span>
-                                        <span class="etp-kpi-label">Awaiting results</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="etp-my-breakdown" t-if="kpis['breakdown']">
-                                <div class="etp-brk-head">
-                                    <span class="etp-brk-c-name">Assessment</span>
-                                    <span class="etp-brk-c-bar">Your score</span>
-                                    <span class="etp-brk-c-num">Result</span>
-                                </div>
-                                <t t-foreach="kpis['breakdown']" t-as="row">
-                                    <div class="etp-brk-row">
-                                        <span class="etp-brk-name" t-out="row['name']"/>
-                                        <span class="etp-brk-bar">
-                                            <span class="etp-brk-bar-track">
-                                                <span class="etp-brk-bar-fill" t-attf-style="width:#{row['score_pct']}%"/>
-                                            </span>
-                                            <span class="etp-brk-bar-pct"><t t-out="row['score_pct']"/>%</span>
-                                        </span>
-                                        <span t-attf-class="etp-my-verdict is-#{row['result']}"
-                                              t-out="row['result'].capitalize()"/>
-                                    </div>
-                                </t>
-                            </div>
-                        </section>
-                    </t>
                     <t t-if="available">
                         <section class="etp-my-section">
                             <h2 class="etp-section-title">
@@ -1734,6 +1683,153 @@
                                 </t>
                             </div>
                         </section>
+                    </t>
+                </t>
+            </t>
+        </t>
+    </template>
+
+    <!-- Shared candidate portal tab bar: My Assessments | Dashboard -->
+    <template id="portal_candidate_nav" name="ETP - Candidate Nav">
+        <div class="etp-cand-tabs">
+            <a href="/my/pro_assessments"
+               t-attf-class="etp-cand-tab #{'is-active' if active_tab == 'assessments' else ''}">
+                <i class="fa fa-list-ul me-1"/>My Assessments
+            </a>
+            <a href="/my/pro_dashboard"
+               t-attf-class="etp-cand-tab #{'is-active' if active_tab == 'dashboard' else ''}">
+                <i class="fa fa-bar-chart me-1"/>Dashboard
+            </a>
+        </div>
+    </template>
+
+    <!-- Candidate analytics dashboard (own tab), mirrors the admin Assessment
+         Analytics hero: gradient header + rings + KPI cards + progress + breakdown. -->
+    <template id="portal_candidate_dashboard" name="ETP - Candidate Dashboard">
+        <t t-call="etp_assessment_pro.portal_exam_layout">
+            <a href="/web/session/logout?redirect=/web/login"
+               class="o_etp_topbar_link">
+                <i class="fa fa-sign-out me-1"/>Sign out
+            </a>
+            <t t-set="exam_body">
+                <div class="etp-my-head">
+                    <span class="etp-eyebrow">Candidate Portal</span>
+                    <h1 class="etp-my-title">My Dashboard</h1>
+                    <p t-if="not no_employee and employee" class="etp-my-subtitle">
+                        Signed in as <strong t-out="employee.partner_name"/>
+                    </p>
+                </div>
+
+                <t t-call="etp_assessment_pro.portal_candidate_nav">
+                    <t t-set="active_tab" t-value="'dashboard'"/>
+                </t>
+
+                <t t-if="no_employee">
+                    <div class="etp-exam-card etp-state is-info">
+                        <div class="etp-state-icon"><i class="fa fa-user-o"/></div>
+                        <h3>No candidate profile linked</h3>
+                        <p>Your account isn't linked to a candidate record yet, so
+                           there are no results to analyse.</p>
+                    </div>
+                </t>
+                <t t-elif="not kpis or not kpis['has_any']">
+                    <div class="etp-exam-card etp-state is-info">
+                        <div class="etp-state-icon"><i class="fa fa-bar-chart"/></div>
+                        <h3>No results yet</h3>
+                        <p>Once you complete an assessment and results are released,
+                           your performance analytics appear here.</p>
+                    </div>
+                </t>
+                <t t-else="">
+                    <!-- Gradient hero (admin Assessment Analytics look) -->
+                    <div class="etp-cand-hero">
+                        <span class="etp-cand-hero-badge"><i class="fa fa-bolt me-1"/>ETP Assessment Pro</span>
+                        <h2 class="etp-cand-hero-title">My Performance</h2>
+                        <p class="etp-cand-hero-sub">Live outcomes across your assessments and scores</p>
+                        <span class="etp-cand-hero-live"><span class="etp-live-dot"/> Released results only</span>
+                    </div>
+
+                    <t t-if="kpis['scored'] &gt; 0">
+                        <!-- OVERVIEW rings -->
+                        <div class="etp-cand-eyebrow">OVERVIEW</div>
+                        <div class="etp-cand-overview">
+                            <div class="etp-cand-ring-wrap">
+                                <div t-attf-class="etp-acard-ring is-#{'pass' if kpis['pass_rate'] &gt;= 50 else 'fail'}"
+                                     t-attf-style="--etp-ring-pct: #{kpis['pass_rate']};"
+                                     role="img" t-attf-aria-label="Pass rate #{kpis['pass_rate']} percent">
+                                    <span class="etp-acard-ring-val"><b t-out="kpis['pass_rate']"/><small>%</small></span>
+                                </div>
+                                <div class="etp-cand-ring-cap">PASS RATE<small>of your scored attempts</small></div>
+                            </div>
+                            <div class="etp-cand-ring-wrap">
+                                <div class="etp-acard-ring is-pass"
+                                     t-attf-style="--etp-ring-pct: #{kpis['avg_score']};"
+                                     role="img" t-attf-aria-label="Average score #{kpis['avg_score']} percent">
+                                    <span class="etp-acard-ring-val"><b t-out="kpis['avg_score']"/><small>%</small></span>
+                                </div>
+                                <div class="etp-cand-ring-cap">AVG SCORE<small>mean result</small></div>
+                            </div>
+                            <div class="etp-cand-ring-wrap">
+                                <div class="etp-acard-ring is-pass"
+                                     t-attf-style="--etp-ring-pct: #{kpis['best_score']};"
+                                     role="img" t-attf-aria-label="Best score #{kpis['best_score']} percent">
+                                    <span class="etp-acard-ring-val"><b t-out="kpis['best_score']"/><small>%</small></span>
+                                </div>
+                                <div class="etp-cand-ring-cap">BEST SCORE<small>your top result</small></div>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- KEY METRICS cards -->
+                    <div class="etp-cand-eyebrow">KEY METRICS</div>
+                    <div class="etp-cand-kpis">
+                        <div class="etp-cand-kpi"><span class="etp-cand-kpi-num" t-out="kpis['taken']"/><span class="etp-cand-kpi-label">Completed</span></div>
+                        <div class="etp-cand-kpi"><span class="etp-cand-kpi-num" t-out="kpis['scored']"/><span class="etp-cand-kpi-label">Scored</span></div>
+                        <div class="etp-cand-kpi is-pass"><span class="etp-cand-kpi-num" t-out="kpis['passed']"/><span class="etp-cand-kpi-label">Passed</span></div>
+                        <div class="etp-cand-kpi is-fail"><span class="etp-cand-kpi-num" t-out="kpis['scored'] - kpis['passed']"/><span class="etp-cand-kpi-label">Failed</span></div>
+                        <div class="etp-cand-kpi is-wait"><span class="etp-cand-kpi-num" t-out="kpis['awaiting']"/><span class="etp-cand-kpi-label">Awaiting</span></div>
+                    </div>
+
+                    <!-- PROGRESS bars -->
+                    <t t-if="kpis['scored'] &gt; 0">
+                        <div class="etp-cand-eyebrow">PROGRESS</div>
+                        <div class="etp-cand-progress">
+                            <div class="etp-cand-prow">
+                                <span class="etp-cand-plabel"><i class="fa fa-check-circle me-1 text-success"/>Passed</span>
+                                <span class="etp-cand-ptrack"><span class="etp-cand-pfill is-pass" t-attf-style="width:#{int(round(kpis['passed']*100.0/kpis['scored'])) if kpis['scored'] else 0}%"/></span>
+                                <span class="etp-cand-pcount"><t t-out="kpis['passed']"/>/<t t-out="kpis['scored']"/></span>
+                            </div>
+                            <div class="etp-cand-prow">
+                                <span class="etp-cand-plabel"><i class="fa fa-times-circle me-1 text-danger"/>Failed</span>
+                                <span class="etp-cand-ptrack"><span class="etp-cand-pfill is-fail" t-attf-style="width:#{int(round((kpis['scored']-kpis['passed'])*100.0/kpis['scored'])) if kpis['scored'] else 0}%"/></span>
+                                <span class="etp-cand-pcount"><t t-out="kpis['scored'] - kpis['passed']"/>/<t t-out="kpis['scored']"/></span>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- BREAKDOWN table -->
+                    <t t-if="kpis['breakdown']">
+                        <div class="etp-cand-eyebrow">BREAKDOWN</div>
+                        <div class="etp-my-breakdown">
+                            <div class="etp-brk-head">
+                                <span class="etp-brk-c-name">Assessment</span>
+                                <span class="etp-brk-c-bar">Your score</span>
+                                <span class="etp-brk-c-num">Result</span>
+                            </div>
+                            <t t-foreach="kpis['breakdown']" t-as="row">
+                                <div class="etp-brk-row">
+                                    <span class="etp-brk-name" t-out="row['name']"/>
+                                    <span class="etp-brk-bar">
+                                        <span class="etp-brk-bar-track">
+                                            <span class="etp-brk-bar-fill" t-attf-style="width:#{row['score_pct']}%"/>
+                                        </span>
+                                        <span class="etp-brk-bar-pct"><t t-out="row['score_pct']"/>%</span>
+                                    </span>
+                                    <span t-attf-class="etp-my-verdict is-#{row['result']}"
+                                          t-out="row['result'].capitalize()"/>
+                                </div>
+                            </t>
+                        </div>
                     </t>
                 </t>
             </t>

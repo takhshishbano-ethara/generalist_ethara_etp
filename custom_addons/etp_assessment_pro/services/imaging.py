@@ -15,11 +15,25 @@ def _harden_pillow():
     """M-3: bound Pillow's decompression-bomb exposure. A crafted image with a
     huge declared canvas (CVE-2023-4863 libwebp class + generic DoS) can pin RAM
     when opened. Cap the pixel count so PIL raises DecompressionBombError instead
-    of allocating gigabytes. 64MP is far above any real question stimulus."""
+    of allocating gigabytes. 64MP is far above any real question stimulus.
+
+    Also enforce the M-3 version FLOOR here (the manifest can only assert PIL is
+    importable, not its version): a Pillow older than 10.3.0 ships the vulnerable
+    libwebp build, so log loudly if the runtime is stale."""
     try:
         from PIL import Image
         Image.MAX_IMAGE_PIXELS = 64_000_000
     except Exception:  # noqa: BLE001 - never break rendering if PIL is odd
+        return
+    try:
+        import logging
+        from PIL import __version__ as _pil_ver
+        parts = tuple(int(x) for x in _pil_ver.split(".")[:2])
+        if parts < (10, 3):
+            logging.getLogger(__name__).error(
+                "etp_assessment M-3: Pillow %s is BELOW the 10.3.0 security floor "
+                "(CVE-2023-4863 libwebp class). Upgrade Pillow>=10.3.0.", _pil_ver)
+    except Exception:  # noqa: BLE001 - version check must never break rendering
         pass
 
 

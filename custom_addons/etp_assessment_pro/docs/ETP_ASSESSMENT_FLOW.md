@@ -348,7 +348,6 @@ Key facts: two candidate collections coexist on the container - `evaluator_ids` 
 | `etp.assessment.pro.llm.dashboard` "LLM Budget" - cost by operation/model/**project**; **tokens split input/output/thinking** (`thoughts_total`, `chart_tokens_by_operation_html` `llm_dashboard.py:27/37`); video seconds; single consolidated menu | `llm_dashboard.py:14`, `llm_dashboard_views.xml` |
 | `etp.assessment.pro.llm.usage` cost ledger (operations incl. `submit_video_op`, `consolidate_vocab`) | `llm_usage.py:7`, `:12` |
 | **Tags admin UI** - editable list/form + **Merge** action (repoints `prompt.tag_ids` to the survivor, then unlinks losers), `usage_count` popularity, `display` readable-name column | `views/tag_views.xml`, `tag.py:53` |
-| Analytics graph/pivot over evaluator (+ `applicant_id` group-by) | `analytics_views.xml` |
 
 ### G. Security, cron, mail, migrations
 

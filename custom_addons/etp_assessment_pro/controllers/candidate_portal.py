@@ -134,7 +134,6 @@ class EtpCandidatePortal(http.Controller):
 
         total_count = (len(available) + len(in_progress)
                        + len(upcoming) + len(completed))
-        kpis = self._candidate_kpis(completed)
         return request.render(
             "etp_assessment_pro.portal_my_assessments",
             {
@@ -145,7 +144,31 @@ class EtpCandidatePortal(http.Controller):
                 "upcoming": upcoming,
                 "completed": completed,
                 "total_count": total_count,
+                "active_tab": "assessments",
+            })
+
+    @http.route("/my/pro_dashboard", type="http", auth="user", website=True)
+    def my_dashboard(self, **kw):
+        """Candidate analytics dashboard — the same headline KPIs + per-assessment
+        breakdown as before, but on its own tab (mirrors the admin Assessment
+        Analytics look) instead of sitting on top of the assessments list."""
+        applicant = self._resolve_applicant()
+        if not applicant:
+            return request.render(
+                "etp_assessment_pro.portal_candidate_dashboard",
+                {"no_employee": True, "kpis": None, "active_tab": "dashboard"})
+        evaluators = request.env["etp.assessment.pro.evaluator"].sudo().search(
+            [("applicant_id", "=", applicant.id)], order="create_date desc")
+        completed = [self._single_item(ev) for ev in evaluators]
+        completed = [c for c in completed if c["state"] == "completed"]
+        kpis = self._candidate_kpis(completed)
+        return request.render(
+            "etp_assessment_pro.portal_candidate_dashboard",
+            {
+                "no_employee": False,
+                "employee": applicant,
                 "kpis": kpis,
+                "active_tab": "dashboard",
             })
 
     def _candidate_kpis(self, completed):

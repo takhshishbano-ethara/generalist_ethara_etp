@@ -462,11 +462,27 @@ def _looks_like_questions(system_prompt, user_text):
     return ("Generate exactly" in ut or "SKILL TO TEST" in ut)
 
 
+def _multipass_note(kwargs):
+    """The P2 quality passes tag their _call_vertex with usage_ctx['note'] =
+    'critique' / 'coverage-topup' / 'solutions-backfill'. Route off that so the
+    mock can exercise the multi-pass path deterministically (and so call-count
+    assertions can prove each pass fired)."""
+    ctx = kwargs.get("usage_ctx") or {}
+    return (ctx.get("note") or "") if isinstance(ctx, dict) else ""
+
+
+def _usage_operation(kwargs):
+    ctx = kwargs.get("usage_ctx") or {}
+    return (ctx.get("operation") or "") if isinstance(ctx, dict) else ""
+
+
 def _routing_side_effect(env=None, responses=None,
-                         skills=None, questions=None):
+                         skills=None, questions=None,
+                         topup=None, critique=None, backfill=None):
     """Build a side_effect(env, system_prompt, user_text, **kw) that returns the
     right JSON string per call: scoring -> score_payload, question-gen ->
-    ``questions``/questions_mcq_payload, else -> ``skills``/skills_payload."""
+    ``questions``/questions_mcq_payload, the P2 passes (coverage-topup /
+    solutions-backfill / critique) -> their payloads, else -> skills_payload."""
     skills_str = skills if skills is not None else skills_payload()
     questions_str = questions if questions is not None else questions_mcq_payload()
     resp_recs = responses
@@ -479,6 +495,21 @@ def _routing_side_effect(env=None, responses=None,
                 # submitted items so the scorer still matches every row.
                 recs = _ids_from_items(user_text)
             return score_payload(recs)
+        note = _multipass_note(kwargs)
+        if note == "coverage-topup":
+            # Default: an EMPTY questions array (no shortfall to fill) — a test
+            # that wants real top-up passes ``topup=`` an envelope payload.
+            return topup if topup is not None else '{"questions": [], "solutions": []}'
+        if note == "solutions-backfill":
+            return backfill if backfill is not None else "[]"
+        if note == "critique":
+            # Default: no corrections, no issues — critique is a safe no-op.
+            return critique if critique is not None else '{"solutions": [], "issues": []}'
+        # Primary SOP question generation: keyed by operation, so it matches even
+        # when the directive text ("Generate exactly" vs the fallback wording)
+        # varies. The multipass notes above are already handled.
+        if _usage_operation(kwargs) == "generate_questions":
+            return questions_str
         if _looks_like_questions(system_prompt, user_text):
             return questions_str
         return skills_str
@@ -507,6 +538,7 @@ class _Refusal:
 @contextlib.contextmanager
 def mock_vertex(return_value=None, *, mode="route", env=None, responses=None,
                 skills=None, questions=None, side_effect=None,
+                topup=None, critique=None, backfill=None,
                 refusal_message="mocked refusal: the model declined"):
     """Patch ``vertex._call_vertex`` for the duration of the block.
 
@@ -543,7 +575,8 @@ def mock_vertex(return_value=None, *, mode="route", env=None, responses=None,
             vertex, "_call_vertex",
             side_effect=_routing_side_effect(
                 env=env, responses=responses,
-                skills=skills, questions=questions))
+                skills=skills, questions=questions,
+                topup=topup, critique=critique, backfill=backfill))
     with cm as m:
         yield m
 

@@ -310,6 +310,15 @@ class EtpAssessmentPortal(http.Controller):
                 "verdict": verdict,
                 "badge": badge_map.get(kind, "text-bg-secondary"),
                 "score_pct": score_pct,
+                # Candidate-facing grader feedback for subjective/graded answers.
+                # Only surfaced once results are released (the /answers route already
+                # gates on results_released) and only for a genuinely scored answer,
+                # so an un-graded or objective row shows no empty feedback block.
+                "feedback": (
+                    (r.llm_feedback or "").strip()
+                    if r and qtype not in ("mcq", "msq")
+                    and r.llm_state == "scored"
+                    else ""),
             })
         return rows
 

@@ -17,9 +17,20 @@ class EtpAssessmentTag(models.Model):
     _description = "SOP Semantic Tag"
     _order = "name"
 
-    name = fields.Char(required=True, index=True)
-    prefix = fields.Char(compute="_compute_parts", store=True)
-    label = fields.Char(compute="_compute_parts", store=True)
+    name = fields.Char(
+        required=True, index=True,
+        help="Machine key (facet:value, e.g. domain:ai-image-editing). Ranking "
+             "reads this. Auto-built from Prefix + Readable Name when you add a "
+             "tag by hand; set directly by the extraction LLM.")
+    # Prefix is a REAL writable field so a human can pick the facet when adding a
+    # tag by hand (the machine key is then auto-built). It is still kept in sync
+    # from `name` for LLM-created rows (which write `name` directly) via the
+    # create/write hooks below, so ranking-facing prefix is always correct.
+    prefix = fields.Char(
+        help="Facet this tag belongs to (domain, task, modality, output-format, "
+             "skill). Pick it and type a Readable Name — the Machine Key builds "
+             "itself.")
+    label = fields.Char(compute="_compute_label", store=True)
     # Human-readable, growth-facing alias PINNED to this key (2-5 plain words,
     # Title Case, no facet prefix). Minted by the extraction LLM the first time a
     # key is coined; reused verbatim on every later SOP that reuses the key. The
@@ -88,16 +99,125 @@ class EtpAssessmentTag(models.Model):
         }
 
     @api.depends("name")
-    def _compute_parts(self):
+    def _compute_label(self):
         for rec in self:
             raw = (rec.name or "").strip()
-            if ":" in raw:
-                prefix, label = raw.split(":", 1)
-                rec.prefix = prefix
-                rec.label = label
-            else:
-                rec.prefix = ""
-                rec.label = raw
+            rec.label = raw.split(":", 1)[1] if ":" in raw else raw
+
+    @api.onchange("prefix", "display")
+    def _onchange_build_machine_key(self):
+        """Human add-path: pick a Prefix + type a Readable Name and the Machine
+        Key (name) builds itself as ``prefix:canonicalized-readable-name`` — the
+        same canonical form the LLM/extraction path produces, so a hand-added tag
+        is indistinguishable from an extracted one and reuses cleanly."""
+        prefix = self._canonicalize(self.prefix or "")
+        label = self._canonicalize(self.display or "")
+        if prefix and label:
+            self.name = "%s:%s" % (prefix, label)
+        elif label and not prefix:
+            # No prefix yet: still give a canonical value so the key is never a
+            # raw human phrase; the constrains below nudges toward a known facet.
+            self.name = label
+
+    @api.constrains("prefix")
+    def _check_prefix_known(self):
+        """Keep the vocabulary faceted: a hand-typed prefix must be one of the
+        known facets (same set the extraction prompt uses), so manual tags can
+        never fragment the ranking taxonomy."""
+        for rec in self:
+            p = (rec.prefix or "").strip().lower()
+            if p and p not in _KNOWN_FACETS:
+                raise ValidationError(
+                    "Prefix '%s' is not a known facet. Use one of: %s."
+                    % (rec.prefix, ", ".join(_KNOWN_FACETS)))
+
+    @api.constrains("name")
+    def _check_machine_key_shape(self):
+        """A machine key is facet:value in canonical form. Reject a stray raw
+        phrase (spaces / uppercase) so ranking keys stay clean regardless of how
+        the row was created."""
+        for rec in self:
+            raw = (rec.name or "").strip()
+            if not raw:
+                continue
+            if raw != self._canonicalize(raw):
+                raise ValidationError(
+                    "Machine Key '%s' is not canonical. Use lowercase "
+                    "facet:value with hyphens (e.g. domain:ai-image-editing)."
+                    % rec.name)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            self._sync_key_and_prefix(vals)
+        return super().create(vals_list)
+
+    def write(self, vals):
+        # Only rebuild the machine key when a key-driving field is in play, so a
+        # plain recolour / usage refresh never rewrites the key. When a rebuild is
+        # needed the derived name differs per record, so write each record on its
+        # own to avoid cross-contaminating a multi-record write with one name.
+        if not any(k in vals for k in ("prefix", "display", "name")):
+            return super().write(vals)
+        if len(self) > 1:
+            ok = True
+            for rec in self:
+                ok = rec.write(dict(vals)) and ok
+            return ok
+        rec = self
+        if "name" in vals:
+            # Explicit machine-key write (LLM / import): trust it, derive prefix.
+            sync = {"name": vals["name"]}
+            self._sync_key_and_prefix(sync)
+            vals = dict(vals, name=sync["name"])
+            if sync.get("prefix"):
+                vals["prefix"] = sync["prefix"]
+        else:
+            # Display/prefix edit. Rebuild the machine key ONLY when the human is
+            # actively (re)keying — i.e. they changed the prefix, or the row has no
+            # canonical facet:value yet. A plain display-pin update on an already
+            # keyed tag (the LLM _get_or_create path) must NOT re-mint the key, or
+            # the one-key-one-display invariant the ranker relies on would break.
+            has_canonical_key = bool(rec.name and ":" in rec.name
+                                     and rec.name == self._canonicalize(rec.name))
+            rekeying = ("prefix" in vals) or not has_canonical_key
+            if rekeying:
+                sync = {
+                    "prefix": vals.get("prefix", rec.prefix),
+                    "display": vals.get("display", rec.display),
+                }
+                self._sync_key_and_prefix(sync)
+                if sync.get("name") and sync["name"] != rec.name:
+                    vals = dict(vals, name=sync["name"])
+                if sync.get("prefix") and sync["prefix"] != rec.prefix:
+                    vals = dict(vals, prefix=sync["prefix"])
+        return super().write(vals)
+
+    @api.model
+    def _sync_key_and_prefix(self, vals, existing_name=None):
+        """Normalize a create/write vals dict so name (machine key) and prefix
+        stay consistent whichever field the caller supplied:
+          - human path: prefix + display -> build canonical name
+          - LLM path: name given -> derive prefix from it
+        """
+        name = (vals.get("name") or "").strip()
+        prefix = (vals.get("prefix") or "").strip().lower()
+        display = (vals.get("display") or "").strip()
+        # If the caller gave a real machine key, trust it and derive the prefix.
+        if name:
+            canon = self._canonicalize(name)
+            vals["name"] = canon
+            if ":" in canon:
+                vals["prefix"] = canon.split(":", 1)[0]
+            return
+        # Otherwise build the key from prefix + readable name (human add-path).
+        label = self._canonicalize(display)
+        cpref = self._canonicalize(prefix)
+        if cpref and label:
+            vals["name"] = "%s:%s" % (cpref, label)
+            vals["prefix"] = cpref
+        elif label:
+            vals["name"] = label
 
     @api.depends("name", "label", "display")
     @api.depends_context("etp_hide_tag_prefix")
@@ -143,6 +263,10 @@ class EtpAssessmentTag(models.Model):
         text = _CANON_KEEP_RE.sub("", text)
         text = _CANON_DASH_RE.sub("-", text)
         text = _CANON_COLON_RE.sub(":", text)
+        # Strip hyphens that hug a colon ("domain:-ai" from "Domain: AI") and any
+        # leading/trailing separators, then drop empty segments, so a facet:value
+        # is always clean regardless of spacing around the colon.
+        text = re.sub(r"-*:-*", ":", text)
         text = text.strip("-:")
         return text
 
