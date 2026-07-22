@@ -52,12 +52,18 @@ class CalendarEvent(models.Model):
         ("cancelled", "Cancelled"),
     ], compute="_compute_interview_status", store=True)
 
-    @api.depends("active", "start", "stop", "evaluation_submitted")
+    @api.depends("active", "start", "stop", "evaluation_submitted", "candidate_id")
     def _compute_interview_status(self):
         now = fields.Datetime.now()
         for rec in self:
+            if not rec.candidate_id:
+                rec.interview_status = False
+                continue
             if not rec.active:
                 rec.interview_status = "cancelled"
+                continue
+            if rec.evaluation_submitted:
+                rec.interview_status = "completed"
                 continue
             if not rec.start or not rec.stop:
                 rec.interview_status = "upcoming"
@@ -65,7 +71,7 @@ class CalendarEvent(models.Model):
             if rec.start > now:
                 rec.interview_status = "upcoming"
             elif rec.stop < now:
-                rec.interview_status = "completed" if rec.evaluation_submitted else "needs_evaluation"
+                rec.interview_status = "needs_evaluation"
             else:
                 rec.interview_status = "in_progress"
 
@@ -157,6 +163,8 @@ class CalendarEvent(models.Model):
                 new_status = "pi_selected"
             elif verdict == "reject":
                 new_status = "pi_rejected"
+            elif verdict == "hold":
+                new_status = "pi_hold"
             elif events:
                 new_status = "pi_completed"
             else:
@@ -175,8 +183,8 @@ class CalendarEvent(models.Model):
         for rec in self:
             for field_name in WEIGHTS:
                 value = getattr(rec, field_name)
-                if value and not (1 <= value <= 10):
+                if value is not None and not (0 <= value <= 10):
                     raise ValidationError(_(
-                        "%(field)s must be between 1 and 10.",
+                        "%(field)s must be between 0 and 10.",
                         field=self._fields[field_name].string,
                     ))

@@ -3,6 +3,8 @@ import { useState, onWillStart, onWillUnmount } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { router } from "@web/core/browser/router";
 import { Kensei2DashboardBase } from "@project_tracker/dashboard_base/dashboard_base";
+import { PtChart } from "@project_tracker/pt_chart/pt_chart";
+import { CHART_COLORS, PIPELINE_COLORS } from "@project_tracker/pt_chart/chart_colors";
 
 // member_id must survive the URL. When a client action mounts, the action manager
 // runs its OWN router.pushState(..., {replace:true}); replace mode keeps ONLY the
@@ -19,6 +21,7 @@ router.addLockedKey("member_id");
  */
 export class Kensei2TaskerDashboard extends Kensei2DashboardBase {
     static template = "project_tracker.TaskerDashboard";
+    static components = { PtChart };
 
     setup() {
         super.setup();
@@ -50,11 +53,20 @@ export class Kensei2TaskerDashboard extends Kensei2DashboardBase {
             kpis: [],
             funnel: [],
             recent: [],
+            trend: [],
+            stageMix: { stage1: 0, stage2: 0 },
+            feedbackOutcomes: { shippable: 0, rework: 0, rejected: 0 },
+            deliveryRate: null,
+            viewMode: "overview",
             dateFrom: "",
             dateTo: "",
             lastUpdated: "",
         });
         onWillStart(() => this._load());
+    }
+
+    setViewMode(mode) {
+        this.state.viewMode = mode;
     }
 
     async _load() {
@@ -79,10 +91,117 @@ export class Kensei2TaskerDashboard extends Kensei2DashboardBase {
         this.state.kpis = res.kpis || [];
         this.state.funnel = res.funnel || [];
         this.state.recent = res.recent || [];
+        this.state.trend = res.trend || [];
+        this.state.stageMix = res.stage_mix || { stage1: 0, stage2: 0 };
+        this.state.feedbackOutcomes = res.feedback_outcomes || { shippable: 0, rework: 0, rejected: 0 };
+        this.state.deliveryRate = res.delivery_rate ?? null;
     }
 
     get title() {
         return this.memberId ? this.state.subject.name || "Tasker" : "My Dashboard";
+    }
+
+    // ---- Chart.js data + options (Charts view) --------------------------
+    get trendComboChartData() {
+        const t = this.state.trend;
+        const vals = t.map((d) => d.value);
+        const roll = vals.map((_v, i) => {
+            const win = vals.slice(Math.max(0, i - 6), i + 1);
+            return Math.round((win.reduce((a, b) => a + b, 0) / win.length) * 10) / 10;
+        });
+        return {
+            labels: t.map((d) => d.label),
+            datasets: [
+                {
+                    type: "bar", label: "Completed", data: vals,
+                    backgroundColor: "rgba(52,195,143,0.35)",
+                    borderColor: CHART_COLORS.delivered, borderWidth: 1,
+                    borderRadius: 3, order: 2,
+                },
+                {
+                    type: "line", label: "7-day avg", data: roll,
+                    borderColor: CHART_COLORS.purple, backgroundColor: "transparent",
+                    tension: 0.35, pointRadius: 0, borderWidth: 2, order: 1,
+                },
+            ],
+        };
+    }
+
+    get comboOptions() {
+        return {
+            plugins: { legend: { position: "bottom" } },
+            scales: {
+                x: { grid: { display: false } },
+                y: { beginAtZero: true, grid: { color: CHART_COLORS.grid } },
+            },
+        };
+    }
+
+    get pipelineChartData() {
+        const f = this.state.funnel;
+        return {
+            labels: f.map((c) => c.label),
+            datasets: [{
+                data: f.map((c) => c.value || 0),
+                backgroundColor: f.map((c) => PIPELINE_COLORS[c.key] || CHART_COLORS.purple),
+                borderColor: "#fff", borderWidth: 1,
+            }],
+        };
+    }
+
+    get pipelineChartOptions() {
+        return { plugins: { legend: { position: "right" } }, cutout: "55%" };
+    }
+
+    get stageMixChartData() {
+        const s = this.state.stageMix;
+        return {
+            labels: ["Stage 1", "Stage 2"],
+            datasets: [{
+                data: [s.stage1, s.stage2],
+                backgroundColor: [CHART_COLORS.purple, CHART_COLORS.teal],
+                borderWidth: 0,
+            }],
+        };
+    }
+
+    get feedbackChartData() {
+        const f = this.state.feedbackOutcomes;
+        return {
+            labels: ["Shippable", "Rework", "Rejected"],
+            datasets: [{
+                data: [f.shippable, f.rework, f.rejected],
+                backgroundColor: [CHART_COLORS.delivered, CHART_COLORS.amber, CHART_COLORS.failed],
+                borderWidth: 0,
+            }],
+        };
+    }
+
+    get gaugeValue() {
+        return this.state.deliveryRate ?? null;
+    }
+
+    get gaugeChartData() {
+        const v = this.gaugeValue || 0;
+        return {
+            labels: ["Completed", "Remaining"],
+            datasets: [{
+                data: [v, Math.max(0, 100 - v)],
+                backgroundColor: [CHART_COLORS.delivered, "#eceff3"],
+                borderWidth: 0,
+            }],
+        };
+    }
+
+    get gaugeOptions() {
+        return {
+            rotation: -90, circumference: 180, cutout: "72%",
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        };
+    }
+
+    get doughnutOptions() {
+        return { plugins: { legend: { position: "bottom" } }, cutout: "62%" };
     }
 
     // ---- CSV export -----------------------------------------------------

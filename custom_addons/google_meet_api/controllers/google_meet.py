@@ -46,11 +46,14 @@ def _html_to_text(html):
 
 def _interviewee_dict(applicant, assessment):
     job = applicant.job_id
+    stage = applicant.stage_id
     return {
         "id": applicant.id,
-        "name": applicant.partner_name or applicant.name or "",
+        "name": applicant.partner_name or applicant.email_from or f"#{applicant.id}",
         "email": applicant.email_from or "",
         "phone": applicant.partner_phone or "",
+        "stage": ({"id": stage.id, "name": stage.name} if stage else None),
+        "status": applicant.status if "status" in applicant._fields else None,
         "job": {
             "id": job.id,
             "name": job.name,
@@ -60,11 +63,17 @@ def _interviewee_dict(applicant, assessment):
             ),
             "description_html": job.description or None,
             "description_text": _html_to_text(job.description),
+            "requirements_html": (getattr(job, "requirements", None) or None),
+            "requirements_text": _html_to_text(getattr(job, "requirements", None)),
         } if job else None,
         "resume": {
             "url": applicant.resume_url or None,
             "score": getattr(applicant, "resume_score", None) or None,
             "recommendation": applicant.resume_recommendation or None,
+            "summary": getattr(applicant, "resume_summary", None) or None,
+            "strengths": getattr(applicant, "resume_strengths", None) or None,
+            "gaps": getattr(applicant, "resume_gaps", None) or None,
+            "screened_at": _iso(getattr(applicant, "resume_screened_at", None)),
         },
         "assessment": {
             "id": assessment.id,
@@ -378,7 +387,7 @@ def _active_upcoming_event_for(candidate_id):
         [
             ("candidate_id", "=", candidate_id),
             ("active", "=", True),
-            ("stop", ">=", datetime.utcnow()),
+            ("interview_status", "in", ("upcoming", "in_progress")),
         ],
         limit=1,
         order="start desc",
@@ -583,6 +592,11 @@ class GoogleMeetApi(http.Controller):
             cid = _coerce_int(params["candidate_id"])
             if cid is not None:
                 domain.append(("candidate_id", "=", cid))
+        has_candidate = _coerce_bool(params.get("has_candidate"))
+        if has_candidate is True:
+            domain.append(("candidate_id", "!=", False))
+        elif has_candidate is False:
+            domain.append(("candidate_id", "=", False))
         if params.get("status"):
             domain.append(("interview_status", "=", params["status"].strip()))
         if params.get("from_date"):
@@ -601,11 +615,21 @@ class GoogleMeetApi(http.Controller):
         records = Event.search(
             domain, offset=offset, limit=limit, order="start desc",
         )
+        FINALIZED = ("pi_selected", "pi_rejected", "pi_hold")
+        deduped = []
+        seen_finalized_candidates = set()
+        for rec in records:
+            cand = rec.candidate_id
+            if cand and cand.status in FINALIZED:
+                if cand.id in seen_finalized_candidates:
+                    continue
+                seen_finalized_candidates.add(cand.id)
+            deduped.append(rec)
         return return_Response(
             message="OK",
             status=200,
             data={
-                "events": [_event_dict(rec) for rec in records],
+                "events": [_event_dict(rec) for rec in deduped],
                 "pagination": _pagination_block(total, page, limit),
             },
         )
@@ -770,6 +794,46 @@ class GoogleMeetApi(http.Controller):
         )
 
     @http.route(
+        EVENTS_BASE + "/<int:eid>/score",
+        type="http", auth="none", methods=["POST", "PUT", "PATCH"], csrf=False, cors="*",
+        readonly=False,
+    )
+    @validate_token
+    @_handle_errors
+    def google_meet_event_score(self, eid, **kwargs):
+        rec, err = _event_or_404(eid)
+        if err is not None:
+            return err
+        data, err = _read_json_body()
+        if err is not None:
+            return err
+
+        vals = {}
+        for score_field in (
+            "technical_skills_score", "communication_score",
+            "problem_solving_score", "cultural_fit_score",
+            "attitude_motivation_score",
+        ):
+            if score_field in data:
+                sv = _coerce_int(data[score_field])
+                if sv is None or not (0 <= sv <= 10):
+                    msg = f"{score_field} must be integer 0-10."
+                    return return_Response(message=msg, status=400, errors=[msg])
+                vals[score_field] = sv
+        if "evaluation_notes" in data:
+            vals["evaluation_notes"] = data.get("evaluation_notes") or False
+        if not vals:
+            msg = "Provide at least one score field or evaluation_notes."
+            return return_Response(message=msg, status=400, errors=[msg])
+
+        rec.sudo().with_context(dont_notify=True).write({**vals, "need_sync": False})
+        return return_Response(
+            message="Scores saved.",
+            status=200,
+            data={"event": _event_dict(rec)},
+        )
+
+    @http.route(
         EVENTS_BASE + "/<int:eid>",
         type="http", auth="none", methods=["DELETE"], csrf=False, cors="*",
         readonly=False,
@@ -809,10 +873,15 @@ class GoogleMeetApi(http.Controller):
             request.env["calendar.event"].sudo().search([
                 ("candidate_id", "!=", False),
                 ("active", "=", True),
-                ("stop", ">=", datetime.utcnow()),
+                ("interview_status", "in", ("upcoming", "in_progress")),
             ]).mapped("candidate_id.id")
         )
-        pairs = [(app, a) for (app, a) in pairs if app.id not in scheduled_candidate_ids]
+        SCHEDULABLE_STATUSES = ("assessment_passed", "pi_completed", "pi_hold")
+        pairs = [
+            (app, a) for (app, a) in pairs
+            if app.id not in scheduled_candidate_ids
+            and (app.status in SCHEDULABLE_STATUSES or not app.status)
+        ]
 
         job_id = _coerce_int(params.get("job_id"))
         if job_id:
@@ -1145,6 +1214,7 @@ class GoogleMeetApi(http.Controller):
             "allday": False,
             "is_google_meet": is_online,
             "description": "".join(description_parts) or False,
+            "user_id": request.env.user.id,
         }
         if candidate:
             vals["candidate_id"] = candidate.id

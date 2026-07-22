@@ -64,6 +64,7 @@
           <field name="stage_no" string="Stage"/>
           <field name="tasker_name" string="Tasker"/>
           <field name="persona_id" optional="show"/>
+          <field name="persona_domain" string="Domain" optional="show"/>
           <field name="project_id" optional="show"/>
           <field name="assigned_pl_id" string="PL" optional="show"/>
 
@@ -196,6 +197,7 @@
             <field name="has_stage_2" invisible="1"/>
             <field name="is_locked" invisible="1"/>
             <field name="is_doc_locked" invisible="1"/>
+            <field name="is_task_delivered" invisible="1"/>
             <field name="days_in_status" invisible="1"/>
             <field name="qc_candidate_ids" invisible="1"/>
             <field name="pl_candidate_ids" invisible="1"/>
@@ -265,6 +267,10 @@
                      project, and the same persona may be allocated many times. -->
                 <field name="persona_id" readonly="not is_manager"
                        options="{'no_open': True}"/>
+                <!-- The persona's Domain, surfaced with the task details. Read-only
+                     — it is a property of the persona, edited on the persona. -->
+                <field name="persona_domain" string="Domain" readonly="1"
+                       invisible="not persona_domain"/>
                 <field name="project_id" readonly="not is_manager"
                        options="{'no_create_edit': True, 'no_open': True}"/>
                 <field name="project_type" invisible="1"/>
@@ -319,6 +325,8 @@
                     <field name="s1_manual_qc_status" string="Manual QC" readonly="1"/>
                     <field name="s1_qced_by" string="QCed By" readonly="1"
                            options="{'no_open': True}"/>
+                    <field name="s1_manual_qc_by" string="Manual QCed By" readonly="1"
+                           invisible="not s1_manual_qc_by" options="{'no_open': True}"/>
                     <field name="s1_rubric_score" string="Rubric (%)" readonly="1"/>
                     <field name="s1_pytest_score" string="Pytest (%)" readonly="1"/>
                     <field name="s1_overall_score" string="Overall (%)" readonly="1"/>
@@ -345,6 +353,9 @@
                            invisible="not has_stage_2"/>
                     <field name="s2_qced_by" string="QCed By" readonly="1"
                            invisible="not has_stage_2" options="{'no_open': True}"/>
+                    <field name="s2_manual_qc_by" string="Manual QCed By" readonly="1"
+                           invisible="not has_stage_2 or not s2_manual_qc_by"
+                           options="{'no_open': True}"/>
                     <field name="s2_rubric_score" string="Rubric (%)" readonly="1"
                            invisible="not has_stage_2"/>
                     <field name="s2_pytest_score" string="Pytest (%)" readonly="1"
@@ -547,12 +558,19 @@
                       <field name="manual_qc_notes"
                              readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
                              placeholder="Notes for this stage…" force_save="1"/>
+                      <!-- Who performed the Manual QC — picked from the team roster. -->
+                      <field name="manual_qc_by" string="Manual QCed By"
+                             domain="[('id', 'in', qc_candidate_ids)]"
+                             readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
+                             options="{'no_open': True}" force_save="1"/>
                     </group>
                     <group invisible="stage_no == 1">
                       <field name="s1_manual_qc_status" readonly="1"/>
                       <field name="s1_manual_qc_reason" readonly="1"
                              invisible="s1_manual_qc_status != 'failed'"/>
                       <field name="s1_manual_qc_notes" readonly="1"/>
+                      <field name="s1_manual_qc_by" string="Manual QCed By" readonly="1"
+                             invisible="not s1_manual_qc_by" options="{'no_open': True}"/>
                     </group>
                   </page>
 
@@ -661,6 +679,19 @@
                       scores 0–100) to start Manual QC.
                     </div>
                     <group invisible="stage_no != 2">
+                      <!-- Who performed the Manual QC — picked from the team roster,
+                           required to sign the QC off. Shown first. NOTE: its readonly
+                           deliberately does NOT include is_doc_locked: marking Manual QC
+                           Done locks the record in the same round-trip, and if this field
+                           went read-only then, the just-required QCer could never be
+                           filled (the form appeared "frozen"). It stays editable once the
+                           Pass @ K step is complete; the server never treats it as a
+                           locked input, so this is safe. -->
+                      <field name="manual_qc_by" string="Manual QCed By"
+                             domain="[('id', 'in', qc_candidate_ids)]"
+                             required="manual_qc_status == 'done'"
+                             readonly="not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"
+                             options="{'no_open': True}" force_save="1"/>
                       <field name="manual_qc_status" force_save="1"
                              readonly="is_doc_locked or not (baseline_gen_status == 'done' and qced_by and rubric_score &gt; 0 and rubric_score &lt;= 100 and pytest_score &gt; 0 and pytest_score &lt;= 100 and overall_score &gt; 0 and overall_score &lt;= 100)"/>
                       <field name="manual_qc_reason"
@@ -677,10 +708,32 @@
                       <field name="s2_manual_qc_reason" readonly="1"
                              invisible="s2_manual_qc_status != 'failed'"/>
                       <field name="s2_manual_qc_notes" readonly="1"/>
+                      <field name="s2_manual_qc_by" string="Manual QCed By" readonly="1"
+                             invisible="not s2_manual_qc_by" options="{'no_open': True}"/>
                     </group>
                   </page>
 
                 </notebook>
+              </page>
+
+              <!-- ================= Feedback ================= -->
+              <!-- Lead review of the finished task: appears only once the whole task
+                   is delivered (both stages complete). PL / QL / Admin edit it; a
+                   tasker sees it read-only (and the server guard blocks any write). -->
+              <page string="Feedback" name="page_feedback"
+                    invisible="not is_task_delivered">
+                <group>
+                  <group>
+                    <field name="feedback_rating" widget="priority"
+                           readonly="not is_manager"/>
+                    <field name="feedback_status" widget="radio"
+                           options="{'horizontal': True}" readonly="not is_manager"/>
+                  </group>
+                </group>
+                <separator string="Feedback"/>
+                <field name="feedback" nolabel="1" colspan="2"
+                       readonly="not is_manager"
+                       placeholder="Feedback on this delivered task (leads only)…"/>
               </page>
 
             </notebook>

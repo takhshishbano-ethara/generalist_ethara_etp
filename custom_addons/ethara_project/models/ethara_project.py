@@ -36,6 +36,11 @@ class EtharaProject(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'id desc'
 
+    active = fields.Boolean(
+        default=True,
+        string='Active',
+        tracking=True,
+    )
     name = fields.Char(
         string='Project Name',
         required=True,

@@ -139,6 +139,7 @@ class ApplicantSelectionFormDocumentController(http.Controller):
             }
 
             if existing:
+                vals.update({'verification_status': 'pending'})
                 existing.write(vals)
                 record = existing
             else:

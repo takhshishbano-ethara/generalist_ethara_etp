@@ -1,0 +1,11 @@
+// Chart.js canvas wrapper — fills its (sized) parent so Chart.js can be
+// responsive with maintainAspectRatio:false.
+.o_pt_chart {
+    position: relative;
+    width: 100%;
+    height: 100%;
+
+    canvas {
+        max-width: 100%;
+    }
+}

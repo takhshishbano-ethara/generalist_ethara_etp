@@ -21,6 +21,10 @@
             <field name="url_pattern">/api/v1/google_meet/events/&lt;int:eid&gt;</field>
             <field name="note">Calendar event detail (GET / PUT / DELETE)</field>
         </record>
+        <record id="endpoint_google_meet_event_score" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/events/&lt;int:eid&gt;/score</field>
+            <field name="note">Score-only update — skips Google Calendar sync (fixes 30s timeout when Google auth stale)</field>
+        </record>
         <record id="endpoint_google_meet_interviews_schedule" model="api.endpoint">
             <field name="url_pattern">/api/v1/google_meet/interviews/schedule</field>
             <field name="note">Schedule an interview: creates event, generates Meet link, sends invite mails</field>
