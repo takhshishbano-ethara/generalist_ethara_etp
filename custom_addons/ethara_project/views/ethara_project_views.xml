@@ -105,6 +105,7 @@
                         domain="[('state', '=', 'pause')]"/>
                 <filter name="filter_state_close" string="Closed"
                         domain="[('state', '=', 'close')]"/>
+                <filter name="inactive" string="Archived" domain="[('active', '=', False)]"/>
                 <filter name="filter_state_complete" string="Completed"
                         domain="[('state', '=', 'complete')]"/>
                 <separator/>

@@ -123,10 +123,26 @@
         </field>
     </record>
 
+    <record id="view_ethara_project_phase_daily_task_search" model="ir.ui.view">
+        <field name="name">ethara.project.phase.daily.task.search</field>
+        <field name="model">ethara.project.phase.daily.task</field>
+        <field name="arch" type="xml">
+            <search string="Daily Tasks">
+                <field name="phase_id"/>
+                <field name="ethara_project_id"/>
+                <field name="connected_model"/>
+                <field name="entry_date"/>
+                <field name="health_status"/>
+                <filter name="inactive" string="Archived" domain="[('active', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
     <record id="action_ethara_project_phase_daily_task" model="ir.actions.act_window">
         <field name="name">Daily Tasks</field>
         <field name="res_model">ethara.project.phase.daily.task</field>
         <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_project_phase_daily_task_search"/>
     </record>
 
 </odoo>

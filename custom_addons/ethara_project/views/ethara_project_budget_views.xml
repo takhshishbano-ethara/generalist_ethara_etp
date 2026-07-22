@@ -263,6 +263,7 @@
                         domain="[('state','=','draft')]"/>
                 <filter name="filter_approved" string="Approved"
                         domain="[('state','=','approved')]"/>
+                <filter name="inactive" string="Archived" domain="[('active', '=', False)]"/>
                 <filter name="filter_at_risk" string="At Risk / Critical"
                         domain="[('health_status','in',('at_risk','critical'))]"/>
                 <group>
