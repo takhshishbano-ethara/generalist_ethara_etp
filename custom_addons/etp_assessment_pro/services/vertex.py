@@ -35,6 +35,14 @@ _logger = logging.getLogger(__name__)
 
 _IMAGE_OR_VIDEO_TYPES = frozenset(_IMAGE_TYPES | _VIDEO_TYPES)
 
+# The deterministic defect-injection ops the true-by-construction image_label
+# (q7r) renderer supports. Single source of truth shared by the generation
+# contract, the item validator, and services/defect_render.py (_OPS).
+_DEFECT_OPS = frozenset({
+    "garbled_card", "text_card", "garbled_words", "float_copy",
+    "smear", "warp", "smooth", "shadow",
+})
+
 # Internal-taxonomy label the generator sometimes prepends to a question title
 # (e.g. "Rule Application: ...", "Skill Probe: ..."). Stripped at draft-build so
 # titles stay plain and candidate-facing. Keeps the "Task:" prefix (meaningful).
@@ -126,7 +134,11 @@ def _httpx():
     if _HTTPX_CLIENT is None:
         import httpx
         _HTTPX_CLIENT = httpx.Client(
-            timeout=httpx.Timeout(connect=30, read=180, write=60, pool=30),
+            # write=180: a large SOP (a 6MB+ PDF becomes ~8MB base64 on the wire)
+            # can exceed a short write timeout on a slow uplink and abort the whole
+            # generation with WriteTimeout. read=180 covers the thinking model's
+            # long generateContent latency.
+            timeout=httpx.Timeout(connect=30, read=180, write=180, pool=30),
             limits=httpx.Limits(max_keepalive_connections=20,
                                 max_connections=50))
     return _HTTPX_CLIENT
@@ -1174,9 +1186,42 @@ def _image_type_contract(qtype, ab_dims=None):
         '[{"slot": "single", "label": "Image", "prompt": "..."}], "answer_key": '
         '{"ideal_labels": "<single-string answer key>", "mandatory_elements": '
         '["..."], "penalty_rules": ["..."], "scoring_guide": "..."}} — '
-        "ideal_labels is a plain string, no boxes. In BOTH forms the image "
-        '"prompt" is REQUIRED and the stimulus must SHOW the evidence, never a '
-        "caption that states the answer."
+        "ideal_labels is a plain string, no boxes. "
+        "(3) DEFECT ANNOTATION — TRUE BY CONSTRUCTION (the faithful form for a "
+        "single-image AI-defect / anomaly spotting task, e.g. drop a dot on each "
+        "AI tell). Use this INSTEAD of a source_url when the SOP's task is marking "
+        "defects in one image. The platform renders a CLEAN base image from "
+        "base_prompt, then PLANTS each defect deterministically with code at the "
+        "pixel you give and stamps the numbered marker on the ACTUAL drawn region, "
+        "so the answer key is provable and every marker lands on a real defect. "
+        "The canvas is 1280 wide by 720 tall; give ALL coordinates in that pixel "
+        "space (top-left origin). Emit image_specs = {\"base_prompt\": \"<a CLEAN, "
+        "plausible photorealistic 16:9 scene with NO readable text and NO defects "
+        "(a market stall, an office desk, a cafe table) — just the setting the "
+        "defects get planted into>\", \"defects\": [{\"marker\": 1, \"kind\": "
+        '"<symbols|text|duplication|physics|smoothing|shadow>", "op": "<one op '
+        'below>", "spec": {<op-specific fields, all pixels in the 1280x720 '
+        'space>}, "marker_xy": [<x>, <y>], "flaw": "<one specific sentence: '
+        "exactly what is wrong at this point>\"}, ... plant 2 to 4 defects across "
+        "DIFFERENT kinds ...], \"answer_key\": {\"ideal_labels\": {\"1\": "
+        "\"<canonical one-sentence note>\", ...}, \"decoys\": [\"<an allowed extra "
+        "that must NOT be marked>\"], \"scoring_guide\": \"coverage + precision, a "
+        "wrong mark costs more than a miss\"}}. The OPS and their spec fields: "
+        "garbled_card {x,y,w,h,title?,title_size?,lines,font_size,angle?} a card of "
+        "garbled unreadable text; text_card {x,y,w,h,text_lines:[{text,size,"
+        "garbled?,font?}]} a board with clean or misspelled lines; garbled_words "
+        "{x,y,w,size,lines?} garbled lettering on a surface; float_copy "
+        "{src_box:[x0,y0,x1,y1],dst_x,dst_y,scale?,mask?} duplicate an object "
+        "(clone artifact); smear {box:[x0,y0,x1,y1],dx?,dy?,steps?,blur?} melt two "
+        "objects together; warp {box:[x0,y0,x1,y1],amp?,wavelength?,axis?} bend a "
+        "straight structure; smooth {box:[x0,y0,x1,y1],blur?,lift?} a waxy "
+        "over-smoothed AI patch; shadow {box:[x0,y0,x1,y1],opacity?,blur?} a "
+        "shadow cast the wrong way. Place each defect where it belongs in the base "
+        "scene (a price card on the stall front, a label on a jar), set marker_xy "
+        "on it, spread the defects across different kinds, and name at least one "
+        "decoy in answer_key that must NOT be marked so precision is measurable. "
+        "In ALL forms the image \"prompt\"/base_prompt is REQUIRED and the "
+        "stimulus must SHOW the evidence, never a caption that states the answer."
     )
 
 
@@ -1464,6 +1509,37 @@ def _apply_capture_directives(specs, vals):
 def _image_label_draft_fields(specs):
     vals = {}
     _apply_capture_directives(specs, vals)
+    # DEFECT form (q7r): a base_prompt + defects[] means true-by-construction
+    # injection — capture the plan so the render path plants each defect and
+    # stamps the marker on the ACTUAL drawn region (defect_render.plant). This is
+    # the faithful single-image defect-annotation lane; the DENSE/box lane below
+    # is for UI-control labelling.
+    base_prompt = str(specs.get("base_prompt") or "").strip()
+    raw_defects = specs.get("defects")
+    if base_prompt and isinstance(raw_defects, list) and raw_defects:
+        clean_defects = []
+        for d in raw_defects:
+            if not isinstance(d, dict) or not d.get("op"):
+                continue
+            clean_defects.append({
+                "marker": d.get("marker"),
+                "kind": d.get("kind"),
+                "op": d.get("op"),
+                "spec": d.get("spec") or {},
+                "marker_xy": d.get("marker_xy"),
+                "flaw": str(d.get("flaw") or "").strip(),
+            })
+        if clean_defects:
+            vals["defect_plan_json"] = json.dumps(
+                {"base_prompt": base_prompt, "defects": clean_defects},
+                ensure_ascii=False)
+            vals["image_brief_json"] = json.dumps(
+                [{"slot": "single", "label": "Image", "prompt": base_prompt}],
+                ensure_ascii=False)
+            answer_key = dict(specs.get("answer_key") or {})
+            if answer_key:
+                vals["rubric_json"] = json.dumps(answer_key, ensure_ascii=False)
+            return vals
     briefs = []
     for img in (specs.get("images") or []):
         if img.get("prompt"):
@@ -1877,26 +1953,39 @@ def _validate_question_item(it, qtype, ab_dims=None):
             errs.append("video_prompt needs answer_key with ideal_prompt")
     elif qtype == "image_label":
         specs = it.get("image_specs") or {}
-        has_url = bool(str(specs.get("source_url") or "").strip()
-                       or _repair_image_label_source_url(specs))
-        if not has_url:
-            imgs = specs.get("images") or []
-            has_brief = isinstance(imgs, list) and any(
-                isinstance(i, dict) and i.get("prompt") for i in imgs)
-            key = specs.get("answer_key") or {}
-            ideal = key.get("ideal_labels") if isinstance(key, dict) else None
-            has_map = isinstance(ideal, dict) and any(
-                str(v).strip() for v in ideal.values())
-            has_str = isinstance(ideal, str) and bool(ideal.strip())
-            has_key = has_map or has_str or bool(_image_label_boxes(specs))
-            if not has_brief:
-                errs.append("image_label needs a source_url to a real public "
-                            "page (mandatory real-page capture) or, as fallback, "
-                            "an images[] brief")
-            elif not has_key:
-                errs.append("image_label synthetic fallback needs an "
-                            "answer_key.ideal_labels (a per-box map or a string) "
-                            "or a boxes[] plan with coordinates")
+        # DEFECT form (q7r) — true by construction: a base_prompt + a non-empty
+        # defects[] plan with valid ops is a complete, self-contained image_label
+        # item (the platform renders the clean base then plants each defect). This
+        # is the FAITHFUL single-image defect-annotation lane and needs neither a
+        # source_url nor an images[] brief.
+        base_prompt = str(specs.get("base_prompt") or "").strip()
+        raw_defects = specs.get("defects")
+        has_defects = (base_prompt and isinstance(raw_defects, list)
+                       and any(isinstance(d, dict) and d.get("op") in _DEFECT_OPS
+                               for d in raw_defects))
+        if has_defects:
+            pass  # valid defect-annotation item
+        else:
+            has_url = bool(str(specs.get("source_url") or "").strip()
+                           or _repair_image_label_source_url(specs))
+            if not has_url:
+                imgs = specs.get("images") or []
+                has_brief = isinstance(imgs, list) and any(
+                    isinstance(i, dict) and i.get("prompt") for i in imgs)
+                key = specs.get("answer_key") or {}
+                ideal = key.get("ideal_labels") if isinstance(key, dict) else None
+                has_map = isinstance(ideal, dict) and any(
+                    str(v).strip() for v in ideal.values())
+                has_str = isinstance(ideal, str) and bool(ideal.strip())
+                has_key = has_map or has_str or bool(_image_label_boxes(specs))
+                if not has_brief:
+                    errs.append("image_label needs a base_prompt+defects plan "
+                                "(defect annotation), a source_url to a real "
+                                "public page, or an images[] brief")
+                elif not has_key:
+                    errs.append("image_label synthetic fallback needs an "
+                                "answer_key.ideal_labels (a per-box map or a string) "
+                                "or a boxes[] plan with coordinates")
     else:
         errs.append("unknown question_type %r" % qtype)
     return errs
@@ -2015,9 +2104,17 @@ _ENVELOPE_REMINDER = (
     " Return ONE JSON OBJECT with three keys, \"metadata\" (the grounded SOP profile: "
     "sop_title, summary, mapping, tags, skills, evidence, required_elements, "
     "covered_by_all, question_spec, gaps), \"questions\" (the array of question "
-    "objects, each MAY carry covers_elements), and \"solutions\" (one entry per "
+    "objects), and \"solutions\" (one entry per "
     "question IN THE SAME ORDER, each {answers, rationale} holding the most correct "
-    "answer in an ideal worker's voice plus how it is known). First char '{', last "
+    "answer in an ideal worker's voice plus how it is known). "
+    "COVERAGE CONTRACT (mandatory): first list the SOP's required_elements in "
+    "metadata (atomic yes/no checkable statements, each with a stable kebab-case "
+    "id). Then PLAN so that, together, metadata.covered_by_all plus each question's "
+    "covers_elements span EVERY required_element id — every element must be "
+    "exercised by at least one question, and each question MUST carry a "
+    "covers_elements array naming the element id(s) its specific scenario tests. A "
+    "required_element that no question covers is a failure; author a question for "
+    "it rather than repeating an already-covered element. First char '{', last "
     "'}', no markdown.")
 
 
@@ -2135,19 +2232,69 @@ def _attach_solutions(items, sols, prompt_id):
         prompt_id, len(sols), len(items))
 
 
+def _extract_metadata_object(text):
+    """Pull just the metadata {...} object out of a possibly-truncated envelope.
+
+    The envelope emits metadata FIRST, so even when questions/solutions are cut off
+    by MAX_TOKENS the metadata block is usually complete. A whole-string json.loads
+    (and the greedy {.*} fallback) both fail on a truncated tail, silently losing
+    the SOP grounding (evidence quotes, required_elements). This does a balanced
+    brace scan from the "metadata" key so grounding survives truncation."""
+    m = re.search(r'"metadata"\s*:\s*\{', text)
+    if not m:
+        return None
+    start = m.end() - 1  # the opening brace of the metadata object
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except Exception:  # noqa: BLE001
+                    return None
+    return None
+
+
 def _capture_sop_metadata(env, prompt_record, raw):
     try:
         text = (raw or "").strip()
         text = re.sub(r"^```(?:json)?", "", text).strip()
         text = re.sub(r"```$", "", text).strip()
+        meta = None
         try:
             obj = json.loads(text)
-        except Exception:
+            if isinstance(obj, dict):
+                meta = obj.get("metadata")
+        except Exception:  # noqa: BLE001
             m = re.search(r"\{.*\}", text, re.DOTALL)
-            obj = json.loads(m.group(0)) if m else None
-        if not isinstance(obj, dict):
-            return
-        meta = obj.get("metadata")
+            if m:
+                try:
+                    obj = json.loads(m.group(0))
+                    if isinstance(obj, dict):
+                        meta = obj.get("metadata")
+                except Exception:  # noqa: BLE001
+                    meta = None
+        # Truncation-robust fallback: the envelope truncated after metadata, so a
+        # whole-object parse failed — recover the (complete) metadata block alone
+        # so evidence quotes and required_elements are never silently lost.
+        if not isinstance(meta, dict):
+            meta = _extract_metadata_object(text)
         if not isinstance(meta, dict):
             return
 
@@ -2156,6 +2303,15 @@ def _capture_sop_metadata(env, prompt_record, raw):
             return json.dumps(v, ensure_ascii=False) if isinstance(v, list) and v else False
 
         vals = {"metadata_json": json.dumps(meta, ensure_ascii=False)}
+        # The model sometimes emits `evidence` as a dict keyed by concept
+        # ({"where_to_click": "<quote>"}) instead of the canonical list of
+        # {id, quote, supports}. Normalize to the list form so the grounding lands
+        # in the queryable evidence_json field (not just the raw metadata blob).
+        ev = meta.get("evidence")
+        if isinstance(ev, dict) and ev:
+            meta["evidence"] = [
+                {"id": "E%d" % (i + 1), "supports": k, "quote": str(v)}
+                for i, (k, v) in enumerate(ev.items())]
         if meta.get("sop_title"):
             vals["sop_title"] = str(meta["sop_title"])[:255]
         if meta.get("summary"):

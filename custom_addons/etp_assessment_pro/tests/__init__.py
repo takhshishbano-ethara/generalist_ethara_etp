@@ -30,3 +30,5 @@ from . import test_prompt_form_fixes
 from . import test_scoring_v10_composition
 from . import test_security_audit_fixes
 from . import test_settings_upload_persistence
+from . import test_research_replication
+from . import test_week_ui_fixes

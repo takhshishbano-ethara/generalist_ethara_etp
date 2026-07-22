@@ -3,7 +3,7 @@
     <!-- Templates are code-managed (no noupdate): every module upgrade
          re-applies the design below. The 19.0.4.2.0 pre-migration clears the
          noupdate flag left on records created by older versions. -->
-    <data noupdate="0">
+    <data>
 
         <record id="mail_template_applicant_assessment" model="mail.template">
             <field name="name">Applicant Assessment: Invitation</field>

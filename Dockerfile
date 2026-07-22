@@ -94,4 +94,4 @@ COPY . .
 RUN chmod +x odoo-bin
 
 EXPOSE 8071
-CMD ["./odoo-bin", "-c", "odoo.conf", "-u", "erza,erza_dashboard,aurora_dashboard"]
+CMD ["/bin/sh", "-c", "./odoo-bin -c odoo.conf -i erza,erza_dashboard,aurora_dashboard,milobench_dashboard -u erza,erza_dashboard,aurora_dashboard,milobench_dashboard --stop-after-init && exec ./odoo-bin -c odoo.conf"]

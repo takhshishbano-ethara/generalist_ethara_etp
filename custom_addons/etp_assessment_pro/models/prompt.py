@@ -1029,6 +1029,14 @@ class EtpAssessmentPromptQuestion(models.Model):
         help="image_label DENSE box geometry: a JSON list of {number, box_2d, "
              "label, description} in the 0-1000 grid. Used at approve to draw the "
              "numbered overlay on the rendered screenshot via annotate_image.")
+    defect_plan_json = fields.Text(
+        string="Defect Plan (JSON)", copy=False,
+        help="image_label DEFECT form (q7r): a JSON object {base_prompt, "
+             "defects:[{marker, kind, op, spec, marker_xy, flaw}]}. The pipeline "
+             "renders a CLEAN base image from base_prompt, then PLANTS each defect "
+             "deterministically with PIL at a known pixel and stamps the numbered "
+             "marker on the ACTUAL drawn region (defect_render.plant) so the answer "
+             "key is true by construction and no marker lands on empty space.")
     coverage_expected = fields.Selection(
         [("yes", "Yes"), ("no", "No")],
         string="Coverage Expected", copy=False,
@@ -2083,17 +2091,88 @@ class EtpAssessmentPromptQuestion(models.Model):
                 "Failed to persist capture key on draft %s", self.id)
         return True
 
+    def _plant_defects_on_render(self, images):
+        """DEFECT form (q7r) true-by-construction render. The rendered 'single'
+        image is the CLEAN base; plant every defect with PIL at a known pixel and
+        stamp the numbered marker on the ACTUAL drawn region, then write the
+        worker-facing original (with defects, NO markers) as the stimulus and the
+        annotated (with markers) as the answer-key overlay. The answer key is true
+        by construction, so no marker ever lands on empty space."""
+        import base64 as _b64
+        import json as _json
+        self.ensure_one()
+        try:
+            plan = _json.loads(self.defect_plan_json or "{}")
+        except (ValueError, TypeError):
+            plan = {}
+        defects = plan.get("defects") if isinstance(plan, dict) else None
+        if not isinstance(defects, list) or not defects:
+            return images
+        from ..services import defect_render, image_ingest
+        for spec in images:
+            if not isinstance(spec, dict):
+                continue
+            if (spec.get("slot") or "single") != "single":
+                continue
+            raw = self._inline_image_bytes(spec)
+            if not raw:
+                continue
+            try:
+                original_png, annotated_png, planted = defect_render.plant(
+                    raw, defects, seed=abs(hash("draft-%s" % self.id)) % 100000)
+            except Exception:  # noqa: BLE001 - injection must never fail the render
+                _logger.exception(
+                    "Defect injection failed for draft %s; leaving base image",
+                    self.id)
+                continue
+            # Worker sees the ORIGINAL (defects present, no markers). The annotated
+            # overlay + the planted key are the answer sheet the reviewer/scorer use.
+            spec["data"] = ("data:image/png;base64,%s"
+                            % _b64.b64encode(original_png).decode())
+            spec["annotated_data"] = ("data:image/png;base64,%s"
+                                      % _b64.b64encode(annotated_png).decode())
+            # Persist the true-by-construction key as detections_json in the same
+            # {number, label, description, box_px} shape the label UI/scoring read.
+            key = [{"number": p["marker"],
+                    "label": (p.get("flaw") or "")[:80],
+                    "description": p.get("flaw") or "",
+                    "box_px": [p["marker_xy"][0] - 20, p["marker_xy"][1] - 20,
+                               p["marker_xy"][0] + 20, p["marker_xy"][1] + 20]}
+                   for p in planted]
+            spec["detections_json"] = _json.dumps(key, ensure_ascii=False)
+            try:
+                url, _stored = image_ingest.ingest(
+                    self.env, None, spec["annotated_data"],
+                    key_hint="defect-%s-single" % self.id)
+                if url:
+                    spec["annotated_url"] = url
+            except Exception:  # noqa: BLE001 - overlay storage is best-effort
+                _logger.exception("defect overlay ingest failed on draft %s", self.id)
+        return images
+
     def _detect_label_on_render(self, images):
         self.ensure_one()
         if self.question_type != "image_label" or not isinstance(images, list):
             return images
+        # DEFECT form (q7r): a defect plan means the rendered image is the CLEAN
+        # base; plant each defect and stamp the marker on the ACTUAL drawn region
+        # (true by construction — no misplaced labels).
+        if (self.defect_plan_json or "").strip():
+            return self._plant_defects_on_render(images)
         if (self.source_url or "").strip():
             if self._capture_source_url_on_render(images):
                 return images
             return self._draw_dense_preview(images)
-        images = self._draw_dense_preview(images)
-        if (self.behavioural_key_json or "").strip():
-            return images
+        # SYNTHETIC image (model-rendered, no live page): DETECT-AFTER-RENDER
+        # (research renderers/ui.py). We do NOT draw the generator's guessed
+        # `label_boxes_json` here — those coordinates were authored by the TEXT
+        # model before the screenshot existed, so they never align with the
+        # rendered pixels (the "labels at the wrong positions" bug). The box
+        # GEOMETRY must come from vision detection on the actual render; the
+        # authored behavioural key (per-box functionality) is preserved
+        # independently and reconciled against the detected boxes. Previously an
+        # authored behavioural_key_json short-circuited detection and shipped the
+        # guessed boxes — that is exactly what produced misplaced labels.
         QImage = self.env["etp.assessment.pro.question.image"]
         ui = (self.detection_mode == "ui")
         for spec in images:

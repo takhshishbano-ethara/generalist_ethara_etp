@@ -339,6 +339,11 @@ def _batch_view_request_brief(req):
 def _batch_view_brief(phase):
     daily_tasks = phase.daily_task_ids
     estimated = sum(dt.total_cost or 0.0 for dt in daily_tasks)
+    # Trajectory-space progress (Sampling R&D). total = tasks × est/task;
+    # done = trajectories logged across daily tasks. 0 for non-sampling.
+    est_traj = phase.est_trajectories_per_task or 0
+    total_traj = (phase.total_tasks or 0) * est_traj
+    done_traj = sum(dt.no_of_trajectory or 0 for dt in daily_tasks)
     cost_lines = _phase_cost_lines(phase)
     llm_lines = cost_lines.filtered(_is_llm_line)
     actual = sum(llm_lines.mapped("amount_source"))
@@ -383,6 +388,10 @@ def _batch_view_brief(phase):
         "total_task_count": phase.total_tasks or 0,
         "done_task_count": phase.done_tasks or 0,
         "remaining_task_count": phase.remaining_tasks or 0,
+        "est_trajectories_per_task": est_traj,
+        "total_trajectory_count": total_traj,
+        "done_trajectory_count": done_traj,
+        "remaining_trajectory_count": max(total_traj - done_traj, 0),
         "avg_qc": None,
         "models": ", ".join(
             name for name in phase.model_line_ids.mapped("ai_model_name") if name
@@ -619,6 +628,15 @@ class EtharaBudgetEstimationController(http.Controller):
             estimated_cost / done_tasks if done_tasks else 0.0
         )
 
+        # Trajectory-space progress (Sampling R&D). total = tasks × est/task;
+        # done = trajectories logged across daily tasks. 0 for non-sampling.
+        est_traj_per_task = phase.est_trajectories_per_task or 0
+        total_trajectories = total_tasks * est_traj_per_task
+        done_trajectories = sum(
+            dt.no_of_trajectory or 0 for dt in daily_tasks
+        )
+        remaining_trajectories = max(total_trajectories - done_trajectories, 0)
+
         today_tasks = daily_tasks.filtered(
             lambda r: r.entry_date == today,
         )
@@ -648,6 +666,10 @@ class EtharaBudgetEstimationController(http.Controller):
                 "total_tasks": total_tasks,
                 "done_tasks": done_tasks,
                 "remaining_tasks": remaining_tasks,
+                "est_trajectories_per_task": est_traj_per_task,
+                "total_trajectories": total_trajectories,
+                "done_trajectories": done_trajectories,
+                "remaining_trajectories": remaining_trajectories,
                 "estimated_cost": estimated_cost,
                 "actual_cost": actual_cost,
                 "variance": variance,

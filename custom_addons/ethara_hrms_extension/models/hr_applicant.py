@@ -132,6 +132,127 @@ class HrApplicant(models.Model):
         string='Selection Form Documents',
     )
 
+    date_of_birth = fields.Date(string='Date of Birth', tracking=True)
+    experience_type = fields.Selection(
+        [('fresher', 'Fresher'), ('experienced', 'Experienced')],
+        string='Experience Type', tracking=True,
+    )
+    highest_qualification = fields.Char(string='Highest Qualification')
+
+    employer_1_name = fields.Char(string='Employer 1 Name')
+    employer_1_designation = fields.Char(string='Employer 1 Designation')
+    employer_1_start_date = fields.Date(string='Employer 1 Start Date')
+    employer_1_end_date = fields.Date(string='Employer 1 End Date')
+    employer_2_name = fields.Char(string='Employer 2 Name')
+    employer_2_designation = fields.Char(string='Employer 2 Designation')
+    employer_2_start_date = fields.Date(string='Employer 2 Start Date')
+    employer_2_end_date = fields.Date(string='Employer 2 End Date')
+
+    father_name = fields.Char(string="Father's Name")
+    mother_name = fields.Char(string="Mother's Name")
+    gender = fields.Selection(
+        [('male', 'Male'), ('female', 'Female'), ('other', 'Other')],
+        string='Gender',
+    )
+    aadhaar_number = fields.Char(string='Aadhaar Number', size=12)
+    pan_number = fields.Char(string='PAN Number', size=10)
+    has_uan_number = fields.Boolean(string='Has UAN Number')
+    uan_number = fields.Char(string='UAN Number')
+    languages_known = fields.Char(string='Languages Known')
+    emergency_contact_name = fields.Char(string='Emergency Contact Name')
+    emergency_contact_phone = fields.Char(string='Emergency Contact Phone')
+    emergency_contact_relation = fields.Char(string='Emergency Contact Relation')
+
+    reference_ids = fields.One2many(
+        'hr.applicant.reference', 'applicant_id', string='References',
+    )
+
+    has_savings_account = fields.Boolean(string='Has Savings Account')
+    has_salary_account = fields.Boolean(string='Has Salary Account')
+    bank_name = fields.Char(string='Bank Name')
+    bank_account_holder_name = fields.Char(string='Account Holder Name')
+    bank_account_number = fields.Char(string='Bank Account Number')
+    bank_ifsc_code = fields.Char(string='IFSC Code', size=11)
+
+    current_address = fields.Text(string='Current Address')
+    permanent_address = fields.Text(string='Permanent Address')
+
+    selection_form_status = fields.Selection(
+        [
+            ('draft', 'Draft'),
+            ('submitted', 'Submitted'),
+            ('under_review', 'Under Review'),
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected'),
+        ],
+        string='Selection Form Status', default='draft',
+        tracking=True, index=True, copy=False,
+    )
+    selection_form_submitted_at = fields.Datetime(
+        string='Selection Form Submitted At', copy=False,
+    )
+    selection_form_reviewed_by_id = fields.Many2one(
+        'res.users', string='Selection Form Reviewed By',
+        ondelete='set null', copy=False,
+    )
+    selection_form_reviewed_at = fields.Datetime(
+        string='Selection Form Reviewed At', copy=False,
+    )
+    selection_form_rejection_reason = fields.Text(
+        string='Selection Form Rejection Reason', copy=False,
+    )
+    selection_form_sent_at = fields.Datetime(
+        string='Selection Form Sent At', copy=False,
+        help='When the form invite was shared with the candidate. '
+             'Null → UI status "Pending Send"; set → UI status "Sent".',
+    )
+    selection_form_sent_by_id = fields.Many2one(
+        'res.users', string='Selection Form Sent By',
+        ondelete='set null', copy=False,
+    )
+
+    _AADHAAR_RE = re.compile(r'^\d{12}$')
+    _PAN_RE = re.compile(r'^[A-Z]{5}[0-9]{4}[A-Z]$')
+    _IFSC_RE = re.compile(r'^[A-Z]{4}0[A-Z0-9]{6}$')
+
+    @api.constrains('aadhaar_number')
+    def _check_aadhaar_number(self):
+        for rec in self:
+            v = (rec.aadhaar_number or '').strip()
+            if v and not self._AADHAAR_RE.match(v):
+                raise UserError(
+                    'Aadhaar Number must be exactly 12 digits.'
+                )
+
+    @api.constrains('pan_number')
+    def _check_pan_number(self):
+        for rec in self:
+            v = (rec.pan_number or '').strip().upper()
+            if v and not self._PAN_RE.match(v):
+                raise UserError(
+                    'PAN Number must match pattern AAAAA9999A '
+                    '(5 letters, 4 digits, 1 letter).'
+                )
+
+    @api.constrains('bank_ifsc_code')
+    def _check_bank_ifsc_code(self):
+        for rec in self:
+            v = (rec.bank_ifsc_code or '').strip().upper()
+            if v and not self._IFSC_RE.match(v):
+                raise UserError(
+                    'IFSC Code must match pattern AAAA0XXXXXX '
+                    '(4 letters, "0", 6 alphanumerics).'
+                )
+
+    @api.constrains('bank_account_number')
+    def _check_bank_account_number(self):
+        for rec in self:
+            v = (rec.bank_account_number or '').strip()
+            if v and not (v.isdigit() and 9 <= len(v) <= 18):
+                raise UserError(
+                    'Bank Account Number must be 9–18 digits.'
+                )
+
     _PIPELINE_ORDER = (
         'applied', 'shortlisted', 'evaluation', 'submission',
         'contract', 'compliance', 'email_id', 'onboarded',

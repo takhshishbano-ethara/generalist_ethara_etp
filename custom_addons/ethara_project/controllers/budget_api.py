@@ -1163,6 +1163,17 @@ class EtharaBudgetController(http.Controller):
                     status=400, data={},
                 )
 
+            # R&D Sampling estimate: trajectories each task is expected to
+            # produce. Stored on the budget so total_trajectories (a computed
+            # field) = total_tasks * est_trajectories_per_task, and so the
+            # value flows onto each phase (the phase create hook copies it from
+            # the budget). Optional / 0 for non-sampling budgets.
+            est_trajectories_per_task = _coerce_int(
+                jdata.get('est_trajectories_per_task')
+                or jdata.get('no_of_trajectory'),
+                0,
+            ) or 0
+
             description = (jdata.get('description') or '').strip()
             buffer_pct = _coerce_float(jdata.get('buffer_pct'), 0.0)
 
@@ -1306,6 +1317,7 @@ class EtharaBudgetController(http.Controller):
                 'team_type': team_type,
                 'budget_amount': initial_budget,
                 'total_tasks': total_tasks,
+                'est_trajectories_per_task': est_trajectories_per_task,
                 'buffer_pct': buffer_pct,
                 'priority': priority,
                 'description': description,
@@ -1420,6 +1432,10 @@ class EtharaBudgetController(http.Controller):
                     'state': budget.state,
                     'budget_amount': budget.budget_amount or 0.0,
                     'total_tasks': budget.total_tasks or 0,
+                    'est_trajectories_per_task': (
+                        budget.est_trajectories_per_task or 0
+                    ),
+                    'total_trajectories': budget.total_trajectories or 0,
                     'buffer_pct': budget.buffer_pct or 0.0,
                     'priority': budget.priority or '',
                     'description': budget.description or '',

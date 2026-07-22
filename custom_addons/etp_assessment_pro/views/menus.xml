@@ -43,20 +43,6 @@
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="40"/>
 
-    <menuitem id="menu_etp_assessment_pro_analytics"
-              name="Analytics"
-              parent="menu_etp_assessment_pro_root"
-              action="action_etp_assessment_pro_dashboard"
-              groups="etp_assessment_pro.group_assessment_manager"
-              sequence="45"/>
-
-    <menuitem id="menu_etp_assessment_pro_sop_ranking"
-              name="SOP Rankings"
-              parent="menu_etp_assessment_pro_root"
-              action="action_etp_assessment_pro_sop_ranking"
-              groups="etp_assessment_pro.group_assessment_manager"
-              sequence="46"/>
-
     <menuitem id="menu_etp_assessment_pro_config_root"
               name="Configuration"
               parent="menu_etp_assessment_pro_root"

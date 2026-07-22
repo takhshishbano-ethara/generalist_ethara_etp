@@ -24,6 +24,89 @@
                         <field name="selection_form_document_ids"
                                context="{'default_applicant_id': id}"/>
                     </page>
+                    <page string="Selection Form Data" name="selection_form_data">
+                        <group>
+                            <group string="Status">
+                                <field name="selection_form_status"/>
+                                <field name="selection_form_submitted_at" readonly="1"/>
+                                <field name="selection_form_reviewed_by_id" readonly="1"/>
+                                <field name="selection_form_reviewed_at" readonly="1"/>
+                            </group>
+                            <group string="">
+                                <field name="selection_form_rejection_reason"
+                                       invisible="selection_form_status != 'rejected'"/>
+                            </group>
+                        </group>
+                        <group string="Employment">
+                            <group>
+                                <field name="date_of_birth"/>
+                                <field name="experience_type"/>
+                                <field name="highest_qualification"/>
+                            </group>
+                        </group>
+                        <group string="Professional">
+                            <group string="Employer 1 (Most Recent)">
+                                <field name="employer_1_name"/>
+                                <field name="employer_1_designation"/>
+                                <field name="employer_1_start_date"/>
+                                <field name="employer_1_end_date"/>
+                            </group>
+                            <group string="Employer 2 (Previous)">
+                                <field name="employer_2_name"/>
+                                <field name="employer_2_designation"/>
+                                <field name="employer_2_start_date"/>
+                                <field name="employer_2_end_date"/>
+                            </group>
+                        </group>
+                        <group string="Family &amp; KYC">
+                            <group>
+                                <field name="father_name"/>
+                                <field name="mother_name"/>
+                                <field name="gender"/>
+                                <field name="marital"/>
+                                <field name="languages_known"/>
+                            </group>
+                            <group>
+                                <field name="aadhaar_number" password="True"/>
+                                <field name="pan_number"/>
+                                <field name="has_uan_number"/>
+                                <field name="uan_number"
+                                       invisible="not has_uan_number"/>
+                            </group>
+                            <group string="Emergency Contact">
+                                <field name="emergency_contact_name"/>
+                                <field name="emergency_contact_phone"/>
+                                <field name="emergency_contact_relation"/>
+                            </group>
+                        </group>
+                        <group string="References">
+                            <field name="reference_ids" nolabel="1">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="email"/>
+                                    <field name="phone"/>
+                                    <field name="linkedin_url"/>
+                                </list>
+                            </field>
+                        </group>
+                        <group string="Bank">
+                            <group>
+                                <field name="has_savings_account"/>
+                                <field name="has_salary_account"/>
+                                <field name="bank_name"/>
+                                <field name="bank_account_holder_name"/>
+                            </group>
+                            <group>
+                                <field name="bank_account_number" password="True"/>
+                                <field name="bank_ifsc_code"/>
+                            </group>
+                        </group>
+                        <group string="Address">
+                            <field name="current_address"/>
+                            <field name="permanent_address"/>
+                        </group>
+                    </page>
                 </notebook>
             </xpath>
         </field>

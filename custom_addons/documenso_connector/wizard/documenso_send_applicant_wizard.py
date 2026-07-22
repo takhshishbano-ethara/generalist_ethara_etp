@@ -81,12 +81,8 @@ class DocumensoSendApplicantWizard(models.TransientModel):
         failures = []
 
         for applicant in sendable:
-            existing = Contract.search([
-                ('applicant_id', '=', applicant.id),
-                ('status', 'not in', list(('SIGNED', 'REJECTED', 'CANCELLED', 'EXPIRED'))),
-            ], limit=1)
             first_doc_class = self.template_ids[:1].doc_class or 'contract'
-            contract = existing or Contract.create({
+            contract = Contract.create({
                 'applicant_id': applicant.id,
                 'job_id': self.job_id.id,
                 'doc_class': first_doc_class,

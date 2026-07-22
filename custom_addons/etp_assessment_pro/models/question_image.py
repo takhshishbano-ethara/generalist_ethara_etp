@@ -305,8 +305,15 @@ class EtpAssessmentQuestionImage(models.Model):
                 _logger.warning(
                     "DOM capture for image %s produced zero boxes; falling back "
                     "to the synthetic render+detect path", self.id)
-        if self._annotate_from_dense_map():
-            return True
+        # DETECT-AFTER-RENDER (matches research renderers/ui.py 1:1). We do NOT
+        # draw the generator's guessed `boxes` (the old _annotate_from_dense_map
+        # short-circuit): those coordinates are authored by the TEXT model before
+        # the screenshot exists, so they never align with what the IMAGE model
+        # actually rendered — the cause of "labels at the wrong positions". The
+        # only trustworthy boxes are (a) real DOM rects from a live page (handled
+        # above) or (b) vision-detected controls in the ACTUAL rendered pixels
+        # (below). One detection call per image is the correct cost/accuracy
+        # trade — wrong boxes are worse than a saved quota call on an assessment.
         return self._annotate_from_bytes(self._source_image_bytes(), ui=ui)
 
     def _dense_detections(self):

@@ -388,8 +388,8 @@ class EtharaProjectPhase(models.Model):
                             try:
                                 kwargs = {
                                     'body': body_str,
-                                    'subtype_xmlid': 'mail.mt_comment',
-                                    'message_type': 'comment',
+                                    'subtype_xmlid': 'mail.mt_note',
+                                    'message_type': 'notification',
                                     'partner_ids': targets,
                                 }
                                 kwargs = proj._ethara_thread_post_kwargs(kwargs)

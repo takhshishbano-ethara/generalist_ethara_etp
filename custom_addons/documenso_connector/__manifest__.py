@@ -23,6 +23,7 @@ Minimal end-to-end applicant document flow:
     'depends': ['base', 'mail', 'hr', 'hr_recruitment', 'ethara_hrms_extension', 'api_auth_gateway'],
     'data': [
         'security/ir.model.access.csv',
+        'data/ir_cron.xml',
         'views/res_config_settings_views.xml',
         'wizard/documenso_create_template_wizard_views.xml',
         'views/documenso_template_views.xml',

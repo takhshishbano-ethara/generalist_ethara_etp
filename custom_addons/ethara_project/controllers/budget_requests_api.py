@@ -800,6 +800,7 @@ def _request_to_detail(req):
             ),
             'cost_per_subscription': ln.cost_per_subscription,
             'assigned_to': ln.assigned_user_ids.ids,
+            'assigned_users': [_user_brief(u) for u in ln.assigned_user_ids],
             'seat_count': ln.subscription_count,
             'monthly_total': ln.final_amount,
             'per_day_cost': (
@@ -1069,22 +1070,40 @@ def _apply_line_overrides(req, jdata):
             if not isinstance(line, dict):
                 continue
             line_id = _coerce_int(line.get('id'))
-            if not line_id or 'approved_amount' not in line:
+            has_amount = 'approved_amount' in line
+            # A CTO/CFO may drop assigned people from a subscription line
+            # instead of editing its price; the seat count + final_amount then
+            # recompute from assigned_user_ids on the line model.
+            has_seats = attr == 'subscription_line_ids' and (
+                'assigned_user_ids' in line or 'assigned_to' in line
+            )
+            if not line_id or not (has_amount or has_seats):
                 continue
             target = getattr(req, attr).filtered(lambda l: l.id == line_id)
             if not target:
                 continue
-            write_vals = {
-                'approved_amount': _coerce_float(
+            write_vals = {}
+            if has_amount:
+                write_vals['approved_amount'] = _coerce_float(
                     line.get('approved_amount'), 0.0,
-                ),
-            }
+                )
             # The CFO may edit an infra line's quantity in place (the only
             # structured field they can change). The compute/storage/computed
             # amounts recompute automatically from quantity on the line model.
             if attr == 'infra_line_ids' and 'quantity' in line:
                 write_vals['quantity'] = _coerce_float(line.get('quantity'), 0.0)
-            target.write(write_vals)
+            if has_seats:
+                raw_ids = (
+                    line.get('assigned_user_ids')
+                    or line.get('assigned_to')
+                    or []
+                )
+                seat_ids = [
+                    i for i in (_coerce_int(x) for x in raw_ids) if i
+                ]
+                write_vals['assigned_user_ids'] = [(6, 0, seat_ids)]
+            if write_vals:
+                target.write(write_vals)
 
 
 # ---------------------------------------------------------------------------
@@ -1163,8 +1182,13 @@ class EtharaBudgetRequestController(http.Controller):
         search = (params.get('search') or '').strip()
         if search:
             domain += [
-                '|', ('name', 'ilike', search),
+                '|', '|', '|', '|', '|',
+                ('name', 'ilike', search),
                 ('justification', 'ilike', search),
+                ('ethara_project_id.name', 'ilike', search),
+                ('budget_id.team_type', 'ilike', search),
+                ('budget_id.budget_sub_type', 'ilike', search),
+                ('budget_id.project_type', 'ilike', search),
             ]
         total = Request.search_count(domain)
         records = Request.search(
