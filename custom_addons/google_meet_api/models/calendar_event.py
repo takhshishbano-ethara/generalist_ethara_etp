@@ -69,22 +69,24 @@ class CalendarEvent(models.Model):
             else:
                 rec.interview_status = "in_progress"
 
-    @api.depends("candidate_id", "start")
+    @api.depends("candidate_id", "start", "active")
     def _compute_interview_round(self):
         for rec in self:
             if not rec.candidate_id:
                 rec.interview_round = 0
                 continue
-            siblings = self.search(
-                [("candidate_id", "=", rec.candidate_id.id)],
+            if not rec.active and rec.interview_round:
+                continue
+            active_siblings = self.search(
+                [("candidate_id", "=", rec.candidate_id.id), ("active", "=", True)],
                 order="start asc, id asc",
             )
-            for idx, sibling in enumerate(siblings, start=1):
+            for idx, sibling in enumerate(active_siblings, start=1):
                 if sibling.id == rec.id:
                     rec.interview_round = idx
                     break
             else:
-                rec.interview_round = len(siblings) + 1
+                rec.interview_round = len(active_siblings) + 1
 
     @api.depends(
         "technical_skills_score",
@@ -120,6 +122,47 @@ class CalendarEvent(models.Model):
                     name=rec.candidate_id.partner_name or rec.candidate_id.name,
                     max=MAX_INTERVIEW_ROUNDS,
                 ))
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        for cand in records.mapped("candidate_id"):
+            records._sync_candidate_hiring_status(cand)
+        return records
+
+    def write(self, vals):
+        result = super().write(vals)
+        for cand in self.mapped("candidate_id"):
+            self._sync_candidate_hiring_status(cand)
+        return result
+
+    @api.model
+    def _sync_candidate_hiring_status(self, candidate):
+        if not candidate:
+            return
+        events = self.env["calendar.event"].sudo().search(
+            [("candidate_id", "=", candidate.id)],
+        )
+        active_upcoming = events.filtered(
+            lambda e: e.interview_status in ("upcoming", "in_progress")
+        )
+        if active_upcoming:
+            new_status = "pi_scheduled"
+        else:
+            evaluation = self.env["hr.applicant.evaluation"].sudo().search(
+                [("candidate_id", "=", candidate.id)], limit=1,
+            )
+            verdict = evaluation.final_verdict if evaluation else None
+            if verdict == "hire":
+                new_status = "pi_selected"
+            elif verdict == "reject":
+                new_status = "pi_rejected"
+            elif events:
+                new_status = "pi_completed"
+            else:
+                new_status = "assessment_passed"
+        if candidate.status != new_status:
+            candidate.sudo().status = new_status
 
     @api.constrains(
         "technical_skills_score",

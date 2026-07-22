@@ -250,20 +250,20 @@ def _fetch_resume_attachment(candidate, event):
     content = None
     mimetype = "application/pdf"
     try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        content = resp.content
-        mimetype = resp.headers.get("Content-Type", "application/pdf")
-    except Exception as exc:  # noqa: BLE001 - fall through to curl
-        _logger.warning("Resume fetch via requests failed: %s. Trying curl.", exc)
+        out = subprocess.run(
+            ["curl", "-fsSL", "--max-time", "15", url],
+            capture_output=True, check=True,
+        )
+        content = out.stdout
+    except Exception as exc:  # noqa: BLE001 - fall through to requests
+        _logger.warning("Resume fetch via curl failed: %s. Trying requests.", exc)
         try:
-            out = subprocess.run(
-                ["curl", "-fsSL", "--max-time", "15", url],
-                capture_output=True, check=True,
-            )
-            content = out.stdout
-        except Exception as curl_exc:  # noqa: BLE001
-            _logger.warning("Resume fetch via curl also failed: %s", curl_exc)
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            content = resp.content
+            mimetype = resp.headers.get("Content-Type", "application/pdf")
+        except Exception as req_exc:  # noqa: BLE001
+            _logger.warning("Resume fetch via requests also failed: %s", req_exc)
             return False
 
     if not content:
@@ -279,6 +279,110 @@ def _fetch_resume_attachment(candidate, event):
         "res_id": event.id,
         "mimetype": mimetype,
     })
+
+
+def _queue_invitation_emails(attendees, extra_attachment_ids=None):
+    template = request.env.ref(
+        "calendar.calendar_template_meeting_invitation",
+        raise_if_not_found=False,
+    )
+    if not template:
+        return
+    event_ids = attendees.mapped("event_id").ids
+    attendees.with_user(SUPERUSER_ID).with_context(
+        no_mail_to_attendees=False,
+    )._notify_attendees(template, force_send=False)
+    if extra_attachment_ids and event_ids:
+        new_mails = request.env["mail.mail"].sudo().search([
+            ("state", "=", "outgoing"),
+            ("mail_message_id.res_id", "in", event_ids),
+            ("mail_message_id.model", "=", "calendar.event"),
+        ])
+        if new_mails:
+            new_mails.write({
+                "attachment_ids": [(4, aid) for aid in extra_attachment_ids],
+            })
+
+
+def _cancel_event_and_notify(event, reason, comment=None, notify=True):
+    if notify and event.attendee_ids:
+        _queue_cancellation_emails(event, reason, comment)
+    if event.google_event_id:
+        try:
+            event._delete_google_meet(event.google_event_id)
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("Google Meet delete failed on cancel: %s", exc)
+    event.active = False
+
+
+def _queue_cancellation_emails(event, reason, comment=None):
+    ics_att_id = None
+    ics_map = event._get_ics_file() or {}
+    ics_bytes = ics_map.get(event.id)
+    if ics_bytes:
+        ics_str = ics_bytes.decode("utf-8", errors="ignore")
+        if "STATUS:" in ics_str:
+            ics_str = re.sub(r"STATUS:[A-Z]+", "STATUS:CANCELLED", ics_str)
+        else:
+            ics_str = ics_str.replace("BEGIN:VEVENT", "BEGIN:VEVENT\r\nSTATUS:CANCELLED", 1)
+        if "METHOD:" in ics_str:
+            ics_str = re.sub(r"METHOD:[A-Z]+", "METHOD:CANCEL", ics_str)
+        else:
+            ics_str = ics_str.replace("BEGIN:VCALENDAR", "BEGIN:VCALENDAR\r\nMETHOD:CANCEL", 1)
+        ics_att_id = request.env["ir.attachment"].sudo().create({
+            "name": "cancelled.ics",
+            "datas": base64.b64encode(ics_str.encode("utf-8")),
+            "mimetype": "text/calendar; method=CANCEL",
+            "res_model": "mail.compose.message",
+            "res_id": 0,
+        }).id
+
+    body = Markup(
+        "<div>"
+        "<p><strong>Interview cancelled.</strong></p>"
+        "<p><strong>Meeting:</strong> %s</p>"
+        "<p><strong>Was scheduled for:</strong> %s</p>"
+        "<p><strong>Reason:</strong> %s</p>"
+        "%s"
+        "<p><em>This meeting has been removed from your calendar.</em></p>"
+        "</div>"
+    ) % (
+        event.name or "Interview",
+        str(event.start) if event.start else "",
+        reason or "other",
+        (Markup("<p><strong>Comment:</strong> %s</p>") % comment) if comment else Markup(""),
+    )
+    subject = f"Cancelled: {event.name}" if event.name else "Interview cancelled"
+
+    author_partner_id = (
+        event.user_id.partner_id.id
+        if event.user_id and event.user_id.partner_id
+        else request.env.user.partner_id.id
+    )
+    for attendee in event.attendee_ids:
+        if not attendee.partner_id:
+            continue
+        event.with_user(SUPERUSER_ID).with_context(no_document=True).message_notify(
+            partner_ids=attendee.partner_id.ids,
+            subject=subject,
+            body=body,
+            attachment_ids=[ics_att_id] if ics_att_id else [],
+            email_layout_xmlid="mail.mail_notification_light",
+            author_id=author_partner_id,
+            force_send=False,
+        )
+
+
+def _active_upcoming_event_for(candidate_id):
+    return request.env["calendar.event"].sudo().search(
+        [
+            ("candidate_id", "=", candidate_id),
+            ("active", "=", True),
+            ("stop", ">=", datetime.utcnow()),
+        ],
+        limit=1,
+        order="start desc",
+    )
 
 
 def _company():
@@ -475,6 +579,12 @@ class GoogleMeetApi(http.Controller):
             uid = _coerce_int(params["user_id"])
             if uid is not None:
                 domain.append(("user_id", "=", uid))
+        if params.get("candidate_id"):
+            cid = _coerce_int(params["candidate_id"])
+            if cid is not None:
+                domain.append(("candidate_id", "=", cid))
+        if params.get("status"):
+            domain.append(("interview_status", "=", params["status"].strip()))
         if params.get("from_date"):
             start, err = _parse_datetime(params["from_date"], "from_date")
             if err is not None:
@@ -486,7 +596,7 @@ class GoogleMeetApi(http.Controller):
                 return err
             domain.append(("start", "<=", end))
 
-        Event = request.env["calendar.event"].sudo()
+        Event = request.env["calendar.event"].sudo().with_context(active_test=False)
         total = Event.search_count(domain)
         records = Event.search(
             domain, offset=offset, limit=limit, order="start desc",
@@ -695,6 +805,15 @@ class GoogleMeetApi(http.Controller):
             seen_applicant_ids.add(aid)
             pairs.append((a.applicant_id, a))
 
+        scheduled_candidate_ids = set(
+            request.env["calendar.event"].sudo().search([
+                ("candidate_id", "!=", False),
+                ("active", "=", True),
+                ("stop", ">=", datetime.utcnow()),
+            ]).mapped("candidate_id.id")
+        )
+        pairs = [(app, a) for (app, a) in pairs if app.id not in scheduled_candidate_ids]
+
         job_id = _coerce_int(params.get("job_id"))
         if job_id:
             pairs = [
@@ -868,12 +987,7 @@ class GoogleMeetApi(http.Controller):
 
         notify = _coerce_bool(data.get("notifyAttendees"), True)
         if notify and rec.attendee_ids:
-            # with_user(SUPERUSER_ID): _should_notify_attendee() skips self.env.user's
-            # own partner, which would drop the API caller from the invite recipients.
-            rec.attendee_ids.with_user(SUPERUSER_ID).with_context(
-                no_mail_to_attendees=False,
-                mail_notify_force_send=True,
-            )._send_invitation_emails()
+            _queue_invitation_emails(rec.attendee_ids)
 
         return return_Response(
             message="Interview rescheduled.",
@@ -896,28 +1010,12 @@ class GoogleMeetApi(http.Controller):
         if err is not None:
             return err
 
-        reason = (data.get("reason") or "other").strip()
-        comment = (data.get("comment") or "").strip()
-        notify = _coerce_bool(data.get("notifyAttendees"), True)
-
-        if notify and rec.attendee_ids:
-            body = (
-                f"<p><strong>Interview cancelled.</strong></p>"
-                f"<p><strong>Reason:</strong> {reason}</p>"
-            )
-            if comment:
-                body += f"<p>{comment}</p>"
-            rec.message_post(
-                body=body,
-                partner_ids=rec.partner_ids.ids,
-                subtype_xmlid="mail.mt_comment",
-            )
-        if rec.google_event_id:
-            try:
-                rec._delete_google_meet(rec.google_event_id)
-            except Exception as exc:  # noqa: BLE001
-                _logger.warning("Google Meet delete failed on cancel: %s", exc)
-        rec.active = False
+        _cancel_event_and_notify(
+            rec,
+            reason=(data.get("reason") or "other").strip(),
+            comment=(data.get("comment") or "").strip() or None,
+            notify=_coerce_bool(data.get("notifyAttendees"), True),
+        )
         return return_Response(message="Interview cancelled.", status=200)
 
     @http.route(
@@ -934,11 +1032,27 @@ class GoogleMeetApi(http.Controller):
 
         candidate_id = _coerce_int(data.get("candidateId") or data.get("applicantId"))
         candidate = None
+        existing_to_cancel = None
         if candidate_id:
             candidate = request.env["hr.applicant"].sudo().browse(candidate_id).exists()
             if not candidate:
                 msg = f"Candidate (hr.applicant) id={candidate_id} not found."
                 return return_Response(message=msg, status=404, errors=[msg])
+            if not _coerce_bool(data.get("allowConcurrent"), False):
+                existing = _active_upcoming_event_for(candidate.id)
+                if existing:
+                    if not _coerce_bool(data.get("forceReplace"), False):
+                        msg = (
+                            f"Candidate already has an active interview scheduled "
+                            f"(event_id={existing.id}, start={_iso(existing.start)}). "
+                            f"Send 'forceReplace': true to auto-cancel it, "
+                            f"or 'allowConcurrent': true to schedule a parallel round."
+                        )
+                        return return_Response(
+                            message=msg, status=409, errors=[msg],
+                            data={"existing_event_id": existing.id},
+                        )
+                    existing_to_cancel = existing
 
         title = (data.get("title") or "").strip()
         if not title and candidate:
@@ -1045,6 +1159,14 @@ class GoogleMeetApi(http.Controller):
             if alarm:
                 vals["alarm_ids"] = [(6, 0, [alarm.id])]
 
+        if existing_to_cancel:
+            _cancel_event_and_notify(
+                existing_to_cancel,
+                reason=(data.get("replaceReason") or "rescheduled").strip(),
+                comment=(data.get("replaceComment") or "").strip() or None,
+                notify=_coerce_bool(data.get("notifyAttendees"), True),
+            )
+
         event = request.env["calendar.event"].sudo().with_context(
             no_mail_to_attendees=True,
             mail_create_nolog=True,
@@ -1080,20 +1202,9 @@ class GoogleMeetApi(http.Controller):
                 _logger.warning("Attachment create failed for '%s': %s", name, exc)
 
         if event.attendee_ids:
-            # See reschedule endpoint: with_user(SUPERUSER_ID) prevents the API
-            # caller from being skipped by _should_notify_attendee().
-            event.attendee_ids.with_user(SUPERUSER_ID).with_context(
-                no_mail_to_attendees=False,
-                mail_notify_force_send=True,
-            )._send_invitation_emails()
-
-        if event_attachments and partner_ids:
-            event.with_user(SUPERUSER_ID).message_post(
-                body="Interview materials attached.",
-                attachment_ids=event_attachments.ids,
-                partner_ids=partner_ids,
-                subtype_xmlid="mail.mt_comment",
-                force_send=True,
+            _queue_invitation_emails(
+                event.attendee_ids,
+                extra_attachment_ids=event_attachments.ids if event_attachments else None,
             )
 
         warning = None

@@ -94,6 +94,15 @@ class HrApplicantEvaluation(models.Model):
             if rec.pms_score and not (0 <= rec.pms_score <= 100):
                 raise ValidationError(_("pms_score must be between 0 and 100."))
 
+    def write(self, vals):
+        result = super().write(vals)
+        if "final_verdict" in vals or "status" in vals:
+            CalendarEvent = self.env["calendar.event"].sudo()
+            for rec in self:
+                if rec.candidate_id:
+                    CalendarEvent._sync_candidate_hiring_status(rec.candidate_id)
+        return result
+
 
 class HrApplicantPmsEvaluation(models.Model):
     _name = "hr.applicant.pms.evaluation"
