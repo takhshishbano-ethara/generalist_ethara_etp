@@ -18,7 +18,7 @@
       <head>
         <meta charset="UTF-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>erza - Agent-Skills Efficacy Benchmark</title>
+        <title>ERZA - AGENT-SKILLS EFFICACY BENCHMARK</title>
         <meta name="description" content="Erza measures how much curated Agent Skills change what an autonomous agent actually does - paired, with-Skills vs no-Skills, scored over deterministic verifiers."/>
         <!-- Inline theme sync BEFORE stylesheet loads (no FOUC).
            System preference is authoritative (read prefers-color-scheme before

@@ -287,11 +287,20 @@
      ═══════════════════════════════════════════════════════════════ */
 
   var EVAL_PER_PAGE = 10;
-  var evalAllData = [];
+  var TIER_ORDER = ["trivial", "easy", "medium", "hard", "expert"];
+  // Column order for the expand cards; overridden by data.models (by sequence).
+  var FALLBACK_MODELS = [
+    { key: "claude-opus-4-8", display_name: "Claude Opus 4.8" },
+    { key: "gemini-3.1-pro-preview", display_name: "Gemini 3.1 Pro" },
+    { key: "gpt-5.5", display_name: "GPT-5.5" },
+  ];
+  var evalAllData = [];          // task rows
   var evalFilteredData = [];
+  var evalRunsByTask = {};       // task uuid -> [run, ...]
+  var evalModels = [];           // [{key, display_name}] ordered by sequence
   var evalCurrentPage = 1;
-  var evalCurrentSort = "opus_pass";
-  var evalCurrentSortDir = -1;
+  var evalCurrentSort = "task_slug";
+  var evalCurrentSortDir = 1;
   var evalExpandedId = null;
 
   function langLabel(lang) {
@@ -299,6 +308,9 @@
     return map[lang] || lang;
   }
 
+  /* DEAD (dataset-viewer rewrite, milobench parity): no call sites — the row
+     renderer now uses a neutral .au-lang-badge. Commented for rollback. */
+  /*
   function langClass(lang) {
     var l = (lang || "").toLowerCase().replace(/[^a-z]/g, "");
     if (l === "python") return "au-lang-python";
@@ -310,6 +322,7 @@
     if (l === "c" || l === "cpp") return "au-lang-cpp";
     return "";
   }
+  */
 
   function esc(str) {
     var d = document.createElement("div");
@@ -345,18 +358,26 @@
     };
   }
 
+  /* DEAD (dataset-viewer rewrite): only called by evalPassCell (also dead).
+     Commented for rollback. */
+  /*
   function evalParsePass(str) {
     if (!str) return 0;
     return parseFloat(str.replace("%", "")) || 0;
   }
+  */
 
+  // Imported from milobench pass-bar-fill: fixed vivid hex, theme-independent,
+  // milobench thresholds (<20 red, <60 yellow, else green).
   function evalBarColor(pct) {
-    if (pct >= 67) return "var(--au-success)";
-    if (pct >= 34) return "var(--au-warning)";
-    if (pct > 0) return "var(--au-danger)";
-    return "var(--au-text-muted)";
+    if (pct >= 60) return "#22C55E";
+    if (pct >= 20) return "#EAB308";
+    return "#EF4444";
   }
 
+  /* DEAD (dataset-viewer rewrite): superseded by evalPassBar(d.pass_rate) /
+     evalPassBar(d.mean_score) in evalRenderRow. Commented for rollback. */
+  /*
   function evalPassCell(passStr) {
     var pct = evalParsePass(passStr);
     var color = evalBarColor(pct);
@@ -369,75 +390,94 @@
       '</div>'
     );
   }
+  */
 
-  function evalRunBadge(result) {
-    if (!result) return '<span class="au-eval-run au-eval-run-na">—</span>';
-    var cls = result === "Pass" ? "au-eval-run-pass" : "au-eval-run-fail";
-    return '<span class="au-eval-run ' + cls + '">' + esc(result) + '</span>';
+  // Numeric aggregate bar for the Pass rate / Mean score columns (0–100).
+  function evalPassBar(pct) {
+    var p = Math.max(0, Math.min(100, pct || 0));
+    var color = evalBarColor(p);
+    // milobench: neutral % text, vivid coloured bar only.
+    return (
+      '<div class="au-eval-pass-cell">' +
+        '<span class="au-eval-pass-pct">' + p.toFixed(1) + '%</span>' +
+        '<div class="au-eval-pass-bar">' +
+          '<div class="au-eval-pass-fill" style="width:' + p + '%;background:' + color + '"></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  // Difficulty pill (trivial → expert), coloured via [data-tier] in CSS.
+  function evalTierBadge(tier) {
+    var t = (tier || "").toLowerCase();
+    return '<span class="au-tier-badge" data-tier="' + esc(t) + '">' + esc(t || "—") + '</span>';
+  }
+
+  // Per-run value inside an expand card: PASS (green) when the run scored a
+  // binary pass, otherwise the numeric score in the fail colour.
+  function evalRunValue(run) {
+    if (!run) return '<span class="au-detail-run au-detail-run-na">—</span>';
+    var cls = run.score_binary ? "au-detail-run-pass" : "au-detail-run-fail";
+    var label = run.score_binary ? "PASS" : (run.score * 100).toFixed(1) + "%";
+    return '<span class="au-detail-run ' + cls + '">' + label + '</span>';
   }
 
   function evalRenderRow(d, isExpanded) {
-    var opus = d.models && d.models["Claude Opus 4.8"] ? d.models["Claude Opus 4.8"] : {};
-    var gpt = d.models && d.models["GPT-5.5"] ? d.models["GPT-5.5"] : {};
-    var gemini = d.models && d.models["Gemini 3.1 Pro"] ? d.models["Gemini 3.1 Pro"] : {};
-
+    var slug = d.task_slug || d.uuid || "—";
     return (
-      '<tr class="matrix-row' + (isExpanded ? ' row-expanded' : '') + '" data-eval-id="' + esc(d.instance_id) + '">' +
-        '<td class="au-etd-instance">' +
-          '<span class="au-eval-instance-name">' + esc(d.instance_id) + '</span>' +
+      '<tr class="matrix-row' + (isExpanded ? ' row-expanded au-row-expanded' : '') + '" data-eval-id="' + esc(d.uuid) + '">' +
+        '<td class="au-etd-task">' +
+          '<span class="au-eval-instance-name">' + esc(slug) + '</span>' +
+          '<span class="au-eval-task-uuid">' + esc(d.uuid || "") + '</span>' +
         '</td>' +
-        '<td class="au-etd-prrange"><span class="au-eval-prrange-badge">' + esc(d.pr_range || "N/A") + '</span></td>' +
-        '<td class="au-etd-lang"><span class="au-lang-badge ' + langClass(d.language) + '">' + esc(d.language || "N/A") + '</span></td>' +
-        '<td class="au-etd-opus">' + evalPassCell(opus.pass_at_3) + '</td>' +
-        '<td class="au-etd-gpt">' + evalPassCell(gpt.pass_at_3) + '</td>' +
-        '<td class="au-etd-gemini">' + evalPassCell(gemini.pass_at_3) + '</td>' +
-        '<td class="au-etd-repo">' +
-          (d.repo_url ? '<a class="au-pr-link" href="' + esc(d.repo_url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">View</a>' : '<span class="au-text-muted">—</span>') +
-        '</td>' +
+        '<td class="au-etd-codebase"><span class="au-eval-codebase">' + esc(d.codebase || "—") + '</span></td>' +
+        '<td class="au-etd-lang"><span class="au-lang-badge">' + esc(langLabel(d.language) || "N/A") + '</span></td>' +   /* neutral pill; langClass() dropped for milobench parity */
+        '<td class="au-etd-tier">' + evalTierBadge(d.difficulty) + '</td>' +
+        '<td class="au-etd-hunks au-num">' + (d.src_hunks || 0) + '</td>' +
+        '<td class="au-etd-passrate">' + evalPassBar(d.pass_rate) + '</td>' +
+        '<td class="au-etd-meanscore">' + evalPassBar(d.mean_score) + '</td>' +
         '<td class="au-etd-expand"><span class="expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>' +
       '</tr>'
     );
   }
 
   function evalRenderDetailRow(d) {
-    var opus = d.models && d.models["Claude Opus 4.8"] ? d.models["Claude Opus 4.8"] : {};
-    var gpt = d.models && d.models["GPT-5.5"] ? d.models["GPT-5.5"] : {};
-    var gemini = d.models && d.models["Gemini 3.1 Pro"] ? d.models["Gemini 3.1 Pro"] : {};
+    var runs = evalRunsByTask[d.uuid] || [];
+    var models = evalModels.length ? evalModels : FALLBACK_MODELS;
 
-    function modelBlock(name, m) {
+    var cards = models.map(function (m) {
+      var mruns = runs
+        .filter(function (r) { return r.model_key === m.key; })
+        .sort(function (a, b) { return a.run_number - b.run_number; });
+      var passCount = mruns.filter(function (r) { return r.score_binary; }).length;
+      var meanScore = mruns.length ? (mruns.reduce(function (a, r) { return a + r.score; }, 0) / mruns.length) * 100 : 0;
+      var meanCost = mruns.length ? (mruns.reduce(function (a, r) { return a + (r.cost_usd || 0); }, 0) / mruns.length) : 0;
+      var runRows = mruns.map(function (r) {
+        return '<div class="au-detail-row-item"><span class="au-detail-key">run_' + r.run_number + '</span>' +
+               '<span class="au-detail-val">' + evalRunValue(r) + '</span></div>';
+      }).join("");
       return (
         '<div class="au-detail-block">' +
-          '<div class="au-detail-block-title">' + esc(name) + '</div>' +
-          '<div class="au-detail-row-item"><span class="au-detail-key">Run 1</span><span class="au-detail-val">' + evalRunBadge(m.run_1) + '</span></div>' +
-          '<div class="au-detail-row-item"><span class="au-detail-key">Run 2</span><span class="au-detail-val">' + evalRunBadge(m.run_2) + '</span></div>' +
-          '<div class="au-detail-row-item"><span class="au-detail-key">Run 3</span><span class="au-detail-val">' + evalRunBadge(m.run_3) + '</span></div>' +
-          '<div class="au-detail-row-item"><span class="au-detail-key">Pass@3</span><span class="au-detail-val" style="font-weight:700">' + esc(m.pass_at_3 || "0.00%") + '</span></div>' +
-          (m.trajectory ? '<div class="au-detail-row-item"><span class="au-detail-key">Trajectory</span><span class="au-detail-val"><a class="au-detail-link" href="' + esc(m.trajectory) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">View</a></span></div>' : '') +
+          '<div class="au-detail-block-title">' + esc(m.display_name) + '</div>' +
+          runRows +
+          '<div class="au-detail-row-item"><span class="au-detail-key">Pass@3</span><span class="au-detail-val">' + passCount + '/' + (mruns.length || 0) + '</span></div>' +
+          '<div class="au-detail-row-item"><span class="au-detail-key">Mean score</span><span class="au-detail-val">' + meanScore.toFixed(1) + '%</span></div>' +
+          '<div class="au-detail-row-item"><span class="au-detail-key">Mean cost</span><span class="au-detail-val">$' + meanCost.toFixed(2) + '</span></div>' +
         '</div>'
       );
-    }
+    }).join("");
+
+    var links = [];
+    if (d.dataset_url) links.push('<a class="au-detail-link" href="' + esc(d.dataset_url) + '" target="_blank" rel="noopener">Dataset</a>');
+    if (d.trajectories_url) links.push('<a class="au-detail-link" href="' + esc(d.trajectories_url) + '" target="_blank" rel="noopener">Trajectories</a>');
+    if (d.instruction_url) links.push('<a class="au-detail-link" href="' + esc(d.instruction_url) + '" target="_blank" rel="noopener">instruction.md</a>');
 
     return (
-      '<tr class="au-detail-row" data-eval-detail-for="' + esc(d.instance_id) + '">' +
+      '<tr class="au-detail-row" data-eval-detail-for="' + esc(d.uuid) + '">' +
         '<td colspan="8">' +
           '<div class="au-detail-content">' +
-            '<div class="au-eval-detail-grid">' +
-              '<div class="au-detail-block">' +
-                '<div class="au-detail-block-title">Instance Info</div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">Task ID</span><span class="au-detail-val">' + esc(d.task_id || d.instance_id) + '</span></div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">Category</span><span class="au-detail-val">' + esc((d.category || "").replace(/_/g, " ")) + '</span></div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">PR Range</span><span class="au-detail-val">' + esc(d.pr_range || "N/A") + '</span></div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">Avg Files Modified</span><span class="au-detail-val">' + (d.avg_files_modified || 0).toFixed(1) + '</span></div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">Avg Tool Calls</span><span class="au-detail-val">' + (d.avg_tool_calls || 0).toFixed(1) + '</span></div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">Avg Turns</span><span class="au-detail-val">' + (d.avg_turns || 0).toFixed(1) + '</span></div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">Est. Time (min)</span><span class="au-detail-val">' + (d.estimated_time || 0).toFixed(1) + '</span></div>' +
-                '<div class="au-detail-row-item"><span class="au-detail-key">PRs</span><span class="au-detail-val">' + ((d.pr_urls || []).length) + '</span></div>' +
-              '</div>' +
-              modelBlock("Claude Opus 4.8", opus) +
-              modelBlock("GPT-5.5", gpt) +
-              modelBlock("Gemini 3.1 Pro", gemini) +
-            '</div>' +
-            (d.repo_url ? '<div class="au-detail-links"><a class="au-detail-link" href="' + esc(d.repo_url) + '" target="_blank" rel="noopener"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a></div>' : '') +
+            '<div class="au-eval-detail-grid">' + cards + '</div>' +
+            (links.length ? '<div class="au-detail-links">' + links.join("") + '</div>' : '') +
           '</div>' +
         '</td>' +
       '</tr>'
@@ -454,20 +494,21 @@
 
     for (var i = 0; i < pageData.length; i++) {
       var d = pageData[i];
-      var isExpanded = d.instance_id === evalExpandedId;
+      var isExpanded = d.uuid === evalExpandedId;
       html += evalRenderRow(d, isExpanded);
       if (isExpanded) html += evalRenderDetailRow(d);
     }
 
     if (pageData.length === 0) {
-      html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--au-text-muted)">No instances found.</td></tr>';
+      html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--au-text-muted)">No tasks match your filters.</td></tr>';
     }
 
     tbody.innerHTML = html;
 
     var countEl = document.getElementById("au-eval-count");
     if (countEl) {
-      countEl.textContent = evalFilteredData.length + " of " + evalAllData.length + " instances";
+      var n = evalFilteredData.length;
+      countEl.textContent = n + (n === 1 ? " task" : " tasks");
     }
 
     evalRenderPagination();
@@ -503,15 +544,16 @@
 
   function evalApplyFilters() {
     var search = (document.getElementById("au-eval-search").value || "").toLowerCase();
+    var tierEl = document.getElementById("au-eval-tier");
+    var tier = tierEl ? tierEl.value : "";
     var lang = document.getElementById("au-eval-language").value;
 
     evalFilteredData = evalAllData.filter(function (d) {
+      if (tier && d.difficulty !== tier) return false;
       if (lang && d.language !== lang) return false;
       if (search) {
-        var idMatch = (d.instance_id || "").toLowerCase().indexOf(search) !== -1;
-        var taskMatch = (d.task_id || "").toLowerCase().indexOf(search) !== -1;
-        var repoMatch = (d.repo_url || "").toLowerCase().indexOf(search) !== -1;
-        if (!idMatch && !taskMatch && !repoMatch) return false;
+        var hay = [d.task_slug, d.codebase, d.uuid, d.keywords].filter(Boolean).join(" ").toLowerCase();
+        if (hay.indexOf(search) === -1) return false;
       }
       return true;
     });
@@ -526,32 +568,19 @@
     var dir = evalCurrentSortDir;
 
     evalFilteredData.sort(function (a, b) {
-      var av, bv;
+      var av = a[key];
+      var bv = b[key];
 
-      if (key === "opus_pass") {
-        av = evalParsePass(a.models && a.models["Claude Opus 4.8"] ? a.models["Claude Opus 4.8"].pass_at_3 : "0");
-        bv = evalParsePass(b.models && b.models["Claude Opus 4.8"] ? b.models["Claude Opus 4.8"].pass_at_3 : "0");
-        return (av - bv) * dir;
+      if (key === "difficulty") {
+        av = TIER_ORDER.indexOf((av || "").toLowerCase());
+        bv = TIER_ORDER.indexOf((bv || "").toLowerCase());
       }
-      if (key === "gpt_pass") {
-        av = evalParsePass(a.models && a.models["GPT-5.5"] ? a.models["GPT-5.5"].pass_at_3 : "0");
-        bv = evalParsePass(b.models && b.models["GPT-5.5"] ? b.models["GPT-5.5"].pass_at_3 : "0");
-        return (av - bv) * dir;
-      }
-      if (key === "gemini_pass") {
-        av = evalParsePass(a.models && a.models["Gemini 3.1 Pro"] ? a.models["Gemini 3.1 Pro"].pass_at_3 : "0");
-        bv = evalParsePass(b.models && b.models["Gemini 3.1 Pro"] ? b.models["Gemini 3.1 Pro"].pass_at_3 : "0");
-        return (av - bv) * dir;
-      }
-      if (key === "pr_range") {
-        var prOrder = {"1-5": 1, "6-10": 2, "11-20": 3, "21-40": 4, "41-100": 5, "100+": 6};
-        av = prOrder[a.pr_range] || 99;
-        bv = prOrder[b.pr_range] || 99;
-        return (av - bv) * dir;
-      }
+      if (av === null || av === undefined) av = "";
+      if (bv === null || bv === undefined) bv = "";
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
 
-      av = (a[key] || "").toString().toLowerCase();
-      bv = (b[key] || "").toString().toLowerCase();
+      av = av.toString().toLowerCase();
+      bv = bv.toString().toLowerCase();
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
@@ -565,8 +594,18 @@
     fetch("/aurora/api/delivery-evaluation")
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        evalAllData = data;
-        evalFilteredData = data.slice();
+        var tasks = (data && data.tasks) || [];
+        var runs = (data && data.runs) || [];
+        evalModels = ((data && data.models) || FALLBACK_MODELS).slice().sort(function (a, b) {
+          return (a.sequence || 0) - (b.sequence || 0);
+        });
+        evalRunsByTask = {};
+        runs.forEach(function (r) {
+          if (!evalRunsByTask[r.task_uuid]) evalRunsByTask[r.task_uuid] = [];
+          evalRunsByTask[r.task_uuid].push(r);
+        });
+        evalAllData = tasks;
+        evalFilteredData = tasks.slice();
         evalSortData();
         evalRenderTable();
       })
@@ -578,6 +617,9 @@
       "input",
       debounce(evalApplyFilters, 250)
     );
+
+    var tierSel = document.getElementById("au-eval-tier");
+    if (tierSel) tierSel.addEventListener("change", evalApplyFilters);
 
     document.getElementById("au-eval-language").addEventListener(
       "change",
