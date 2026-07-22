@@ -35,7 +35,12 @@ class GoogleMeetCancelWizard(models.TransientModel):
                 subtype_xmlid="mail.mt_comment",
                 force_send=True,
             )
-        self.event_id.unlink()
+        if self.event_id.google_event_id:
+            try:
+                self.event_id._delete_google_meet(self.event_id.google_event_id)
+            except Exception:  # noqa: BLE001
+                pass
+        self.event_id.active = False
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",

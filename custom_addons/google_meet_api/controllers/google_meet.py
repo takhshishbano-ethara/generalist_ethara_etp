@@ -3,13 +3,15 @@ import functools
 import json
 import logging
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from html import unescape
 from urllib.parse import urlparse
 
 import requests
+from markupsafe import Markup
 
-from odoo import http
+from odoo import SUPERUSER_ID, http
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
 
@@ -27,6 +29,7 @@ EVENTS_BASE = "/api/v1/google_meet/events"
 INTERVIEWS_BASE = "/api/v1/google_meet/interviews"
 INTERVIEWEES_BASE = "/api/v1/google_meet/interviewees"
 INTERVIEWERS_BASE = "/api/v1/google_meet/interviewers"
+CANDIDATES_BASE = "/api/v1/google_meet/candidates"
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -243,11 +246,27 @@ def _fetch_resume_attachment(candidate, event):
     url = candidate.resume_url
     if not url:
         return False
+
+    content = None
+    mimetype = "application/pdf"
     try:
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
-        _logger.warning("Resume fetch failed for %s: %s", url, exc)
+        content = resp.content
+        mimetype = resp.headers.get("Content-Type", "application/pdf")
+    except Exception as exc:  # noqa: BLE001 - fall through to curl
+        _logger.warning("Resume fetch via requests failed: %s. Trying curl.", exc)
+        try:
+            out = subprocess.run(
+                ["curl", "-fsSL", "--max-time", "15", url],
+                capture_output=True, check=True,
+            )
+            content = out.stdout
+        except Exception as curl_exc:  # noqa: BLE001
+            _logger.warning("Resume fetch via curl also failed: %s", curl_exc)
+            return False
+
+    if not content:
         return False
 
     filename = urlparse(url).path.rsplit("/", 1)[-1] or "resume.pdf"
@@ -255,10 +274,10 @@ def _fetch_resume_attachment(candidate, event):
     display = f"{name} - resume.pdf" if filename.lower().endswith(".pdf") else filename
     return request.env["ir.attachment"].sudo().create({
         "name": display,
-        "datas": base64.b64encode(resp.content),
+        "datas": base64.b64encode(content),
         "res_model": "calendar.event",
         "res_id": event.id,
-        "mimetype": resp.headers.get("Content-Type", "application/pdf"),
+        "mimetype": mimetype,
     })
 
 
@@ -323,6 +342,23 @@ def _event_dict(rec):
         "google_meet_url": rec.google_meet_url or None,
         "google_meet_code": rec.google_meet_code or None,
         "google_event_id": rec.google_event_id or None,
+        "candidate_id": (
+            {"id": rec.candidate_id.id, "name": rec.candidate_id.partner_name or rec.candidate_id.name}
+            if rec.candidate_id else None
+        ),
+        "interview_round": rec.interview_round or 0,
+        "interview_status": rec.interview_status or "upcoming",
+        "rescheduled_count": rec.rescheduled_count or 0,
+        "evaluation": {
+            "technical_skills": rec.technical_skills_score or 0,
+            "communication": rec.communication_score or 0,
+            "problem_solving": rec.problem_solving_score or 0,
+            "cultural_fit": rec.cultural_fit_score or 0,
+            "attitude_motivation": rec.attitude_motivation_score or 0,
+            "notes": rec.evaluation_notes or None,
+            "overall_score": rec.overall_score or 0,
+            "submitted": bool(rec.evaluation_submitted),
+        },
         "create_date": _iso(rec.create_date),
         "write_date": _iso(rec.write_date),
     }
@@ -593,6 +629,25 @@ class GoogleMeetApi(http.Controller):
                 data["is_google_meet"], False,
             )
 
+        for score_field in (
+            "technical_skills_score",
+            "communication_score",
+            "problem_solving_score",
+            "cultural_fit_score",
+            "attitude_motivation_score",
+        ):
+            if score_field in data:
+                sv = _coerce_int(data[score_field])
+                if sv is None or not (0 <= sv <= 10):
+                    msg = f"{score_field} must be an integer 0-10."
+                    return return_Response(message=msg, status=400, errors=[msg])
+                vals[score_field] = sv
+        if "evaluation_notes" in data:
+            vals["evaluation_notes"] = data.get("evaluation_notes") or False
+        if "candidate_id" in data:
+            cid = _coerce_int(data["candidate_id"])
+            vals["candidate_id"] = cid if cid is not None else False
+
         if not vals:
             msg = "No updatable fields provided."
             return return_Response(message=msg, status=400, errors=[msg])
@@ -665,6 +720,55 @@ class GoogleMeetApi(http.Controller):
             data={
                 "interviewees": [_interviewee_dict(app, a) for (app, a) in window],
                 "pagination": _pagination_block(total, page, limit),
+            },
+        )
+
+    @http.route(
+        CANDIDATES_BASE + "/<int:cid>/interviews",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    @_handle_errors
+    def google_meet_candidate_interviews(self, cid, **kwargs):
+        candidate = request.env["hr.applicant"].sudo().browse(cid).exists()
+        if not candidate:
+            msg = f"Candidate (hr.applicant) id={cid} not found."
+            return return_Response(message=msg, status=404, errors=[msg])
+
+        events = request.env["calendar.event"].sudo().with_context(active_test=False).search(
+            [("candidate_id", "=", cid)],
+            order="start asc",
+        )
+        now = datetime.utcnow()
+        upcoming, past = [], []
+        for ev in events:
+            data = _event_dict(ev)
+            if not ev.active or (ev.stop and ev.stop < now):
+                past.append(data)
+            else:
+                data.pop("evaluation", None)
+                upcoming.append(data)
+        past.reverse()
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "candidate": {
+                    "id": candidate.id,
+                    "name": candidate.partner_name or candidate.name,
+                    "email": candidate.email_from or None,
+                    "job": (
+                        {"id": candidate.job_id.id, "name": candidate.job_id.name}
+                        if candidate.job_id else None
+                    ),
+                    "resume_url": candidate.resume_url or None,
+                },
+                "upcoming": upcoming,
+                "past": past,
+                "total_rounds": len(events),
+                "max_rounds": 5,
+                "rounds_remaining": max(0, 5 - len(events)),
             },
         )
 
@@ -745,30 +849,28 @@ class GoogleMeetApi(http.Controller):
             msg = "durationMinutes must be a positive integer."
             return return_Response(message=msg, status=400, errors=[msg])
 
-        old_start = rec.start
         stop = new_start + timedelta(minutes=duration)
-        rec.write({
+        write_vals = {
             "start": new_start,
             "stop": stop,
             "duration": duration / 60.0,
-        })
+            "rescheduled_count": (rec.rescheduled_count or 0) + 1,
+        }
+
+        reason = (data.get("reason") or "").strip()
+        if reason:
+            reason_html = Markup("<p><strong>Rescheduled — reason:</strong> %s</p>") % reason
+            existing = rec.description or Markup("")
+            if str(reason_html) not in str(existing):
+                write_vals["description"] = reason_html + existing
+
+        rec.write(write_vals)
 
         notify = _coerce_bool(data.get("notifyAttendees"), True)
         if notify and rec.attendee_ids:
-            reason = (data.get("reason") or "").strip()
-            body = (
-                f"<p><strong>Interview rescheduled.</strong></p>"
-                f"<p>Old: {old_start} → New: {new_start}</p>"
-            )
-            if reason:
-                body += f"<p><strong>Reason:</strong> {reason}</p>"
-            rec.message_post(
-                body=body,
-                partner_ids=rec.partner_ids.ids,
-                subtype_xmlid="mail.mt_comment",
-                force_send=True,
-            )
-            rec.attendee_ids.with_context(
+            # with_user(SUPERUSER_ID): _should_notify_attendee() skips self.env.user's
+            # own partner, which would drop the API caller from the invite recipients.
+            rec.attendee_ids.with_user(SUPERUSER_ID).with_context(
                 no_mail_to_attendees=False,
                 mail_notify_force_send=True,
             )._send_invitation_emails()
@@ -809,9 +911,13 @@ class GoogleMeetApi(http.Controller):
                 body=body,
                 partner_ids=rec.partner_ids.ids,
                 subtype_xmlid="mail.mt_comment",
-                force_send=True,
             )
-        rec.unlink()
+        if rec.google_event_id:
+            try:
+                rec._delete_google_meet(rec.google_event_id)
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning("Google Meet delete failed on cancel: %s", exc)
+        rec.active = False
         return return_Response(message="Interview cancelled.", status=200)
 
     @http.route(
@@ -926,6 +1032,8 @@ class GoogleMeetApi(http.Controller):
             "is_google_meet": is_online,
             "description": "".join(description_parts) or False,
         }
+        if candidate:
+            vals["candidate_id"] = candidate.id
         if data.get("location"):
             vals["location"] = data["location"]
         if partner_ids:
@@ -944,12 +1052,6 @@ class GoogleMeetApi(http.Controller):
 
         if event.google_meet_url and not event.videocall_location:
             event.videocall_location = event.google_meet_url
-
-        if event.attendee_ids:
-            event.attendee_ids.with_context(
-                no_mail_to_attendees=False,
-                mail_notify_force_send=True,
-            )._send_invitation_emails()
 
         Attachment = request.env["ir.attachment"].sudo()
         event_attachments = Attachment
@@ -977,8 +1079,16 @@ class GoogleMeetApi(http.Controller):
             except Exception as exc:  # noqa: BLE001
                 _logger.warning("Attachment create failed for '%s': %s", name, exc)
 
+        if event.attendee_ids:
+            # See reschedule endpoint: with_user(SUPERUSER_ID) prevents the API
+            # caller from being skipped by _should_notify_attendee().
+            event.attendee_ids.with_user(SUPERUSER_ID).with_context(
+                no_mail_to_attendees=False,
+                mail_notify_force_send=True,
+            )._send_invitation_emails()
+
         if event_attachments and partner_ids:
-            event.message_post(
+            event.with_user(SUPERUSER_ID).message_post(
                 body="Interview materials attached.",
                 attachment_ids=event_attachments.ids,
                 partner_ids=partner_ids,

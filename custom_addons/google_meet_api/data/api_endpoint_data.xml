@@ -45,5 +45,49 @@
             <field name="url_pattern">/api/v1/google_meet/interviewers</field>
             <field name="note">List employees eligible to conduct interviews (filters: department_id, search)</field>
         </record>
+        <record id="endpoint_google_meet_candidate_interviews" model="api.endpoint">
+            <field name="url_pattern">/api/v1/google_meet/candidates/&lt;int:cid&gt;/interviews</field>
+            <field name="note">Per-candidate interview history: past + upcoming events with Meet links, scores, rounds</field>
+        </record>
+        <record id="endpoint_evaluations" model="api.endpoint">
+            <field name="url_pattern">/api/v1/evaluations</field>
+            <field name="note">HRMS-clone: list + assign evaluations</field>
+        </record>
+        <record id="endpoint_evaluations_by_id" model="api.endpoint">
+            <field name="url_pattern">/api/v1/evaluations/&lt;int:eid&gt;</field>
+            <field name="note">HRMS-clone: evaluation detail</field>
+        </record>
+        <record id="endpoint_evaluations_submit" model="api.endpoint">
+            <field name="url_pattern">/api/v1/evaluations/&lt;int:eid&gt;/submit</field>
+            <field name="note">HRMS-clone: submit 5-dim scores + recommendation</field>
+        </record>
+        <record id="endpoint_evaluations_complete" model="api.endpoint">
+            <field name="url_pattern">/api/v1/evaluations/&lt;int:eid&gt;/complete</field>
+            <field name="note">HRMS-clone: complete PI round, set pi_score + final_verdict</field>
+        </record>
+        <record id="endpoint_evaluations_pms_score" model="api.endpoint">
+            <field name="url_pattern">/api/v1/evaluations/&lt;int:eid&gt;/pms-score</field>
+            <field name="note">HRMS-clone: set final PMS hiring score</field>
+        </record>
+        <record id="endpoint_evaluations_pi_bypass" model="api.endpoint">
+            <field name="url_pattern">/api/v1/evaluations/&lt;int:eid&gt;/pi-bypass</field>
+            <field name="note">HRMS-clone: bypass PI rounds</field>
+        </record>
+        <record id="endpoint_candidates_pi_bypass" model="api.endpoint">
+            <field name="url_pattern">/api/v1/candidates/&lt;int:cid&gt;/pi-bypass</field>
+            <field name="note">HRMS-clone: bypass PI by candidate id (creates evaluation if missing)</field>
+        </record>
+        <record id="endpoint_audit_logs" model="api.endpoint">
+            <field name="url_pattern">/api/v1/audit-logs</field>
+            <field name="note">HRMS-clone: audit trail of evaluation actions</field>
+        </record>
+        <record id="endpoint_pms_evaluations" model="api.endpoint">
+            <field name="url_pattern">/api/v1/pms-evaluations</field>
+            <field name="note">HRMS-clone: post-hire PMS reviews (list + create)</field>
+        </record>
+        <record id="endpoint_pms_evaluations_submit" model="api.endpoint">
+            <field name="url_pattern">/api/v1/pms-evaluations/&lt;int:pid&gt;/submit</field>
+            <field name="note">HRMS-clone: submit 12-metric PMS review</field>
+        </record>
     </data>
 </odoo>

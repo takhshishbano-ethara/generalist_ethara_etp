@@ -19,6 +19,25 @@
                             context="{'default_event_id': id}"/>
                 </header>
             </xpath>
+            <xpath expr="//notebook" position="inside">
+                <page string="Evaluation" invisible="not candidate_id">
+                    <group>
+                        <field name="candidate_id" readonly="1"/>
+                        <field name="interview_round" readonly="1"/>
+                        <field name="overall_score" widget="float" readonly="1"/>
+                    </group>
+                    <group string="Scores (1-10 each)">
+                        <field name="technical_skills_score"/>
+                        <field name="communication_score"/>
+                        <field name="problem_solving_score"/>
+                        <field name="cultural_fit_score"/>
+                        <field name="attitude_motivation_score"/>
+                    </group>
+                    <group string="Notes">
+                        <field name="evaluation_notes" nolabel="1" placeholder="Evaluation notes..."/>
+                    </group>
+                </page>
+            </xpath>
         </field>
     </record>
 </odoo>

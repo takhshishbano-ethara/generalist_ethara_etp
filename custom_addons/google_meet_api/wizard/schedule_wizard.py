@@ -112,6 +112,8 @@ class GoogleMeetScheduleWizard(models.TransientModel):
             "description": "".join(description_parts) or False,
             "is_google_meet": self.mode == "online",
         }
+        if self.candidate_id:
+            vals["candidate_id"] = self.candidate_id.id
         if partner_ids:
             vals["partner_ids"] = [(6, 0, partner_ids)]
 
