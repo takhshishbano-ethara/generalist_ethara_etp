@@ -25,7 +25,9 @@ Scoring design
 import csv
 import sys
 import os
+import shutil
 import json as _json
+import datetime
 import numpy as np
 from collections import defaultdict
 from scipy import stats
@@ -66,20 +68,31 @@ SPOTLIGHT_BOTTOM_PCT = 0.10
 # are excluded from all scoring math, percentile cohorts, medians, dashboards, spotlight, and
 # pod_performance, since they aren't full-time taskers and scoring them against taskers (or
 # taskers against them) would be misleading in both directions.
-LEADS = {
-    # Project Leads
-    "ansh.dixit@ethara.ai", "ayush.parasher@ethara.ai", "ayushmaan.dwivedi@ethara.ai",
-    "bhavna.dhatrak@ethara.ai", "charitra.ethara@ethara.ai", "deepanshu.d@ethara.ai",
-    "devansh.kakwani18@ethara.ai", "gunjit.arora@ethara.ai", "hardika@ethara.ai",
-    "karun.raj@ethara.ai", "kumail.mujtaba@ethara.ai", "laxman.singh13@ethara.ai",
-    "madhav.khode@ethara.ai", "mohammad.adnan@ethara.ai", "prashant.patel@ethara.ai",
-    "saket.kukatkar@ethara.ai", "samarth.dubey@ethara.ai", "sapna.siradhna@ethara.ai",
-    "saurabh.baghel@ethara.ai", "shashwat.suman@ethara.ai", "udit.parashar@ethara.ai",
-    "ujala.singh@ethara.ai", "vatsal.jain@ethara.ai", "shreya.agrawal@ethara.ai",
-    "sagun.rai@ethara.ai", "gaurav.siradhana@ethara.ai", "prince.mishra@ethara.ai",
-    # Managers / not full-time taskers
-    "sathvik.boorgu@ethara.ai", "nisarg.gandhi@ethara.ai", "ashutosh.sharma@ethara.ai",
-    "vanshika.juneja@ethara.ai", "anjali.bhagoria@ethara.ai",
+#
+# Who counts as a lead is derived from the resource sheet (--rs), not hardcoded: a row is a
+# lead/manager when its own Email matches that row's Pod Lead column, or matches that row's
+# Program Manager column (see load_resource_sheet's lead_emails). This tracks org changes
+# automatically instead of needing a manual list edit per promotion/rotation.
+#
+# Two small, deliberately narrow manual overrides sit on top of the RS-derived set, for cases
+# RS structurally can't express:
+
+# Senior management who only task to spot-check projects, not as real output — permanent,
+# review only if someone's role changes. Not captured by RS because they aren't a Pod Lead or
+# Program Manager for any active pod.
+SENIOR_MANAGEMENT = {
+    "nisarg.gandhi@ethara.ai", "sathvik.boorgu@ethara.ai", "ashutosh.sharma@ethara.ai",
+}
+
+# People who left the org while holding a lead/management role. RS can drop someone from the
+# roster the day they resign, but their trailing hours (notice period) may still show up in
+# the task log for a while after — with no self-referential PL/PM row left in RS, they'd
+# otherwise start scoring as a regular tasker for those trailing days. This list is meant to
+# be temporary per entry: add someone here when their departure is confirmed, and delete their
+# entry once they stop appearing in the raw consolidated task log entirely (at that point the
+# override does nothing and is just clutter). Don't let this regrow into a second LEADS list.
+MANUAL_EXCLUSIONS = {
+    "deepanshu.d@ethara.ai",   # resigned; RS still shows them as Active as of 2026-07-21
 }
 
 assert abs(W_HOURS + W_SUBS + W_AHT - 1.0) < 1e-9, "Scorecard weights must sum to 1.0"
@@ -163,10 +176,10 @@ def ingest(filepath):
 # inline during scoring — they only suppress output scoring for that
 # specific project day; hours scoring for those taskers is unaffected.
 
-def find_anomaly_days(raw_day):
+def find_anomaly_days(raw_day, lead_emails):
     daily = defaultdict(lambda: {"annotators": set(), "hours": 0.0})
     for (date, email), vals in raw_day.items():
-        if email in LEADS:
+        if email in lead_emails:
             continue
         daily[date]["annotators"].add(email)
         daily[date]["hours"] += vals["hours"]
@@ -187,7 +200,7 @@ def find_anomaly_days(raw_day):
 # OUTPUT 1: DEDUPLICATED DAILY TASKER DATA
 # ──────────────────────────────────────────────────
 
-def pipeline_deduped(raw_task, out_path):
+def pipeline_deduped(raw_task, out_path, lead_emails):
     # Aggregate to (date, email) but expose which tasks were worked
     day_data = defaultdict(lambda: {"hours": 0.0, "submissions": 0,
                                     "aht_numer": 0.0, "tasks": set()})
@@ -203,7 +216,7 @@ def pipeline_deduped(raw_task, out_path):
         rows.append({
             "date":         date,
             "email":        email,
-            "is_lead":      "Yes" if email in LEADS else "No",
+            "is_lead":      "Yes" if email in lead_emails else "No",
             "tasks":        "; ".join(sorted(vals["tasks"])),
             "hours":        round(vals["hours"], 2),
             "submissions":  vals["submissions"],
@@ -226,12 +239,12 @@ def pipeline_deduped(raw_task, out_path):
 # PIPELINE 2: TEAM DAILY SUMMARY
 # ──────────────────────────────────────────────────
 
-def pipeline_daily_summary(raw_day, anomaly_days, out_path):
+def pipeline_daily_summary(raw_day, anomaly_days, out_path, lead_emails):
     daily = defaultdict(lambda: {"annotators": set(), "hours": 0.0, "lead_hours": 0.0})
     for (date, email), vals in raw_day.items():
         daily[date]["annotators"].add(email)
         daily[date]["hours"] += vals["hours"]
-        if email in LEADS:
+        if email in lead_emails:
             daily[date]["lead_hours"] += vals["hours"]
 
     with open(out_path, 'w', newline='', encoding='utf-8') as f:
@@ -253,7 +266,7 @@ def pipeline_daily_summary(raw_day, anomaly_days, out_path):
 # PIPELINE 1: TASKER ROLLING SCORECARD
 # ──────────────────────────────────────────────────
 
-def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_to_pod=None):
+def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, lead_emails, email_to_pod=None):
     all_dates       = sorted({date for (date, _) in raw_day})
     total_work_days = len(all_dates)
 
@@ -263,7 +276,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
     # No cohort needed — every tasker's score stands alone.
     hours_scores = {}   # (date, email) → h_score  [0, 100]
     for (date, email), vals in raw_day.items():
-        if date in anomaly_days or email in LEADS:
+        if date in anomaly_days or email in lead_emails:
             continue
         hours_scores[(date, email)] = min(vals["hours"] / HOURS_PER_TASKER_TARGET, 1.0) * 100
 
@@ -272,7 +285,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
     # Skips anomaly days, leads, and cohorts with < MIN_SCOREABLE_TASKERS.
     by_date_task = defaultdict(dict)   # (date, task) → {email: vals}
     for (date, email, task), vals in raw_task.items():
-        if email in LEADS:
+        if email in lead_emails:
             continue
         by_date_task[(date, task)][email] = vals
 
@@ -315,6 +328,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
         "s_scores_w":         [],    # (s_pct, weight) per scored (date, task) (for output_score column)
         "aht_scores_w":       [],    # (aht_pct, weight) per scored (date, task)
         "day_scores":         [],    # composite day_score for fully scored days (drives final/consistency/peak)
+        "day_scores_dated":   [],    # (date, day_score) pairs, same values as day_scores — for streaks
         "output_scored_dates": set(),
         "all_active_days":    set(),
         "total_hours_all":    0.0,
@@ -334,9 +348,9 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
         # Day score requires fully scored day (hours + subs + AHT all available)
         if (date, email) in day_agg:
             s_pct, aht_pct = day_agg[(date, email)]
-            summary[email]["day_scores"].append(
-                W_HOURS * h_score + W_SUBS * s_pct + W_AHT * aht_pct
-            )
+            ds = W_HOURS * h_score + W_SUBS * s_pct + W_AHT * aht_pct
+            summary[email]["day_scores"].append(ds)
+            summary[email]["day_scores_dated"].append((date, ds))
 
     for (date, email, task), (s_pct, aht_pct) in output_scores.items():
         # Weight by submissions so high-volume task-days carry proportionally more signal
@@ -347,7 +361,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
 
     rolling = []
     for email, vals in summary.items():
-        is_lead = email in LEADS
+        is_lead = email in lead_emails
 
         # Skip taskers who only ever worked on anomaly days. Leads always have empty
         # score lists by design (they're excluded from scoring above) but must still
@@ -430,6 +444,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
             "vs_benchmark":        f"{round((overall_aht - 1) * 100, 1):+.1f}%",
             "_subs_score":         subs_score,    # temp for quadrant
             "_day_scores":         day_scores_list,  # temp for good_days_pct
+            "_day_scores_dated":   vals["day_scores_dated"],  # temp for streaks
         })
 
     # ── Second pass: quadrant + good_days_pct ────────────────────────────────
@@ -444,8 +459,10 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
 
     for r in rolling:
         if r["is_lead"]:
-            r["quadrant"]      = "Lead"
-            r["good_days_pct"] = None
+            r["quadrant"]       = "Lead"
+            r["good_days_pct"]  = None
+            r["streak_current"] = None
+            r["streak_best"]    = None
             del r["_subs_score"]
             del r["_day_scores"]
             continue
@@ -462,6 +479,21 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
             round(sum(1 for s in ds if s > team_day_median) / len(ds) * 100, 1)
             if ds else 0.0
         )
+        # Streaks: consecutive *eligible* days (days with a day_score) that beat the
+        # team day-score median — same "good day" bar as good_days_pct. Eligible days,
+        # not calendar days, so a day a tasker didn't work (e.g. a Saturday off) simply
+        # isn't in the sequence rather than breaking or padding the streak.
+        dated = sorted(r["_day_scores_dated"], key=lambda p: p[0])
+        best = cur = run = 0
+        for _, s in dated:
+            if s > team_day_median:
+                run += 1
+                best = max(best, run)
+            else:
+                run = 0
+        cur = run
+        r["streak_current"] = cur
+        r["streak_best"]    = best
         del r["_subs_score"]
         del r["_day_scores"]
 
@@ -491,6 +523,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
             'Total Hours', 'Avg Hours/Day',
             'Total Submissions', 'Avg Subs/Day',
             'AHT Ratio vs Benchmark', 'vs Benchmark %', 'Quadrant',
+            'Current Streak (days)', 'Best Streak (days)',
         ])
         for r in rolling:
             writer.writerow([
@@ -503,6 +536,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, email_t
                 r["total_hours"], r["avg_hours_day"],
                 r["total_subs"], r["avg_subs_day"],
                 r["aht_ratio"], r["vs_benchmark"], r["quadrant"],
+                _fmt(r["streak_current"]), _fmt(r["streak_best"]),
             ])
 
     print(f"  Pipeline 1    → {out_path}")
@@ -537,6 +571,8 @@ def pipeline_html_report(rolling, period_str, out_path):
             "cs":  r["consistency_score"],
             "pk":  r["peak_score"],
             "gd":  r["good_days_pct"],
+            "stc": r["streak_current"],
+            "stb": r["streak_best"],
             "q":   r["quadrant"],
             "at":  r["attendance"],
             "ad":  r["active_days"],
@@ -1064,7 +1100,7 @@ init();
 # MANAGEMENT HTML DASHBOARD
 # ──────────────────────────────────────────────────
 
-def pipeline_html_mgmt_report(rolling, raw_task, raw_day, anomaly_days, period_str, pod_rows, spotlight_result, out_path):
+def pipeline_html_mgmt_report(rolling, raw_task, raw_day, anomaly_days, period_str, pod_rows, spotlight_result, out_path, pod_lead_rows=None):
     """Management-facing dashboard: full leaderboard, quadrant, attention flags,
     team health, and project breakdown. All tasker emails visible."""
 
@@ -1119,6 +1155,8 @@ def pipeline_html_mgmt_report(rolling, raw_task, raw_day, anomaly_days, period_s
             "cs":   r["consistency_score"],
             "pk":   r["peak_score"],
             "gd":   r["good_days_pct"],
+            "stc":  r["streak_current"],
+            "stb":  r["streak_best"],
             "q":    r["quadrant"],
             "tier": tier,
             "flags":flags,
@@ -1208,12 +1246,24 @@ def pipeline_html_mgmt_report(rolling, raw_task, raw_day, anomaly_days, period_s
         "proj":r["projects"],
     } for r in (pod_rows or [])]
 
+    podleads_data = [{
+        "nm":  r["zone"],
+        "pl":  r["lead"],
+        "ts":  r["tenure_start"],
+        "dt":  r["days_in_tenure"],
+        "hc":  r["headcount"],
+        "asc": r["abs_score"],
+        "bl":  r["baseline"],
+        "dl":  r["delta"],
+    } for r in (pod_lead_rows or [])]
+
     data_blob = _json.dumps({
         "period":    period_str,
         "taskers":   taskers_data,
         "daily":     daily_data,
         "projects":  project_data,
         "pods":      pods_data,
+        "podleads":  podleads_data,
         "spotlight": _build_spotlight_blob(spotlight_result),
     }, separators=(',', ':'))
 
@@ -1384,6 +1434,8 @@ tr:hover>td{background:#FFF8F5}
       <th onclick="sortLB(11)">Quadrant <span class="tip-i" data-tip="Above/below team median on two axes: effort (hours) and output (project submissions rank). Both thresholds are derived from the current team distribution.">?</span></th>
       <th onclick="sortLB(12)">Tier <span class="tip-i" data-tip="Performance percentile band: Exceptional = top 10%, Strong = 10-25%, Solid = 25-75%, Developing = 75-90%, Needs Support = bottom 10%.">?</span></th>
       <th onclick="sortLB(13)">Pod Lead <span class="tip-i" data-tip="Pod lead responsible for this tasker, from the resource sheet.">?</span></th>
+      <th onclick="sortLB(14)">Streak <span class="tip-i" data-tip="Consecutive scored days beating the team median day score, counting only days this tasker actually worked (a day off doesn't break it).">?</span></th>
+      <th onclick="sortLB(15)">Best Streak <span class="tip-i" data-tip="Longest such streak anywhere in the period.">?</span></th>
     </tr></thead>
     <tbody id="lbBody"></tbody>
   </table></div>
@@ -1455,6 +1507,26 @@ tr:hover>td{background:#FFF8F5}
 
 <div id="pane-pd" class="pane"><div class="wrap">
   <div class="g5" style="margin-top:2px" id="podKpiRow"></div>
+  <div class="card" style="margin-top:16px" id="plCard">
+    <div class="card-h">Pod Lead Leaderboard <span class="tip-i" data-tip="Leads are scored on their CURRENT zone's performance, not their own hours — when a lead moves to a new zone, that zone's score becomes their score. Two numbers are shown side by side (not blended) so a lead sent to rescue a weak zone isn't punished for its low absolute score: the zone's absolute average day score during this lead's tenure, and how that compares to the zone's own average before this lead took over.">?</span></div>
+    <div class="sbar">
+      <input type="text" id="plQ" placeholder="Filter by lead or zone&#x2026;" oninput="renderPl()" style="min-width:280px">
+      <span class="sbar-c" id="plCnt"></span>
+    </div>
+    <div class="tbl-wrap" style="max-height:none"><table id="plTbl">
+      <thead><tr>
+        <th onclick="sortPl(0)">Zone (Pod)</th>
+        <th onclick="sortPl(1)">Lead Email</th>
+        <th onclick="sortPl(2)">Tenure Start</th>
+        <th onclick="sortPl(3)">Days in Tenure</th>
+        <th onclick="sortPl(4)">Headcount</th>
+        <th onclick="sortPl(5)">Pod Score (Tenure) <span class="tip-i" data-tip="Mean day_score of this zone's members, restricted to days within this lead's current tenure. Same eligibility filter as Good Days % (non-anomaly, fully scored days).">?</span></th>
+        <th onclick="sortPl(6)">Baseline (Pre-Tenure) <span class="tip-i" data-tip="This zone's mean day_score across all its eligible days BEFORE this tenure started. Blank if the zone has no eligible days before this tenure (brand-new zone or first pipeline run).">?</span></th>
+        <th onclick="sortPl(7)">Delta vs Baseline <span class="tip-i" data-tip="Pod Score (Tenure) minus Baseline. Positive = zone improved under this lead; negative = declined. Blank when there's no baseline to compare against.">?</span></th>
+      </tr></thead>
+      <tbody id="plBody"></tbody>
+    </table></div>
+  </div>
   <div class="card" style="margin-top:16px">
     <div class="card-h">Pod Leaderboard</div>
     <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:9px 14px;margin-bottom:12px;font-size:.75rem;color:#92400E;display:flex;align-items:flex-start;gap:8px">
@@ -1655,7 +1727,7 @@ window.sortOv=function(col){
 };
 
 let LBC=0,LBA=true;
-const LBKEYS=["rk","e","f","ef","op","cs","pk","gd","ah","th","ad","q","tier","pl"];
+const LBKEYS=["rk","e","f","ef","op","cs","pk","gd","ah","th","ad","q","tier","pl","stc","stb"];
 function renderLB(){
   const q=(document.getElementById("lbQ").value||"").toLowerCase();
   const tf=document.getElementById("lbTier").value;
@@ -1679,7 +1751,8 @@ function renderLB(){
       +sCell(t.f)+sCell(t.ef)+sCell(t.op)+sCell(t.cs)+sCell(t.pk)
       +"<td>"+t.gd+"%</td><td>"+t.ah+"h</td><td>"+t.th+"h</td><td>"+t.ad+"</td>"
       +"<td>"+qBadge(t.q)+"</td><td>"+tBadge(t.tier)+"</td>"
-      +"<td style=\\"font-family:monospace;font-size:.7rem\\">"+(t.pl||"—")+"</td>";
+      +"<td style=\\"font-family:monospace;font-size:.7rem\\">"+(t.pl||"—")+"</td>"
+      +"<td>"+t.stc+"</td><td>"+t.stb+"</td>";
     tb.appendChild(tr);
   });
   document.getElementById("lbCnt").textContent=rows.length+" of "+DATA.taskers.length+" taskers";
@@ -1958,6 +2031,51 @@ function sortPd(col){
   renderPd();
 }
 
+let PLC=5,PLA=false;
+const PLSORT=["nm","pl","ts","dt","hc","asc","bl","dl"];
+
+function initPl(){
+  const card=document.getElementById('plCard');
+  if(!DATA.podleads||!DATA.podleads.length){card.style.display='none';return;}
+  renderPl();
+}
+
+function renderPl(){
+  const q=(document.getElementById('plQ').value||'').toLowerCase();
+  let rows=DATA.podleads.filter(p=>!q||p.pl.toLowerCase().includes(q)||p.nm.toLowerCase().includes(q));
+  const k=PLSORT[PLC];
+  if(k) rows.sort((a,b)=>{
+    const va=a[k],vb=b[k];
+    if(va==null&&vb==null)return 0;
+    if(va==null)return 1;
+    if(vb==null)return -1;
+    if(typeof va==='number') return PLA?va-vb:vb-va;
+    return PLA?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
+  });
+  const tb=document.getElementById('plBody');tb.innerHTML='';
+  rows.forEach(p=>{
+    const dlCol=p.dl==null?'#64748B':p.dl>=0?'#10B981':'#EF4444';
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td style="font-size:.73rem;color:#64748B;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="'+p.nm+'">'+p.nm+'</td>'
+      +'<td style="font-family:monospace;font-size:.69rem">'+p.pl+'</td>'
+      +'<td>'+p.ts+'</td>'
+      +'<td>'+p.dt+'</td>'
+      +'<td>'+p.hc+'</td>'
+      +'<td style="font-weight:700">'+(p.asc==null?'—':p.asc)+'</td>'
+      +'<td>'+(p.bl==null?'—':p.bl)+'</td>'
+      +'<td style="font-weight:600;color:'+dlCol+'">'+(p.dl==null?'—':(p.dl>=0?'+':'')+p.dl)+'</td>';
+    tb.appendChild(tr);
+  });
+  document.getElementById('plCnt').textContent=rows.length+' lead-tenure rows';
+}
+
+function sortPl(col){
+  if(!PLSORT[col])return;
+  if(PLC===col)PLA=!PLA;else{PLC=col;PLA=col<=2;}
+  document.querySelectorAll('#plTbl th').forEach((th,i)=>{th.classList.remove('sa','sd');if(i===col)th.classList.add(PLA?'sa':'sd');});
+  renderPl();
+}
+
 const SPOTLIGHT_MIN_POOL_JS = __SPOTLIGHT_MIN_POOL__;
 
 function initSp(){
@@ -2131,6 +2249,8 @@ initQd(); initFlags(); initHealth(); renderPr();
 document.querySelectorAll("#prTbl th").forEach((th,i)=>{if(i===PRC)th.classList.add(PRA?"sa":"sd");});
 initPd();
 document.querySelectorAll("#pdTbl th").forEach((th,i)=>{if(i===PDC)th.classList.add(PDA?"sa":"sd");});
+initPl();
+document.querySelectorAll("#plTbl th").forEach((th,i)=>{if(i===PLC)th.classList.add(PLA?"sa":"sd");});
 initSp();
 
 (function(){
@@ -2153,10 +2273,25 @@ initSp();
 
 def load_resource_sheet(rs_path):
     """Parse resource sheet CSV.
-    Returns email_to_pod, pod_all_emails, pod_projects."""
+    Returns email_to_pod, pod_all_emails, pod_projects, lead_emails,
+    rs_pod_leads, rs_program_managers.
+
+    lead_emails is derived from the roster itself rather than a maintained list: a
+    person counts as a lead/manager when their own row is self-referential — their
+    Email matches that row's pod-lead column, or matches that row's Program Manager
+    column. This lets leadership changes (promotions, rotations, org changes) show
+    up automatically on the next run instead of requiring a code edit.
+
+    rs_pod_leads and rs_program_managers are the same self-referential match, kept
+    separate (rather than folded into lead_emails) so callers can audit each role's
+    roster independently — see record_lead_roster_history.
+    """
     email_to_pod   = {}
     pod_all_emails = defaultdict(set)
     pod_projects   = defaultdict(set)
+    lead_emails    = set()
+    rs_pod_leads   = set()
+    rs_program_managers = set()
     _SKIP = {'', 'unassigned', 'n/a', '-'}
     with open(rs_path, newline='', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
@@ -2175,19 +2310,114 @@ def load_resource_sheet(rs_path):
                 seen.add(h)
                 deduped_header.append(h)
         reader.fieldnames = deduped_header
+        # The pod-lead column has been named both "PL" and "POD Lead" across
+        # different resource sheet snapshots — support either.
+        pl_col = 'PL' if 'PL' in seen else 'POD Lead'
         for row in reader:
             email    = row.get('Email', '').strip().lower()
-            pl_raw   = (row.get('PL') or row.get('POD Lead') or '').strip()
+            pl_raw   = row.get(pl_col, '').strip()
+            pm_raw   = row.get('Program Manager', '').strip().lower()
             pod_name = row.get('Pod Name/Location', '').strip()
             proj     = row.get('Current Project', '').strip()
-            if not email or not pl_raw:
+            if not email:
                 continue
             pl = pl_raw.split('/')[0].strip().lower()
+            is_pl = bool(pl) and email == pl
+            is_pm = bool(pm_raw) and email == pm_raw
+            if is_pl:
+                rs_pod_leads.add(email)
+            if is_pm:
+                rs_program_managers.add(email)
+            if is_pl or is_pm:
+                lead_emails.add(email)
+            if not pl_raw:
+                continue
             email_to_pod[email] = {'pl': pl, 'pod_name': pod_name}
             pod_all_emails[pl].add(email)
             if proj.lower() not in _SKIP:
                 pod_projects[pl].add(proj)
-    return email_to_pod, pod_all_emails, pod_projects
+    return email_to_pod, pod_all_emails, pod_projects, lead_emails, rs_pod_leads, rs_program_managers
+
+
+def record_pod_lead_history(email_to_pod, run_date, history_path):
+    """Append-only changelog of which pod lead(s) cover each zone ('Pod Name/Location').
+    Appends a row for a zone only when its current set of leads differs from the last
+    recorded set for that zone — makes the file a real changelog, not a daily dump."""
+    zone_leads = defaultdict(set)
+    for info in email_to_pod.values():
+        pod_name = info['pod_name']
+        if not pod_name:
+            continue
+        zone_leads[pod_name].add(info['pl'])
+
+    last_recorded = {}
+    if os.path.exists(history_path):
+        with open(history_path, newline='', encoding='utf-8') as f:
+            for row in csv.DictReader(f):
+                zone = row['Pod Name (zone)']
+                leads = frozenset(e for e in row['Pod Lead Email(s)'].split(',') if e)
+                last_recorded[zone] = leads
+
+    new_rows = []
+    for zone, leads in sorted(zone_leads.items()):
+        current = frozenset(leads)
+        if last_recorded.get(zone) != current:
+            new_rows.append([run_date, zone, ','.join(sorted(current))])
+
+    if new_rows:
+        write_header = not os.path.exists(history_path)
+        with open(history_path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow(['Run Date', 'Pod Name (zone)', 'Pod Lead Email(s)'])
+            writer.writerows(new_rows)
+        print(f"  Pod lead history     → {history_path}  ({len(new_rows)} zone(s) changed)")
+    else:
+        print(f"  Pod lead history     → {history_path}  (no changes)")
+
+
+def record_lead_roster_history(rs_pod_leads, rs_program_managers, run_date, history_path):
+    """Append-only audit trail of the RS-derived pod-lead and program-manager roster
+    (the set that drives is_lead exclusion, before SENIOR_MANAGEMENT/MANUAL_EXCLUSIONS
+    are layered on). Appends a row only when either role's roster differs from the last
+    recorded snapshot, and records exactly who was added/removed — so a promotion,
+    rotation, or departure that changes who gets excluded from scoring leaves a record
+    of when it happened and why the numbers shifted."""
+    current_pl = frozenset(rs_pod_leads)
+    current_pm = frozenset(rs_program_managers)
+
+    last_pl, last_pm = frozenset(), frozenset()
+    if os.path.exists(history_path):
+        with open(history_path, newline='', encoding='utf-8') as f:
+            rows = list(csv.DictReader(f))
+        if rows:
+            last = rows[-1]
+            last_pl = frozenset(e for e in last['Pod Lead Emails'].split(',') if e)
+            last_pm = frozenset(e for e in last['Program Manager Emails'].split(',') if e)
+
+    if current_pl == last_pl and current_pm == last_pm:
+        print(f"  Lead/PM roster history → {history_path}  (no changes)")
+        return
+
+    added_pl, removed_pl = current_pl - last_pl, last_pl - current_pl
+    added_pm, removed_pm = current_pm - last_pm, last_pm - current_pm
+
+    write_header = not os.path.exists(history_path)
+    with open(history_path, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(['Run Date', 'Pod Lead Emails', 'Program Manager Emails',
+                              'Pod Leads Added', 'Pod Leads Removed',
+                              'Program Managers Added', 'Program Managers Removed'])
+        writer.writerow([
+            run_date,
+            ','.join(sorted(current_pl)), ','.join(sorted(current_pm)),
+            ','.join(sorted(added_pl)),   ','.join(sorted(removed_pl)),
+            ','.join(sorted(added_pm)),   ','.join(sorted(removed_pm)),
+        ])
+    print(f"  Lead/PM roster history → {history_path}  "
+          f"(+{len(added_pl)}/-{len(removed_pl)} pod leads, "
+          f"+{len(added_pm)}/-{len(removed_pm)} program managers)")
 
 
 def pipeline_pod_scorecard(rolling, email_to_pod, pod_all_emails, pod_projects, out_path):
@@ -2308,6 +2538,85 @@ def pipeline_pod_scorecard(rolling, email_to_pod, pod_all_emails, pod_projects, 
     return pod_rows
 
 
+def pipeline_pod_lead_scorecard(history_path, rolling, out_path):
+    """Score each pod lead on their CURRENT zone's performance during their current
+    tenure there, plus that zone's baseline performance before the tenure started.
+    Tenure windows come from the pod_lead_history.csv changelog (see
+    record_pod_lead_history) — a zone with no prior history row (first run) gets a
+    same-day tenure and no baseline. Writes pod_lead_scorecard.csv, one row per
+    (zone, lead) pair for the zone's current tenure; a co-led zone produces one row
+    per lead, all sharing the same zone score."""
+    if not os.path.exists(history_path):
+        print(f"  Pod lead scorecard   → skipped (no {os.path.basename(history_path)} yet)")
+        return []
+
+    zone_history = defaultdict(list)   # zone -> [(date_str, frozenset(leads)), ...]
+    with open(history_path, newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            zone  = row['Pod Name (zone)']
+            leads = frozenset(e for e in row['Pod Lead Email(s)'].split(',') if e)
+            zone_history[zone].append((row['Run Date'], leads))
+    for zone in zone_history:
+        zone_history[zone].sort(key=lambda p: p[0])
+
+    # Pool each zone's (date, day_score) pairs from every non-lead tasker currently
+    # rostered to it — day_scores_dated already only contains non-anomaly, fully
+    # scored days, same eligibility filter as streaks/Good Days %.
+    zone_day_scores = defaultdict(list)
+    for r in rolling:
+        if r["is_lead"] or not r["pod_name"]:
+            continue
+        zone_day_scores[r["pod_name"]].extend(r["_day_scores_dated"])
+
+    all_dates_seen = sorted({d for pairs in zone_day_scores.values() for d, _ in pairs})
+    period_end = all_dates_seen[-1] if all_dates_seen else None
+
+    lead_rows = []
+    for zone, hist in sorted(zone_history.items()):
+        tenure_start, current_leads = hist[-1]
+        if not current_leads:
+            continue
+        day_scores      = zone_day_scores.get(zone, [])
+        current_scores  = [s for d, s in day_scores if d >= tenure_start]
+        baseline_scores = [s for d, s in day_scores if d <  tenure_start]
+        abs_score = round(float(np.mean(current_scores)), 1)  if current_scores  else None
+        baseline  = round(float(np.mean(baseline_scores)), 1) if baseline_scores else None
+        delta     = round(abs_score - baseline, 1) if abs_score is not None and baseline is not None else None
+        headcount = sum(1 for r in rolling if not r["is_lead"] and r["pod_name"] == zone)
+        days_in_tenure = 0
+        if period_end:
+            d0 = datetime.date.fromisoformat(tenure_start)
+            d1 = datetime.date.fromisoformat(period_end)
+            days_in_tenure = max((d1 - d0).days + 1, 0)
+        for lead in sorted(current_leads):
+            lead_rows.append({
+                'zone': zone, 'lead': lead, 'tenure_start': tenure_start,
+                'days_in_tenure': days_in_tenure, 'headcount': headcount,
+                'abs_score': abs_score, 'baseline': baseline, 'delta': delta,
+            })
+
+    lead_rows.sort(key=lambda r: (r['abs_score'] is None, -(r['abs_score'] or 0)))
+
+    with open(out_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            'Pod Name (zone)', 'Lead Email', 'Tenure Start', 'Days in Tenure',
+            'Headcount', 'Pod Score During Tenure', 'Pod Baseline (Pre-Tenure)',
+            'Delta vs Baseline',
+        ])
+        for r in lead_rows:
+            writer.writerow([
+                r['zone'], r['lead'], r['tenure_start'], r['days_in_tenure'],
+                r['headcount'],
+                r['abs_score'] if r['abs_score'] is not None else '',
+                r['baseline']  if r['baseline']  is not None else '',
+                r['delta']     if r['delta']     is not None else '',
+            ])
+
+    print(f"  Pod lead scorecard   → {out_path}  ({len(lead_rows)} lead-tenure rows)")
+    return lead_rows
+
+
 # ──────────────────────────────────────────────────
 # DAILY SPOTLIGHT
 # ──────────────────────────────────────────────────
@@ -2351,7 +2660,7 @@ def _build_spotlight_blob(sr):
     }
 
 
-def pipeline_daily_spotlight(raw_task, raw_day, anomaly_days, rolling, out_dir, email_to_pod=None):
+def pipeline_daily_spotlight(raw_task, raw_day, anomaly_days, rolling, out_dir, lead_emails, email_to_pod=None):
     """Identify top/bottom 10% taskers for the latest scoreable day.
 
     Returns a spotlight_result dict consumed by pipeline_html_mgmt_report.
@@ -2392,7 +2701,7 @@ def pipeline_daily_spotlight(raw_task, raw_day, anomaly_days, rolling, out_dir, 
     for d in scoreable_dates:
         cnt = sum(
             1 for (date, email), vals in raw_day.items()
-            if date == d and email not in LEADS and vals["hours"] >= SPOTLIGHT_MIN_HOURS
+            if date == d and email not in lead_emails and vals["hours"] >= SPOTLIGHT_MIN_HOURS
         )
         if cnt > 0:
             daily_eligible_counts.append(cnt)
@@ -2403,7 +2712,7 @@ def pipeline_daily_spotlight(raw_task, raw_day, anomaly_days, rolling, out_dir, 
     day_raw = {
         email: vals
         for (date, email), vals in raw_day.items()
-        if date == spotlight_date and email not in LEADS
+        if date == spotlight_date and email not in lead_emails
     }
     h_scores = {
         email: min(vals["hours"] / HOURS_PER_TASKER_TARGET, 1.0) * 100
@@ -2413,7 +2722,7 @@ def pipeline_daily_spotlight(raw_task, raw_day, anomaly_days, rolling, out_dir, 
     # ── Output scoring per (spotlight_date, task) cohort ────────────────────
     by_task = defaultdict(dict)   # task → {email: vals}
     for (date, email, task), vals in raw_task.items():
-        if date == spotlight_date and email not in LEADS:
+        if date == spotlight_date and email not in lead_emails:
             by_task[task][email] = vals
 
     task_output = {}   # (email, task) → (s_pct, aht_pct)
@@ -2575,22 +2884,27 @@ def pipeline_daily_spotlight(raw_task, raw_day, anomaly_days, rolling, out_dir, 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python mm_performance_pipeline.py <input_csv> [--rs <resource_sheet.csv>]")
+        print("Usage: python mm_performance_pipeline.py <input_csv> --rs <resource_sheet.csv>")
         sys.exit(1)
 
     args = sys.argv[1:]
-    rs_path = None
-    if '--rs' in args:
-        idx = args.index('--rs')
-        if idx + 1 >= len(args):
-            print("Error: --rs requires a file path argument")
-            sys.exit(1)
-        rs_path = args[idx + 1]
-        del args[idx:idx + 2]
+    if '--rs' not in args:
+        print("Error: --rs <resource_sheet.csv> is required — lead/manager exclusion is "
+              "derived from the resource sheet, there is no hardcoded fallback.")
+        sys.exit(1)
+    idx = args.index('--rs')
+    if idx + 1 >= len(args):
+        print("Error: --rs requires a file path argument")
+        sys.exit(1)
+    rs_path = args[idx + 1]
+    del args[idx:idx + 2]
     input_csv = args[0]
 
     if not os.path.exists(input_csv):
         print(f"File not found: {input_csv}")
+        sys.exit(1)
+    if not os.path.exists(rs_path):
+        print(f"Resource sheet not found: {rs_path}")
         sys.exit(1)
 
     all_dates = sorted({row['Date From'].strip() for row in _peek_dates(input_csv) if row['Date From'].strip()})
@@ -2602,6 +2916,12 @@ if __name__ == "__main__":
     )
     os.makedirs(run_dir, exist_ok=True)
 
+    # Keep a copy of the exact input files that produced this run — task log and resource
+    # sheet snapshot — alongside the outputs, so any run can be traced back to what actually
+    # went into it (both files get overwritten/regenerated upstream over time).
+    shutil.copy2(input_csv, os.path.join(run_dir, os.path.basename(input_csv)))
+    shutil.copy2(rs_path, os.path.join(run_dir, os.path.basename(rs_path)))
+
     print(f"\nInput: {input_csv}")
     print(f"Output folder: {run_dir}")
     print(f"Weights — Hours: {W_HOURS:.0%} | Submissions: {W_SUBS:.0%} | "
@@ -2612,30 +2932,47 @@ if __name__ == "__main__":
     print(f"Anomaly threshold: < {ANOMALY_THRESHOLD:.0%} team target  |  "
           f"Sparse cohort: < {MIN_SCOREABLE_TASKERS} taskers\n")
 
-    raw_task, raw_day = ingest(input_csv)
-    anomaly_days      = find_anomaly_days(raw_day)
+    email_to_pod, pod_all_emails, pod_projects, lead_emails, rs_pod_leads, rs_program_managers = \
+        load_resource_sheet(rs_path)
+    if not lead_emails:
+        print(f"Error: no leads/managers detected from resource sheet {rs_path} "
+              f"(expected self-referential rows where Email == pod-lead column, or "
+              f"Email == Program Manager). Check the sheet's column names before rerunning.")
+        sys.exit(1)
+    print(f"Leads/managers detected from resource sheet: {len(lead_emails)}  |  "
+          f"+ {len(SENIOR_MANAGEMENT - lead_emails)} senior management  |  "
+          f"+ {len(MANUAL_EXCLUSIONS - lead_emails)} manual exclusion(s)")
+    lead_emails = lead_emails | SENIOR_MANAGEMENT | MANUAL_EXCLUSIONS
 
-    email_to_pod   = {}
-    pod_all_emails = {}
-    pod_projects   = {}
-    if rs_path:
-        if not os.path.exists(rs_path):
-            print(f"  Warning: resource sheet not found: {rs_path}")
-        else:
-            email_to_pod, pod_all_emails, pod_projects = load_resource_sheet(rs_path)
+    raw_task, raw_day = ingest(input_csv)
+    anomaly_days      = find_anomaly_days(raw_day, lead_emails)
+
+    pod_lead_history_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "pod_lead_history.csv"
+    )
+    if email_to_pod:
+        record_pod_lead_history(email_to_pod, all_dates[-1], pod_lead_history_path)
+
+    lead_roster_history_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "lead_roster_history.csv"
+    )
+    record_lead_roster_history(rs_pod_leads, rs_program_managers, all_dates[-1], lead_roster_history_path)
 
     pipeline_deduped(
         raw_task,
-        os.path.join(run_dir, "tasker_daily_deduped.csv")
+        os.path.join(run_dir, "tasker_daily_deduped.csv"),
+        lead_emails,
     )
     pipeline_daily_summary(
         raw_day, anomaly_days,
-        os.path.join(run_dir, "daily_summary.csv")
+        os.path.join(run_dir, "daily_summary.csv"),
+        lead_emails,
     )
     period_str = f"{all_dates[0]} to {all_dates[-1]}"
     rolling = pipeline_tasker_scorecard(
         raw_task, raw_day, anomaly_days,
         os.path.join(run_dir, "tasker_rolling_scorecard.csv"),
+        lead_emails,
         email_to_pod=email_to_pod,
     )
     # Dashboards, pod rollup, and spotlight are ranking surfaces built around a numeric
@@ -2648,20 +2985,27 @@ if __name__ == "__main__":
         os.path.join(run_dir, "tasker_performance_dashboard.html")
     )
     pod_rows = []
+    pod_lead_rows = []
     if email_to_pod:
         pod_rows = pipeline_pod_scorecard(
             rolling_taskers, email_to_pod, pod_all_emails, pod_projects,
             os.path.join(run_dir, "pod_performance.csv")
         )
+        pod_lead_rows = pipeline_pod_lead_scorecard(
+            pod_lead_history_path, rolling_taskers,
+            os.path.join(run_dir, "pod_lead_scorecard.csv")
+        )
     spotlight_result = pipeline_daily_spotlight(
         raw_task, raw_day, anomaly_days, rolling_taskers,
         run_dir,
+        lead_emails,
         email_to_pod=email_to_pod if email_to_pod else None,
     )
     pipeline_html_mgmt_report(
         rolling_taskers, raw_task, raw_day, anomaly_days, period_str, pod_rows,
         spotlight_result,
-        os.path.join(run_dir, "management_dashboard.html")
+        os.path.join(run_dir, "management_dashboard.html"),
+        pod_lead_rows=pod_lead_rows,
     )
 
     print("\nDone.")

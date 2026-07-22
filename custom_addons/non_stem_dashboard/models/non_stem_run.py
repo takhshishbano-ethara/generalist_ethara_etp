@@ -32,13 +32,9 @@ class NonStemRun(models.Model):
     )
     consolidated_filename = fields.Char(string="Consolidated Filename")
     resource_sheet_csv = fields.Binary(
-        string="Resource Sheet CSV", attachment=True,
+        string="Resource Sheet CSV", required=True, attachment=True,
     )
     resource_sheet_filename = fields.Char(string="Resource Sheet Filename")
-    pipeline_mode = fields.Selection(
-        [("normal", "Normal Mode"), ("rs", "RS Mode")],
-        string="Pipeline Mode", default="normal", required=True,
-    )
     state = fields.Selection(
         [("draft", "Draft"), ("running", "Running"),
          ("done", "Done"), ("error", "Error")],
@@ -116,15 +112,14 @@ class NonStemRun(models.Model):
             # Build command
             cmd = [PYTHON_PATH, SCRIPT_PATH, cons_path]
 
-            # Add --rs flag when RS Mode is selected
-            if self.pipeline_mode == "rs":
-                if not self.resource_sheet_csv:
-                    self.write({"state": "draft"})
-                    raise UserError("RS Mode requires a Resource Sheet CSV. Please upload one.")
-                rs_path = os.path.join(tmpdir, self.resource_sheet_filename or "resource_sheet.csv")
-                with open(rs_path, "wb") as f:
-                    f.write(base64.b64decode(self.resource_sheet_csv))
-                cmd += ["--rs", rs_path]
+            # Always pass --rs (required by pipeline)
+            if not self.resource_sheet_csv:
+                self.write({"state": "draft"})
+                raise UserError("Please upload the Resource Sheet CSV.")
+            rs_path = os.path.join(tmpdir, self.resource_sheet_filename or "resource_sheet.csv")
+            with open(rs_path, "wb") as f:
+                f.write(base64.b64decode(self.resource_sheet_csv))
+            cmd += ["--rs", rs_path]
 
             try:
                 result = subprocess.run(

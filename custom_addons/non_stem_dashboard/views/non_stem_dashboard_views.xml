@@ -22,9 +22,6 @@
                             invisible="state not in ('done', 'error')"
                             groups="non_stem_dashboard.group_admin"
                             confirm="This will re-run the pipeline. Continue?"/>
-                    <field name="pipeline_mode" widget="selection"
-                           invisible="state not in ('draft', 'done', 'error')"
-                           groups="non_stem_dashboard.group_admin"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,running,done"/>
                 </header>
