@@ -52,6 +52,11 @@ class HrJob(models.Model):
     )
     experience_years = fields.Float(string='Experience Years')
     salary_bracket = fields.Char(string='Salary Bracket')
+    budget_ctc = fields.Float(
+        string='Budget CTC (LPA)', digits=(10, 2),
+        help='Maximum CTC budgeted for this position. Applicants whose '
+             'expected CTC exceeds it are flagged during screening.',
+    )
 
     responsibility_ids = fields.One2many(
         'hr.job.responsibility', 'job_id', string='Responsibilities'

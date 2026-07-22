@@ -104,6 +104,12 @@ class HrApplicant(models.Model):
     current_company = fields.Char(string='Current Company')
     current_ctc = fields.Float(string='Current CTC (LPA)', digits=(10, 2))
     expected_ctc = fields.Float(string='Expected CTC (LPA)', digits=(10, 2))
+    ctc_budget_exceeded = fields.Boolean(
+        string='Expected CTC Exceeds Budget',
+        compute='_compute_ctc_budget_exceeded', store=True,
+        help="True when the candidate's expected CTC is higher than the "
+             "budget CTC configured on the applied job position.",
+    )
     notice_period_days = fields.Integer(string='Notice Period (days)')
     resume_text = fields.Text(string='Extracted Resume Text')
     is_duplicate = fields.Boolean(string='Is Duplicate')
@@ -142,6 +148,14 @@ class HrApplicant(models.Model):
         (('reject', 'refuse'), 'rejected'),
         (('applied', 'application', 'sourc', 'resume upload', 'screening'), 'applied'),
     )
+
+    @api.depends('expected_ctc', 'job_id', 'job_id.budget_ctc')
+    def _compute_ctc_budget_exceeded(self):
+        for applicant in self:
+            budget = applicant.job_id.budget_ctc if applicant.job_id else 0.0
+            applicant.ctc_budget_exceeded = bool(
+                budget > 0 and (applicant.expected_ctc or 0.0) > budget
+            )
 
     @classmethod
     def _derive_pipeline_status_from_name(cls, stage_name):

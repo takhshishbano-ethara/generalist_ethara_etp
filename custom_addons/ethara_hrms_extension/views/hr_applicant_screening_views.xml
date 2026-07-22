@@ -23,6 +23,8 @@
                                 <field name="resume_score"/>
                                 <field name="resume_recommendation"/>
                                 <field name="resume_screened_at"/>
+                                <field name="expected_ctc"/>
+                                <field name="ctc_budget_exceeded" readonly="1"/>
                             </group>
                             <group string="LLM">
                                 <field name="resume_llm_model_used" readonly="1"/>

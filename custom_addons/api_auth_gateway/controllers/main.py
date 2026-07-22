@@ -62,9 +62,14 @@ class ApiAuthController(http.Controller):
     @validate_request({'job_id': {'type': 'int', 'required': True}})
     def api_apply_job(self, **kwargs):
         jdata = kwargs.get('jdata') or {}
-        return self.apply_job_position(job_id=jdata.get('job_id'))
+        expected_ctc = jdata.get('expected_ctc')
+        if expected_ctc is None:
+            expected_ctc = jdata.get('expectedCTC')
+        return self.apply_job_position(
+            job_id=jdata.get('job_id'), expected_ctc=expected_ctc,
+        )
 
-    def apply_job_position(self, job_id=None):
+    def apply_job_position(self, job_id=None, expected_ctc=None):
         Applicant = request.env['hr.applicant'].sudo()
         Job = request.env['hr.job'].sudo()
         user = request.env.user
@@ -77,6 +82,20 @@ class ApiAuthController(http.Controller):
             return return_Response(
                 message="job_id must be an integer.", status=400,
             )
+        if expected_ctc in (None, ''):
+            expected_ctc = None
+        else:
+            try:
+                expected_ctc = float(expected_ctc)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="expected_ctc must be a number.", status=400,
+                )
+            if expected_ctc < 0:
+                return return_Response(
+                    message="expected_ctc must be a non-negative number.",
+                    status=400,
+                )
         job = Job.browse(job_id).exists()
         if not job:
             return return_Response(
@@ -107,6 +126,8 @@ class ApiAuthController(http.Controller):
                     status=400,
                 )
             vals = {'job_id': job.id}
+            if expected_ctc is not None:
+                vals['expected_ctc'] = expected_ctc
             if job.department_id:
                 vals['department_id'] = job.department_id.id
             active_app.write(vals)
@@ -141,7 +162,8 @@ class ApiAuthController(http.Controller):
         for optional in (
             'partner_id', 'aadhaar_number', 'aadhaar_card_url',
             'company_id', 'gender', 'birthday', 'experience',
-            'experience_years', 'college_id',
+            'experience_years', 'college_id', 'current_company',
+            'current_ctc', 'expected_ctc', 'notice_period_days',
         ):
             if optional not in source_app._fields:
                 continue
@@ -149,6 +171,8 @@ class ApiAuthController(http.Controller):
             if not value:
                 continue
             new_vals[optional] = value.id if hasattr(value, 'id') else value
+        if expected_ctc is not None:
+            new_vals['expected_ctc'] = expected_ctc
         if job.department_id:
             new_vals['department_id'] = job.department_id.id
 

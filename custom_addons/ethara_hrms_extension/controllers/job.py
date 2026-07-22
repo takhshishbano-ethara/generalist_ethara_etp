@@ -270,6 +270,22 @@ def _build_scalar_vals(jdata, job=None):
     if present:
         vals['salary_bracket'] = (v or '').strip() or False if isinstance(v, str) else (v or False)
 
+    # Budget CTC (float, LPA) ------------------------------------------------
+    present, v = _pick(jdata, 'budget_ctc', 'budgetCtc', 'budget')
+    if present:
+        if v in (None, ''):
+            vals['budget_ctc'] = 0.0
+        else:
+            try:
+                budget = float(v)
+            except (TypeError, ValueError):
+                errors.append("'budget_ctc' must be a number.")
+            else:
+                if budget < 0:
+                    errors.append("'budget_ctc' must be a non-negative number.")
+                else:
+                    vals['budget_ctc'] = budget
+
     present, v = _pick(jdata, 'screening_prompt', 'screeningPrompt',
                        'llm_screening_prompt', 'llmScreeningPrompt')
     if present:
@@ -422,6 +438,7 @@ def _serialize_job(job, detail=False):
         'experienceLevel': _selection_label(job, 'experience_level'),
         'experienceYears': job.experience_years or 0,
         'salaryBracket': job.salary_bracket or None,
+        'budgetCtc': job.budget_ctc or 0,
         'featured': bool(job.is_featured),
         'openings': job.no_of_recruitment or 0,
         'postedAt': _iso_utc(job.posted_at),
