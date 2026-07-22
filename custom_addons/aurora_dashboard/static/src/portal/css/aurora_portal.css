@@ -345,6 +345,12 @@ hr.rule {
   z-index: 1;
 }
 
+.mast-top {
+  padding-bottom: 20px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+}
+
 .wordmark,
 .au-hero-title {
   font-family: var(--font-display);
@@ -360,8 +366,9 @@ hr.rule {
   background-clip: unset;
 }
 
-/* Magenta accent underline spanning the FULL wordmark width, laid over the
-   neutral hr.rule divider (leftOffset is 0, so left:0 aligns with the rule). */
+/* Magenta accent bar spanning the wordmark TEXT width (inline-block → width:100%
+   tracks the text), sitting on the .mast-top hairline so the two merge into one
+   magenta→gray divider (like erza / milobench_dashboard). */
 .wordmark {
   position: relative;
   display: inline-block;
@@ -370,7 +377,7 @@ hr.rule {
   content: "";
   position: absolute;
   left: 0;
-  bottom: -6px;                 /* sits on the hr.rule line → single magenta→gray divider */
+  bottom: -20px;                /* == .mast-top padding-bottom → sits on the hairline */
   width: 100%;
   height: 2px;
   background: var(--accent-bright);
