@@ -148,15 +148,6 @@ class ApplicantSelectionFormDocumentController(http.Controller):
                     **vals,
                 })
 
-            if wait:
-                try:
-                    record._run_verification_sync()
-                except Exception:
-                    _logger.exception(
-                        'sync verification failed for doc %s', record.id,
-                    )
-                record.invalidate_recordset()
-
             return return_Response(
                 'Document uploaded', 200,
                 data={'record': _serialize_document(record)},

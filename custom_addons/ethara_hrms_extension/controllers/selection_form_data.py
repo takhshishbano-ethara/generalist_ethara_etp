@@ -170,6 +170,7 @@ def _serialize_applicant(applicant, mask=True):
         'selection_form_reviewed_at': _to_iso(applicant.selection_form_reviewed_at),
         'selection_form_reviewed_by_id': applicant.selection_form_reviewed_by_id.id or False,
         'selection_form_rejection_reason': applicant.selection_form_rejection_reason or '',
+        'selection_form_reopen_reason': applicant.selection_form_reopen_reason or '',
         'employment': {
             'partner_name': applicant.partner_name or '',
             'email_from': applicant.email_from or '',
