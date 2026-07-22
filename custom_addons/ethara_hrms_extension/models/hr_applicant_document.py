@@ -1,7 +1,6 @@
 import logging
-import threading
 
-from odoo import SUPERUSER_ID, api, fields, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -27,6 +26,7 @@ SELECTION_FORM_DOCUMENT_TYPES = [
 VERIFICATION_STATUS = [
     ('pending', 'Pending'),
     ('verified', 'Verified'),
+    ('rejected', 'Rejected'),
     ('mismatch', 'Mismatch'),
     ('skipped', 'Skipped'),
     ('failed', 'Failed'),
@@ -81,77 +81,13 @@ class HrApplicantDocument(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        records = super().create(vals_list)
-        records._schedule_verification()
-        return records
-
-    def write(self, vals):
-        reschedule = 's3_url' in vals or 'document_type' in vals
-        if reschedule and 'verification_status' not in vals:
-            vals = dict(vals, verification_status='pending')
-        res = super().write(vals)
-        if reschedule:
-            self._schedule_verification()
-        return res
+        return super().create(vals_list)
 
     def action_verify_document(self):
-        for rec in self:
-            rec._run_verification_sync()
         return True
 
     def _schedule_verification(self):
-        if self.env.context.get('skip_verify_schedule'):
-            return
-        to_verify = self.filtered(lambda r: r.s3_url)
-        if not to_verify:
-            return
-        record_ids = tuple(to_verify.ids)
-        registry = self.env.registry
-        dbname = self.env.cr.dbname
-
-        def _fire_thread():
-            threading.Thread(
-                target=_verify_worker,
-                args=(registry, record_ids),
-                name=f'hr-applicant-doc-verify-{dbname}',
-                daemon=True,
-            ).start()
-
-        self.env.cr.postcommit.add(_fire_thread)
+        return
 
     def _run_verification_sync(self):
-        self.ensure_one()
-        from odoo.addons.ethara_hrms_extension.services import document_verifier
-        result = document_verifier.verify_document(
-            url=self.s3_url,
-            document_type=self.document_type,
-            file_name=self.file_name,
-        )
-        self.sudo().write({
-            'verification_status': result.status,
-            'verification_confidence': result.confidence,
-            'ocr_text': (result.text or '')[:20000] or False,
-            'ocr_matched_keywords': (
-                ', '.join(result.matched) if result.matched else False
-            ),
-            'verification_error': result.error or False,
-            'verified_at': fields.Datetime.now(),
-        })
-
-
-def _verify_worker(registry, record_ids):
-    try:
-        with registry.cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            docs = env['hr.applicant.document'].browse(record_ids).exists()
-            for doc in docs:
-                try:
-                    doc._run_verification_sync()
-                except Exception:
-                    _logger.exception(
-                        'document_verifier: verification failed for doc %s',
-                        doc.id,
-                    )
-            cr.commit()
-    except Exception:
-        _logger.exception('document_verifier: worker crashed')
+        return

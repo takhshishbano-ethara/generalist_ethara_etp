@@ -337,12 +337,15 @@ class SelectionFormAdminController(http.Controller):
                         f'{applicant.selection_form_status}',
                     ],
                 )
+            body = kwargs.get('jdata') or {}
+            reason = (body.get('reason') or '').strip() or False
             applicant.write({
                 'selection_form_status': 'draft',
                 'selection_form_submitted_at': False,
                 'selection_form_reviewed_at': False,
                 'selection_form_reviewed_by_id': False,
                 'selection_form_rejection_reason': False,
+                'selection_form_reopen_reason': reason,
             })
             return return_Response(
                 'Selection form reopened', 200,
@@ -355,12 +358,12 @@ class SelectionFormAdminController(http.Controller):
             return return_Response('Internal error', 500, errors=[str(exc)])
 
     @http.route(
-        '/api/v1/hrms/applicant/<int:applicant_id>/documents/verify',
+        '/api/v1/hrms/applicant/<int:applicant_id>/selection-form/mark-validated',
         type='http', auth='none',
         methods=['POST'], csrf=False, cors='*',
     )
     @validate_request({})
-    def verify_all_documents(self, applicant_id, **kwargs):
+    def mark_selection_form_validated(self, applicant_id, **kwargs):
         try:
             applicant = _get_applicant_or_404(applicant_id)
             if not applicant:
@@ -368,76 +371,127 @@ class SelectionFormAdminController(http.Controller):
                     'Applicant not found', 404,
                     errors=[f'no hr.applicant with id={applicant_id}'],
                 )
-            docs = applicant.selection_form_document_ids
-            if not docs:
+            current = applicant.selection_form_status or 'draft'
+            if current not in ('submitted', 'under_review'):
                 return return_Response(
-                    'No documents to verify', 200,
-                    data={'scheduled_ids': []},
+                    'Cannot mark validated', 400,
+                    errors=[
+                        f"selection_form_status is {current!r}; "
+                        "must be 'submitted' or 'under_review'",
+                    ],
                 )
-            docs.sudo().write({'verification_status': 'pending'})
-            docs.sudo()._schedule_verification()
+            vals = {
+                'selection_form_status': 'approved',
+                'selection_form_reviewed_at': odoo_fields.Datetime.now(),
+                'selection_form_reviewed_by_id': request.env.user.id,
+                'selection_form_rejection_reason': False,
+            }
+            if 'status' in applicant._fields:
+                vals['status'] = 'document_verification_done'
+            applicant.sudo().write(vals)
             return return_Response(
-                'Verification scheduled', 202,
+                'Selection form validated', 200,
+                data={'record': _serialize_row(applicant)},
+            )
+        except (UserError, ValidationError) as exc:
+            return return_Response('Validation failed', 400, errors=[str(exc)])
+        except Exception as exc:
+            _logger.exception('mark_selection_form_validated failed')
+            return return_Response('Internal error', 500, errors=[str(exc)])
+
+    @http.route(
+        '/api/v1/hrms/documents/mark-verified',
+        type='http', auth='none',
+        methods=['POST'], csrf=False, cors='*',
+    )
+    @validate_request({})
+    def mark_documents_verified(self, **kwargs):
+        try:
+            ids, err = _parse_document_ids(kwargs)
+            if err:
+                return return_Response('Invalid payload', 400, errors=[err])
+            Doc = request.env['hr.applicant.document'].sudo()
+            docs = Doc.browse(ids).exists()
+            not_found = [i for i in ids if i not in set(docs.ids)]
+            if docs:
+                docs.write({
+                    'verification_status': 'verified',
+                    'verified_at': odoo_fields.Datetime.now(),
+                    'verification_error': False,
+                })
+            return return_Response(
+                'Documents marked verified', 200,
                 data={
-                    'scheduled_ids': docs.ids,
+                    'updated_ids': list(docs.ids),
+                    'not_found_ids': not_found,
                     'count': len(docs),
                 },
             )
         except (UserError, ValidationError) as exc:
             return return_Response('Validation failed', 400, errors=[str(exc)])
         except Exception as exc:
-            _logger.exception('verify_all_documents failed')
+            _logger.exception('mark_documents_verified failed')
             return return_Response('Internal error', 500, errors=[str(exc)])
 
     @http.route(
-        '/api/v1/hrms/applicant/<int:applicant_id>/document/<int:doc_id>/verify',
+        '/api/v1/hrms/documents/mark-rejected',
         type='http', auth='none',
         methods=['POST'], csrf=False, cors='*',
     )
     @validate_request({})
-    def verify_single_document(self, applicant_id, doc_id, **kwargs):
+    def mark_documents_rejected(self, **kwargs):
         try:
-            applicant = _get_applicant_or_404(applicant_id)
-            if not applicant:
-                return return_Response(
-                    'Applicant not found', 404,
-                    errors=[f'no hr.applicant with id={applicant_id}'],
-                )
-            doc = request.env['hr.applicant.document'].sudo().browse(doc_id)
-            if not doc.exists() or doc.applicant_id.id != applicant.id:
-                return return_Response(
-                    'Document not found', 404,
-                    errors=[
-                        f'no hr.applicant.document id={doc_id} '
-                        f'belonging to applicant id={applicant_id}',
-                    ],
-                )
-            doc._run_verification_sync()
-            doc.invalidate_recordset()
+            ids, err = _parse_document_ids(kwargs)
+            if err:
+                return return_Response('Invalid payload', 400, errors=[err])
+            body = kwargs.get('jdata') or {}
+            reason = (body.get('reason') or '').strip() or False
+            Doc = request.env['hr.applicant.document'].sudo()
+            docs = Doc.browse(ids).exists()
+            not_found = [i for i in ids if i not in set(docs.ids)]
+            if docs:
+                docs.write({
+                    'verification_status': 'rejected',
+                    'verified_at': odoo_fields.Datetime.now(),
+                    'verification_error': reason,
+                })
             return return_Response(
-                'Document verified', 200,
+                'Documents marked rejected', 200,
                 data={
-                    'record': {
-                        'id': doc.id,
-                        'document_type': doc.document_type,
-                        'verification_status': doc.verification_status or 'pending',
-                        'verification_confidence': float(doc.verification_confidence or 0.0),
-                        'ocr_matched_keywords': doc.ocr_matched_keywords or '',
-                        'verification_error': doc.verification_error or '',
-                        'verified_at': _iso(doc.verified_at),
-                    },
+                    'updated_ids': list(docs.ids),
+                    'not_found_ids': not_found,
+                    'count': len(docs),
                 },
             )
         except (UserError, ValidationError) as exc:
             return return_Response('Validation failed', 400, errors=[str(exc)])
         except Exception as exc:
-            _logger.exception('verify_single_document failed')
+            _logger.exception('mark_documents_rejected failed')
             return return_Response('Internal error', 500, errors=[str(exc)])
 
 
 def _get_applicant_or_404(applicant_id):
     applicant = request.env['hr.applicant'].sudo().browse(applicant_id)
     return applicant if applicant.exists() else None
+
+
+def _parse_document_ids(kwargs):
+    body = kwargs.get('jdata') or {}
+    raw = body.get('document_ids')
+    if raw is None:
+        return [], "payload must contain a 'document_ids' array"
+    if not isinstance(raw, list) or not raw:
+        return [], "'document_ids' must be a non-empty list"
+    ids = []
+    for item in raw:
+        try:
+            n = int(item)
+        except (TypeError, ValueError):
+            return [], "'document_ids' must contain integers"
+        if n <= 0:
+            return [], "'document_ids' must contain positive integers"
+        ids.append(n)
+    return ids, None
 
 
 def _send_selection_form_email(applicant):
