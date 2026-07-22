@@ -1,6 +1,6 @@
 {
     "name": "Project Tracker",
-    "version": "19.0.1.4.0",
+    "version": "19.0.1.4.1",
     "category": "Tools",
     "summary": "Project Tracker — task allocation pipeline, team management and dashboards for every project",
     "description": """
@@ -51,6 +51,10 @@
             "project_tracker/static/src/dashboard_base/dashboard_base.xml",
             "project_tracker/static/src/progress_table/progress_table.js",
             "project_tracker/static/src/progress_table/progress_table.xml",
+            "project_tracker/static/src/pt_chart/chart_colors.js",
+            "project_tracker/static/src/pt_chart/pt_chart.js",
+            "project_tracker/static/src/pt_chart/pt_chart.xml",
+            "project_tracker/static/src/pt_chart/pt_chart.scss",
             "project_tracker/static/src/statusbar/statusbar.js",
             "project_tracker/static/src/tracker_dashboard/tracker_dashboard.js",
             "project_tracker/static/src/tracker_dashboard/tracker_dashboard.xml",
@@ -68,6 +72,7 @@
             "project_tracker/static/src/tracker_stepper/tracker_stepper.xml",
             "project_tracker/static/src/tracker_stepper/tracker_stepper.scss",
             "project_tracker/static/src/tracker_score_field/tracker_score_field.js",
+            "project_tracker/static/src/tracker_score_field/tracker_score_field.scss",
             "project_tracker/static/src/tracker_drive_field/tracker_drive_field.js",
         ],
     },

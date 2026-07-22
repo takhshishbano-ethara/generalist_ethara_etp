@@ -2,7 +2,7 @@
 import datetime
 import logging
 
-from odoo import http
+from odoo import fields, http
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
@@ -122,6 +122,123 @@ _PROGRESS_GROUPS = {
     "ql": "assigned_ql_id",
     "tasker": "tasker_member_id",
 }
+
+
+# ------------------------------------------------------------------ #
+#  Redesigned dashboard aggregations — KPIs, throughput trend, aging /
+#  bottlenecks, per-project health, workload and persona-pool health.
+#  Every query is grouped or bounded, and scoped by the caller's
+#  role / project / date through the domain passed in.
+# ------------------------------------------------------------------ #
+def _throughput_trend(Alloc, scope, df, dt):
+    """Delivered-per-day over the window (default: trailing 14 days). Keyed on
+    ``date_final`` (completion) so it measures real throughput, not assignment.
+
+    Aggregated with ``_read_group`` (one grouped-by-day query) rather than reading
+    every delivery into Python, so it stays flat at millions of tasks: the result
+    set is bounded by the number of DAYS in the window, not the task count.
+    Respects the caller's role/project scope and the dashboard's date window."""
+    end = dt or fields.Date.context_today(Alloc)
+    start = df or (end - datetime.timedelta(days=13))
+    if (end - start).days > 90:                 # guard an unbounded window
+        start = end - datetime.timedelta(days=90)
+    domain = list(scope) + [
+        ("final_status", "=", "deliverable"),
+        ("date_final", ">=", start.isoformat()),
+        ("date_final", "<", (end + datetime.timedelta(days=1)).isoformat())]
+    counts = {}
+    for day, count in Alloc._read_group(domain, ["date_final:day"], ["__count"]):
+        if day:                                 # normalise date/datetime -> ISO day
+            counts[str(day)[:10]] = count
+    series, day = [], start
+    while day <= end:
+        series.append({"date": day.isoformat(), "label": day.strftime("%d %b"),
+                       "value": counts.get(day.isoformat(), 0)})
+        day += datetime.timedelta(days=1)
+    return series
+
+
+def _by_project(Alloc, task_domain):
+    """WIP / Delivered / Failed per project (current-stage tasks), busiest first."""
+    groups = {}
+    for proj, status, count in Alloc._read_group(
+            task_domain, ["project_id", "status"], ["__count"]):
+        pid = proj.id if proj else 0
+        b = groups.setdefault(pid, {
+            "project_id": pid, "project": proj.name if proj else "No project",
+            "wip": 0, "delivered": 0, "failed": 0})
+        if status == "deliverable":
+            b["delivered"] += count
+        elif status == "failed":
+            b["failed"] += count
+        else:
+            b["wip"] += count
+    out = sorted(groups.values(),
+                 key=lambda r: r["wip"] + r["delivered"] + r["failed"],
+                 reverse=True)
+    return out[:12]
+
+
+def _workload(Alloc, task_domain):
+    """In-flight (WIP) task count per tasker, busiest first."""
+    active = task_domain + [("status", "in", _ACTIVE_STATUSES)]
+    rows = [{"tasker_id": m.id,
+             "tasker": m.member_name or m.email or "—", "wip": count}
+            for m, count in Alloc._read_group(
+                active, ["tasker_member_id"], ["__count"]) if m]
+    rows.sort(key=lambda r: r["wip"], reverse=True)
+    return rows[:12]
+
+
+def _persona_pool(env):
+    """Org-wide persona pool health (personas are global, not project-scoped)."""
+    counts = {s: c for s, c in env["kensei2.persona"]._read_group(
+        [], ["pt_assignment_status"], ["__count"])}
+    return {"assigned": counts.get("assigned", 0),
+            "unassigned": counts.get("unassigned", 0)}
+
+
+def _feedback_outcomes(Alloc, task_domain):
+    """Lead-review outcome counts (Shippable / Rework / Rejected) for current tasks."""
+    counts = {s: c for s, c in Alloc._read_group(
+        task_domain + [("feedback_status", "!=", False)],
+        ["feedback_status"], ["__count"])}
+    return {"shippable": counts.get("shippable", 0),
+            "rework": counts.get("rework", 0),
+            "rejected": counts.get("rejected", 0)}
+
+
+def _stage_mix(Alloc, task_domain):
+    """Tasks split by pipeline stage — Stage 1 vs Stage 2 (stage_no >= 2)."""
+    counts = {st: c for st, c in
+              Alloc._read_group(task_domain, ["stage_no"], ["__count"])}
+    return {"stage1": sum(c for st, c in counts.items() if _pipeline_stage(st) == 1),
+            "stage2": sum(c for st, c in counts.items() if _pipeline_stage(st) == 2)}
+
+
+def _completion_trend(Alloc, scope, df, dt):
+    """Completions per day over the window (default 14 days), keyed on date_final —
+    counts every FINISHED stage (deliverable or ready-for-next-stage), which is a
+    tasker's real per-day output. Grouped by day so it stays flat at scale."""
+    end = dt or fields.Date.context_today(Alloc)
+    start = df or (end - datetime.timedelta(days=13))
+    if (end - start).days > 90:
+        start = end - datetime.timedelta(days=90)
+    domain = list(scope) + [
+        ("date_final", ">=", start.isoformat()),
+        ("date_final", "<", (end + datetime.timedelta(days=1)).isoformat())]
+    counts = {}
+    for day, count in Alloc._read_group(domain, ["date_final:day"], ["__count"]):
+        if day:
+            counts[str(day)[:10]] = count
+    series, day = [], start
+    while day <= end:
+        series.append({"date": day.isoformat(), "label": day.strftime("%d %b"),
+                       "value": counts.get(day.isoformat(), 0)})
+        day += datetime.timedelta(days=1)
+    return series
+
+
 
 # Hard ceiling on rows returned in one Daily Tracker response. The export path
 # skips pagination, so without this a client-supplied page_size was the one way to
@@ -614,7 +731,7 @@ class Kensei2TrackerController(http.Controller):
 
     @http.route("/project_tracker/dashboard", type="json", auth="user")
     def tracker_dashboard(self, date_from=None, date_to=None,
-                          group_by=None, stage=None, project_id=None, **kw):
+                          group_by=None, project_id=None, **kw):
         """Aggregate allocation data for the Tracker Dashboard.
 
         All figures come from grouped SQL (``_read_group``) rather than loading
@@ -634,13 +751,12 @@ class Kensei2TrackerController(http.Controller):
 
         # ----- role scope -----
         # Admin sees the whole org. A PL/QL sees the same scoped view: only the
-        # tasks / members where they are the assigned PL OR assigned QL.
+        # tasks where they are the assigned PL OR assigned QL.
         if is_admin:
-            scope, member_scope = [], []
+            scope = []
         else:
             scope = ['|', ("assigned_pl_id", "=", user.id),
                      ("assigned_ql_id", "=", user.id)]
-            member_scope = list(scope)
 
         Alloc = request.env["project.tracker.allocation"]
 
@@ -672,15 +788,14 @@ class Kensei2TrackerController(http.Controller):
         task_domain = list(scope) + date_domain
         task_domain.append(("is_current_stage", "=", True))
 
-        # `people_domain` ("what has each person done?") must NOT apply that filter:
-        # a stage record IS the unit of a person's work, so filtering to the current
-        # stage would erase stage 1's tasker/PL/QL — and their scores — the instant
-        # the task was handed off, i.e. penalise them for finishing. The Daily
-        # Tracker already credits per stage for the same reason.
+        # `people_domain` ("what has each person done?") must NOT apply the
+        # is_current_stage filter: a stage record IS the unit of a person's work, so
+        # filtering to the current stage would erase stage 1's tasker/PL/QL — and
+        # their scores — the instant the task was handed off, i.e. penalise them for
+        # finishing. The Daily Tracker credits per stage for the same reason. The
+        # progress table already splits the two stages into their OWN columns, so a
+        # separate stage filter would be redundant.
         people_domain = list(scope) + date_domain
-        stage_no = _to_int(stage)
-        if stage_no in (1, 2):
-            people_domain.append(("stage_no", "=", stage_no))
 
         # ----- counts by status (one grouped query) -----
         sc = _status_counts(Alloc, task_domain)
@@ -689,7 +804,7 @@ class Kensei2TrackerController(http.Controller):
         # ----- team composition (roster counts, scoped to the caller's team) -----
         Member = request.env["project.tracker.team.member"]
         role_counts = {role: c for role, c in
-                       Member._read_group(member_scope, ["role"], ["__count"])}
+                       Member._read_group(scope, ["role"], ["__count"])}
         team_composition = [
             {"key": "total", "label": "Total Members",
              "value": sum(role_counts.values()), "role": False},
@@ -701,36 +816,54 @@ class Kensei2TrackerController(http.Controller):
              "value": role_counts.get("pl", 0), "role": "pl"},
         ]
 
-        # ----- stats (within range; drill-down where meaningful) -----
+        # ----- headline figures (within range; drill-down where meaningful) -----
         total = sum(sc.values())
         completed = sum(c for (_st, s_), c in sc.items() if s_ == "deliverable")
         failed = sum(c for (_st, s_), c in sc.items() if s_ == "failed")
         active = total - completed - failed
         avg_overall = next((avg for avg, in Alloc._read_group(
             task_domain + [("overall_score", ">", 0)], [], ["overall_score:avg"])), None)
-        stats = [
-            {"key": "total", "label": "Total Tasks", "value": total},
-            {"key": "active", "label": "In Progress",
-             "value": active, "statuses": _ACTIVE_STATUSES},
-            {"key": "completions", "label": "Completed",
-             "value": completed, "statuses": ["deliverable"]},
-            {"key": "failed", "label": "Failed",
-             "value": failed, "statuses": ["failed"]},
+
+        delivery_rate = (round(completed / (completed + failed) * 100)
+                         if (completed + failed) else None)
+        kpis = [
+            {"key": "wip", "label": "In Progress", "value": active,
+             "statuses": _ACTIVE_STATUSES},
+            {"key": "delivered", "label": "Delivered", "value": completed,
+             "statuses": ["deliverable"]},
+            {"key": "failed", "label": "Failed", "value": failed,
+             "statuses": ["failed"]},
+            {"key": "delivery_rate", "label": "Delivery Rate",
+             "value": delivery_rate, "suffix": "%"},
             {"key": "avg_score", "label": "Avg Score",
              "value": round(avg_overall, 1) if avg_overall else None},
         ]
+
+        # ----- doughnut: current tasks split by pipeline stage (1 vs 2) -----
+        stage_mix = _stage_mix(Alloc, task_domain)
+
+        # ----- throughput trend keeps the project filter but not the assigned-date
+        # window (it carries its OWN date_final window). -----
+        trend_scope = list(scope)
+        if proj_int is not None:
+            trend_scope.append(("project_id", "=", proj_int))
 
         # One progress table, two axes: WHO to group by, and WHICH stage to count.
         group_key = group_by if group_by in _PROGRESS_GROUPS else "pl"
         group_field = _PROGRESS_GROUPS[group_key]
 
         return {
-            "team_composition": team_composition,
             "funnel": funnel,
-            "stats": stats,
+            "kpis": kpis,
+            "team_composition": team_composition,
+            "stage_mix": stage_mix,
+            "trend": _throughput_trend(Alloc, trend_scope, df, dt),
+            "by_project": _by_project(Alloc, task_domain),
+            "workload": _workload(Alloc, task_domain),
+            "feedback_outcomes": _feedback_outcomes(Alloc, task_domain),
+            "persona_pool": _persona_pool(request.env),
             "rows": _progress_rows(Alloc, group_field, people_domain),
             "group_by": group_key,
-            "stage": stage_no if stage_no in (1, 2) else None,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
             "project_id": proj_int,
@@ -809,6 +942,13 @@ class Kensei2TrackerController(http.Controller):
         personas = sum(1 for p, in Alloc._read_group(
             dom + [("persona_id", "!=", False)], ["persona_id"]) if p)
 
+        # Avg feedback rating (feedback_rating is a Selection '0'..'5', so it cannot
+        # be averaged in SQL — read the rated ones and average in Python; bounded to
+        # this tasker's tasks).
+        ratings = [int(r["feedback_rating"]) for r in Alloc.search_read(
+            dom + [("feedback_rating", "not in", [False, "0"])], ["feedback_rating"])]
+        avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
+
         kpis = [
             {"key": "total", "label": "Total Tasks", "value": total},
             {"key": "active", "label": "Active", "value": active},
@@ -818,6 +958,7 @@ class Kensei2TrackerController(http.Controller):
             {"key": "overall", "label": "Avg Overall", "value": _avg("overall_score"), "suffix": "%"},
             {"key": "rubric", "label": "Avg Rubric", "value": _avg("rubric_score"), "suffix": "%"},
             {"key": "pytest", "label": "Avg Pytest", "value": _avg("pytest_score"), "suffix": "%"},
+            {"key": "rating", "label": "Avg Rating", "value": avg_rating, "suffix": "/5"},
             {"key": "cycle", "label": "Avg Cycle (days)", "value": avg_cycle},
             {"key": "personas", "label": "Personas", "value": personas},
         ]
@@ -852,6 +993,12 @@ class Kensei2TrackerController(http.Controller):
         return {
             "subject": subject, "kpis": kpis, "funnel": funnel,
             "recent": recent,
+            # Chart data (personal): completions trend keys on date_final over its own
+            # window (not the assigned-date filter), the rest reuse the tasker domain.
+            "trend": _completion_trend(Alloc, [("tasker_user_id", "=", user.id)], df, dt),
+            "stage_mix": _stage_mix(Alloc, dom),
+            "feedback_outcomes": _feedback_outcomes(Alloc, dom),
+            "delivery_rate": comp_rate,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }

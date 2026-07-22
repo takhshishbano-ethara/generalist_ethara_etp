@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
+
     <t t-name="project_tracker.TrackerDashboard">
         <div class="o_project_tracker_dashboard">
 
@@ -7,115 +8,187 @@
             <div class="o_ktd_topbar">
                 <div class="o_ktd_topbar_titles">
                     <span class="o_ktd_title">
-                        <i class="fa fa-line-chart me-2"/>Project Tracker Dashboard
+                        <i class="fa fa-tachometer me-2"/>Project Tracker
                     </span>
                     <span class="o_ktd_subtitle">
-                        Reinforcement Learning pipeline
+                        Task allocation pipeline
                         <t t-if="state.lastUpdated">· Updated <t t-out="state.lastUpdated"/></t>
                     </span>
                 </div>
                 <t t-call="project_tracker.DashboardFilterBar"/>
             </div>
 
-            <!-- ===================== TEAM COMPOSITION ===================== -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header">
-                    <i class="fa fa-users me-2"/>TEAM COMPOSITION
+            <!-- Overview / Charts toggle -->
+            <div class="o_ktd_viewtabs" role="tablist">
+                <button class="o_ktd_viewtab" type="button" role="tab"
+                        t-att-class="{ 'o_ktd_viewtab_active': state.viewMode === 'overview' }"
+                        t-att-aria-selected="state.viewMode === 'overview'"
+                        t-on-click="() => this.setViewMode('overview')">
+                    <i class="fa fa-th-list me-1"/>Overview
+                </button>
+                <button class="o_ktd_viewtab" type="button" role="tab"
+                        t-att-class="{ 'o_ktd_viewtab_active': state.viewMode === 'charts' }"
+                        t-att-aria-selected="state.viewMode === 'charts'"
+                        t-on-click="() => this.setViewMode('charts')">
+                    <i class="fa fa-pie-chart me-1"/>Charts
+                </button>
+            </div>
+
+            <!-- ===================== KPI STRIP (both views) ===================== -->
+            <div class="o_ktd_kpis">
+                <t t-foreach="state.kpis" t-as="k" t-key="k.key">
+                    <div t-attf-class="o_ktd_kpi o_ktd_kpi_#{k.key}"
+                         t-att-class="{ 'o_ktd_clickable': k.statuses and k.statuses.length }"
+                         t-on-click="() => this.onStatusCardClick(k)"
+                         t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onStatusCardClick(k))"
+                         t-att-tabindex="k.statuses and k.statuses.length ? 0 : undefined"
+                         t-att-role="k.statuses and k.statuses.length ? 'button' : undefined">
+                        <div class="o_ktd_kpi_label"><t t-out="k.label"/></div>
+                        <div class="o_ktd_kpi_value">
+                            <t t-if="k.value === null or k.value === undefined">—</t>
+                            <t t-else=""><t t-out="fmt(k.value)"/><span t-if="k.suffix" class="o_ktd_kpi_suffix"><t t-out="k.suffix"/></span></t>
+                        </div>
+                    </div>
+                </t>
+            </div>
+
+            <!-- ============================ OVERVIEW ============================ -->
+            <t t-if="state.viewMode === 'overview'">
+
+                <!-- Team stats -->
+                <div class="o_ktd_section">
+                    <div class="o_ktd_section_header">
+                        <i class="fa fa-users me-2"/>TEAM
+                    </div>
+                    <div class="o_ktd_cards">
+                        <t t-foreach="state.teamComposition" t-as="card" t-key="card.key">
+                            <div t-attf-class="o_ktd_metric_card o_ktd_clickable o_ktd_metric_#{card.key}"
+                                 t-on-click="() => this.onCompositionClick(card)"
+                                 t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onCompositionClick(card))"
+                                 tabindex="0" role="button" title="View these members">
+                                <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                                <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
+                            </div>
+                        </t>
+                    </div>
                 </div>
-                <div class="o_ktd_cards">
-                    <t t-foreach="state.teamComposition" t-as="card" t-key="card.key">
-                        <div t-attf-class="o_ktd_metric_card o_ktd_clickable o_ktd_metric_#{card.key}"
-                             t-on-click="() => this.onCompositionClick(card)"
-                             t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onCompositionClick(card))"
-                             tabindex="0" role="button"
-                             title="View these members">
-                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
-                            <div class="o_ktd_metric_value">
-                                <t t-out="fmt(card.value)"/>
+
+                <!-- Pipeline (cards) -->
+                <div class="o_ktd_section">
+                    <div class="o_ktd_section_header">
+                        <i class="fa fa-filter me-2"/>PIPELINE
+                    </div>
+                    <div class="o_ktd_cards">
+                        <t t-foreach="state.funnel" t-as="card" t-key="card.key">
+                            <div t-attf-class="o_ktd_funnel_card o_ktd_clickable o_ktd_funnel_#{card.key}"
+                                 t-on-click="() => this.onStatusCardClick(card)"
+                                 t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onStatusCardClick(card))"
+                                 tabindex="0" role="button" title="View these tasks">
+                                <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                                <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- Progress table (detailed per-person breakdown) -->
+                <div class="o_ktd_section">
+                    <div class="o_ktd_section_header o_ktd_section_header_split">
+                        <span><i class="fa fa-list-ol me-2"/>PROGRESS</span>
+                        <div class="o_ktd_segments">
+                            <div class="o_ktd_segment" role="group" aria-label="Group by">
+                                <t t-foreach="groups" t-as="g" t-key="g.key">
+                                    <button class="o_ktd_segment_btn" type="button"
+                                            t-att-class="{ 'o_ktd_segment_active': state.groupBy === g.key }"
+                                            t-att-aria-pressed="state.groupBy === g.key"
+                                            t-on-click="() => this.setGroupBy(g.key)">
+                                        <t t-out="g.label"/>
+                                    </button>
+                                </t>
                             </div>
                         </div>
-                    </t>
+                    </div>
+                    <ProgressTable rows="state.rows" head="group.label"
+                                   onRowClick="row => this.onRowClick(row)"/>
                 </div>
-            </div>
+            </t>
 
-            <!-- ===================== RL PIPELINE FUNNEL ===================== -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header">
-                    <i class="fa fa-filter me-2"/>RL PIPELINE FUNNEL
-                </div>
-                <div class="o_ktd_cards">
-                    <t t-foreach="state.funnel" t-as="card" t-key="card.key">
-                        <div t-attf-class="o_ktd_funnel_card o_ktd_clickable o_ktd_funnel_#{card.key}"
-                             t-on-click="() => this.onStatusCardClick(card)"
-                             t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onStatusCardClick(card))"
-                             tabindex="0" role="button"
-                             title="View these tasks">
-                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
-                            <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
+            <!-- ============================= CHARTS ============================= -->
+            <t t-if="state.viewMode === 'charts'">
+                <div class="o_ktd_chart_grid">
+                    <div class="o_ktd_chart_panel o_ktd_chart_wide">
+                        <div class="o_ktd_chart_title">Tasks Delivered per Day</div>
+                        <div class="o_ktd_chart_body">
+                            <PtChart type="'bar'" data="trendComboChartData" options="comboOptions"/>
                         </div>
-                    </t>
-                </div>
-            </div>
+                    </div>
 
-            <!-- ===================== STATS ===================== -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header">
-                    <i class="fa fa-bar-chart me-2"/>STATS
-                </div>
-                <div class="o_ktd_cards">
-                    <t t-foreach="state.stats" t-as="card" t-key="card.key">
-                        <!-- only drillable stats are focusable: a tab stop on a card
-                             that does nothing when activated is worse than no tab stop -->
-                        <div t-attf-class="o_ktd_metric_card o_ktd_metric_#{card.key}"
-                             t-att-class="{ 'o_ktd_clickable': card.statuses and card.statuses.length }"
-                             t-on-click="() => this.onStatusCardClick(card)"
-                             t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onStatusCardClick(card))"
-                             t-att-tabindex="card.statuses and card.statuses.length ? 0 : undefined"
-                             t-att-role="card.statuses and card.statuses.length ? 'button' : undefined">
-                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
-                            <div class="o_ktd_metric_value">
-                                <t t-out="fmt(card.value)"/>
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">Delivery Success Rate</div>
+                        <div class="o_ktd_chart_body o_ktd_chart_body_sm o_ktd_gauge">
+                            <PtChart type="'doughnut'" data="gaugeChartData" options="gaugeOptions"/>
+                            <div class="o_ktd_gauge_value">
+                                <t t-if="gaugeValue === null">—</t>
+                                <t t-else=""><t t-out="gaugeValue"/>%</t>
                             </div>
                         </div>
-                    </t>
-                </div>
-            </div>
+                    </div>
 
-            <!-- ===================== PROGRESS =====================
-                 One table, two axes. WHO to group by (PL / QL / Tasker) and WHICH
-                 stage to count. Every row counts STAGE records, not tasks: a stage
-                 is the unit of a person's work, so both taskers of a handed-off
-                 task keep the credit for the stage they actually did.
-            -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header o_ktd_section_header_split">
-                    <span><i class="fa fa-list-ol me-2"/>PROGRESS</span>
-                    <div class="o_ktd_segments">
-                        <div class="o_ktd_segment" role="group" aria-label="Group by">
-                            <t t-foreach="groups" t-as="g" t-key="g.key">
-                                <button class="o_ktd_segment_btn" type="button"
-                                        t-att-class="{ 'o_ktd_segment_active': state.groupBy === g.key }"
-                                        t-att-aria-pressed="state.groupBy === g.key"
-                                        t-on-click="() => this.setGroupBy(g.key)">
-                                    <t t-out="g.label"/>
-                                </button>
-                            </t>
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">Tasks by Stage</div>
+                        <div class="o_ktd_chart_body o_ktd_chart_body_sm">
+                            <PtChart type="'doughnut'" data="stageMixChartData"
+                                     options="doughnutOptions"
+                                     onClick="(i) => this.onStageClick(i)"/>
                         </div>
-                        <div class="o_ktd_segment" role="group" aria-label="Stage">
-                            <t t-foreach="stages" t-as="s" t-key="s.key">
-                                <button class="o_ktd_segment_btn" type="button"
-                                        t-att-class="{ 'o_ktd_segment_active': state.stage === s.value }"
-                                        t-att-aria-pressed="state.stage === s.value"
-                                        t-on-click="() => this.setStage(s.value)">
-                                    <t t-out="s.label"/>
-                                </button>
-                            </t>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">Tasks by Pipeline Stage</div>
+                        <div class="o_ktd_chart_body">
+                            <PtChart type="'doughnut'" data="pipelineChartData"
+                                     options="pipelineChartOptions"
+                                     onClick="(i) => this.onPipelineClick(i)"/>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">Tasks by Project</div>
+                        <div class="o_ktd_chart_body">
+                            <PtChart type="'bar'" data="byProjectChartData"
+                                     options="byProjectChartOptions"
+                                     onClick="(i) => this.onByProjectClick(i)"/>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel o_ktd_chart_wide">
+                        <div class="o_ktd_chart_title">Workload per Tasker</div>
+                        <div class="o_ktd_chart_body">
+                            <PtChart type="'bar'" data="workloadChartData"
+                                     options="workloadChartOptions"
+                                     onClick="(i) => this.onWorkloadClick(i)"/>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">Feedback Outcomes</div>
+                        <div class="o_ktd_chart_body o_ktd_chart_body_sm">
+                            <PtChart type="'doughnut'" data="feedbackChartData"
+                                     options="doughnutOptions"
+                                     onClick="(i) => this.onFeedbackClick(i)"/>
+                        </div>
+                    </div>
+
+                    <div class="o_ktd_chart_panel">
+                        <div class="o_ktd_chart_title">Persona Availability</div>
+                        <div class="o_ktd_chart_body o_ktd_chart_body_sm">
+                            <PtChart type="'doughnut'" data="personaPoolChartData"
+                                     options="doughnutOptions"
+                                     onClick="(i) => this.onPersonaPoolClick(i)"/>
                         </div>
                     </div>
                 </div>
-                <ProgressTable rows="state.rows" head="group.label"
-                               onRowClick="row => this.onRowClick(row)"/>
-            </div>
+            </t>
 
         </div>
     </t>
