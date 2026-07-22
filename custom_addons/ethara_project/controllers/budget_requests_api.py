@@ -1163,8 +1163,13 @@ class EtharaBudgetRequestController(http.Controller):
         search = (params.get('search') or '').strip()
         if search:
             domain += [
-                '|', ('name', 'ilike', search),
+                '|', '|', '|', '|', '|',
+                ('name', 'ilike', search),
                 ('justification', 'ilike', search),
+                ('ethara_project_id.name', 'ilike', search),
+                ('budget_id.team_type', 'ilike', search),
+                ('budget_id.budget_sub_type', 'ilike', search),
+                ('budget_id.project_type', 'ilike', search),
             ]
         total = Request.search_count(domain)
         records = Request.search(
