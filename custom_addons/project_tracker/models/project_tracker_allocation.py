@@ -545,6 +545,17 @@ class Kensei2TrackerAllocation(models.Model):
         [('shippable', 'Shippable'), ('rework', 'Rework'), ('rejected', 'Rejected')],
         string='Feedback Status', tracking=True,
         help='Review outcome: Shippable, Rework or Rejected.')
+    # True once the WHOLE task is done — its final stage is Deliverable. Feedback is
+    # only given on a finished task, so the Feedback tab gates its visibility on this.
+    is_task_delivered = fields.Boolean(
+        string='Task Delivered', compute='_compute_is_task_delivered')
+
+    @api.depends('is_final_stage', 'status', 's2_status')
+    def _compute_is_task_delivered(self):
+        for rec in self:
+            rec.is_task_delivered = (
+                rec.status == 'deliverable' if rec.is_final_stage
+                else rec.s2_status == 'deliverable')
 
     # ------------------------------------------------------------------ #
     #  Evaluation metrics (%) — captured at "Baseline Generated → Done"
@@ -984,6 +995,10 @@ class Kensei2TrackerAllocation(models.Model):
         # total_stages decides which stage may DELIVER, so it must not be
         # self-served either.
         'stage_no', 'parent_id', 'total_stages',
+        # Feedback is a LEAD review of the tasker's work — a tasker has view-only
+        # access to it, so they can never write it (the form is read-only for them,
+        # and this stops an RPC bypass).
+        'feedback', 'feedback_rating', 'feedback_status',
     )
 
     def _is_tracker_manager(self):
