@@ -94,4 +94,9 @@ COPY . .
 RUN chmod +x odoo-bin
 
 EXPOSE 8071
-CMD ["/bin/sh", "-c", "./odoo-bin -c odoo.conf -i erza,erza_dashboard,aurora_dashboard,milobench_dashboard -u erza,erza_dashboard,aurora_dashboard,milobench_dashboard --stop-after-init && exec ./odoo-bin -c odoo.conf"]
+
+# Comma-separated custom modules to install/upgrade on deploy.
+# Read by the deployment initContainer (gitops) — edit this line when adding a module.
+ENV ODOO_MODULES="erza,erza_dashboard,aurora_dashboard,milobench_dashboard"
+
+CMD ["./odoo-bin", "-c", "odoo.conf"]
