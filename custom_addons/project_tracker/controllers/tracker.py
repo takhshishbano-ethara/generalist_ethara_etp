@@ -930,15 +930,6 @@ class Kensei2TrackerController(http.Controller):
                 dom + [(field, ">", 0)], [], ["%s:avg" % field])), None)
             return round(v, 1) if v else None
 
-        # cycle time (assigned -> completed), in days. search_read pulls only the
-        # two date columns instead of materialising full records.
-        cycles = []
-        for r in Alloc.search_read(
-                dom + [("date_final", "!=", False)], ["assigned_date", "date_final"]):
-            if r["assigned_date"] and r["date_final"]:
-                cycles.append((r["date_final"].date() - r["assigned_date"]).days)
-        avg_cycle = round(sum(cycles) / len(cycles), 1) if cycles else None
-
         personas = sum(1 for p, in Alloc._read_group(
             dom + [("persona_id", "!=", False)], ["persona_id"]) if p)
 
@@ -959,7 +950,6 @@ class Kensei2TrackerController(http.Controller):
             {"key": "rubric", "label": "Avg Rubric", "value": _avg("rubric_score"), "suffix": "%"},
             {"key": "pytest", "label": "Avg Pytest", "value": _avg("pytest_score"), "suffix": "%"},
             {"key": "rating", "label": "Avg Rating", "value": avg_rating, "suffix": "/5"},
-            {"key": "cycle", "label": "Avg Cycle (days)", "value": avg_cycle},
             {"key": "personas", "label": "Personas", "value": personas},
         ]
 
