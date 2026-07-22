@@ -75,12 +75,11 @@ def _compute_stats(base_domain):
     counts['total'] = len(all_records)
     return counts
 
-
 def _base_domain(kwargs):
     if _parse_bool(kwargs.get('include_all')):
         return []
     return [
-        ('pipeline_status', 'in', list(DEFAULT_ELIGIBLE_PIPELINE_STATUSES)),
+        ('status', 'in', ['pi_selected', 'documents_requested', 'documents_submitted', 'document_rejected', 'document_verification_done', 'contract_sent', 'contract_declined', 'contract_signed', 'onboard']),
     ]
 
 
