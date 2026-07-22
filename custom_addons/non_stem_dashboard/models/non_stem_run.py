@@ -219,12 +219,20 @@ class NonStemRun(models.Model):
             return "viewer"
         return False
 
-    def action_copy_public_link(self):
+    def action_copy_public_tasker_link(self):
         self.ensure_one()
-        if not self.public_token:
-            self.public_token = uuid.uuid4().hex
         base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url", "")
-        url = f"{base_url}/non_stem_dashboard/public/{self.public_token}"
+        url = f"{base_url}/non_stem_dashboard/public/tasker"
+        return {
+            "type": "ir.actions.client",
+            "tag": "non_stem_copy_public_link",
+            "params": {"url": url},
+        }
+
+    def action_copy_public_management_link(self):
+        self.ensure_one()
+        base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url", "")
+        url = f"{base_url}/non_stem_dashboard/public/management"
         return {
             "type": "ir.actions.client",
             "tag": "non_stem_copy_public_link",

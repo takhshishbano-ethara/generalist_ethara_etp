@@ -55,6 +55,78 @@ class NonStemDashboardController(http.Controller):
         )
 
     @http.route(
+        "/non_stem_dashboard/latest/tasker",
+        type="http", auth="user", website=False,
+    )
+    def latest_tasker_dashboard(self, **kw):
+        run = request.env["non.stem.run"].sudo().search(
+            [("state", "=", "done"), ("tasker_dashboard_html", "!=", False)],
+            order="create_date desc", limit=1,
+        )
+        if not run:
+            return request.not_found()
+        return http.Response(
+            run.tasker_dashboard_html,
+            content_type="text/html",
+            status=200,
+        )
+
+    @http.route(
+        "/non_stem_dashboard/latest/management",
+        type="http", auth="user", website=False,
+    )
+    def latest_management_dashboard(self, **kw):
+        user = request.env.user
+        has_access = user._is_admin() or user.has_group("non_stem_dashboard.group_viewer")
+        if not has_access:
+            raise Forbidden("You do not have access to the management dashboard.")
+        run = request.env["non.stem.run"].sudo().search(
+            [("state", "=", "done"), ("management_dashboard_html", "!=", False)],
+            order="create_date desc", limit=1,
+        )
+        if not run:
+            return request.not_found()
+        return http.Response(
+            run.management_dashboard_html,
+            content_type="text/html",
+            status=200,
+        )
+
+    @http.route(
+        "/non_stem_dashboard/public/tasker",
+        type="http", auth="public", website=False, csrf=False,
+    )
+    def public_latest_tasker(self, **kw):
+        run = request.env["non.stem.run"].sudo().search(
+            [("state", "=", "done"), ("tasker_dashboard_html", "!=", False)],
+            order="create_date desc", limit=1,
+        )
+        if not run:
+            return request.not_found()
+        return http.Response(
+            run.tasker_dashboard_html,
+            content_type="text/html",
+            status=200,
+        )
+
+    @http.route(
+        "/non_stem_dashboard/public/management",
+        type="http", auth="public", website=False, csrf=False,
+    )
+    def public_latest_management(self, **kw):
+        run = request.env["non.stem.run"].sudo().search(
+            [("state", "=", "done"), ("management_dashboard_html", "!=", False)],
+            order="create_date desc", limit=1,
+        )
+        if not run:
+            return request.not_found()
+        return http.Response(
+            run.management_dashboard_html,
+            content_type="text/html",
+            status=200,
+        )
+
+    @http.route(
         "/non_stem_dashboard/api/runs",
         type="json", auth="user",
     )
