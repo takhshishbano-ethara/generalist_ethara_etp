@@ -371,6 +371,43 @@ class HrApplicant(models.Model):
                     {'pipeline_status': derived},
                 )
 
+    @api.model
+    def _refuse_prior_rejected(self, candidate_user_id):
+        if not candidate_user_id:
+            return self.env['hr.applicant']
+        Applicant = self.env['hr.applicant'].sudo().with_context(
+            active_test=False,
+        )
+        prior = Applicant.search([
+            ('candidate_user_id', '=', candidate_user_id),
+            '|',
+                ('pipeline_status', '=', 'rejected'),
+                ('refuse_reason_id', '!=', False),
+        ])
+        to_refuse = prior.filtered(
+            lambda a: a.active or not a.refuse_reason_id
+        )
+        if not to_refuse:
+            return self.env['hr.applicant']
+        default_reason = self.env.ref(
+            'ethara_hrms_extension.refuse_reason_superseded',
+            raise_if_not_found=False,
+        )
+        default_reason_id = default_reason.id if default_reason else None
+        cr = self.env.cr
+        for applicant in to_refuse:
+            original_write_date = applicant.write_date
+            vals = {'active': False, 'pipeline_status': 'rejected'}
+            if not applicant.refuse_reason_id and default_reason_id:
+                vals['refuse_reason_id'] = default_reason_id
+            applicant.write(vals)
+            cr.execute(
+                "UPDATE hr_applicant SET write_date = %s WHERE id = %s",
+                (original_write_date, applicant.id),
+            )
+        to_refuse.invalidate_recordset(['write_date'])
+        return to_refuse
+
     @api.onchange('candidate_id', 'active', 'stage_id')
     def _onchange_warn_active_application(self):
         if not self.candidate_id or not self.active:

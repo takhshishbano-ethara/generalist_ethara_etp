@@ -193,6 +193,7 @@ class ApiAuthController(http.Controller):
             new_vals['department_id'] = job.department_id.id
 
         try:
+            Applicant._refuse_prior_rejected(user.id)
             new_app = Applicant.create(new_vals)
         except Exception as exc:
             _logger.exception(
