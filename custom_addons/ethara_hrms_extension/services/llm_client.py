@@ -112,16 +112,18 @@ def _request(method, url, *, headers, json_body, timeout, max_retries):
             return body or {}
         if status in (401, 403):
             raise LLMAuthError(
-                f"Authentication failed ({status})",
+                "LLM configuration issue: authentication failed. "
+                "Set a valid API key in `ethara_hrms.llm_api_key`.",
                 status_code=status, body=body,
             )
         if status == 400:
             raise LLMAPIError(
-                f"Validation error: {body}", status_code=status, body=body,
+                f"LLM validation error: {body}", status_code=status, body=body,
             )
         if status == 402:
             raise LLMAPIError(
-                f"Billing error ({status}): {body}",
+                "LLM billing issue: quota exceeded or account inactive. "
+                "Check your provider dashboard.",
                 status_code=status, body=body,
             )
         if status == 429:
@@ -132,7 +134,7 @@ def _request(method, url, *, headers, json_body, timeout, max_retries):
                 retry_after = None
             if attempt + 1 >= max_retries:
                 raise LLMRateLimitError(
-                    f"Rate limited after {max_retries} attempts",
+                    "LLM rate limit reached. Please try again in a few seconds.",
                     status_code=status, body=body, retry_after=retry_after,
                 )
             sleep_for = retry_after if retry_after is not None else _backoff(attempt)
@@ -141,7 +143,7 @@ def _request(method, url, *, headers, json_body, timeout, max_retries):
         if 500 <= status < 600:
             if attempt + 1 >= max_retries:
                 raise LLMAPIError(
-                    f"Server error {status} after {max_retries} attempts: {body}",
+                    "LLM provider is currently unavailable. Please try again shortly.",
                     status_code=status, body=body,
                 )
             time.sleep(_backoff(attempt))
