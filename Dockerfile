@@ -100,7 +100,6 @@ EXPOSE 8071
 ENV ODOO_MODULES="erza,erza_dashboard,aurora_dashboard,milobench_dashboard"
 
 # Gate: set to "true" ONLY for builds that need the module install/upgrade to run
-# on deploy (new module or version bump). Default "false" = the PreSync Job no-ops,
 # so normal deploys don't re-run the upgrade.
 ENV ODOO_RUN_UPGRADE="false"
 
