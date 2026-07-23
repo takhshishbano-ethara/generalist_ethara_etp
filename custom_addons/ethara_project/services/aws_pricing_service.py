@@ -666,3 +666,126 @@ def fetch_ebs_pricing_cached(env, region_label, force_refresh=False):
         "volumes": volumes,
         "cached": False,
     }
+
+
+# ---------------------------------------------------------------------------
+# RDS storage (Amazon RDS "Database Storage" product family).
+#
+# Mirrors the EBS helpers above but for managed-database storage: an RDS budget
+# line pairs a DB *instance* (priced hourly via the generic pricing lookup) with
+# a *storage* volume priced per GB-month, exactly like EC2 + EBS. Unlike EBS,
+# this is NOT persisted to a cache model (the option list is tiny and stable);
+# it does a single live lookup per call with a robust static fallback.
+# ---------------------------------------------------------------------------
+
+RDS_STORAGE_LABELS = {
+    "gp2": "General Purpose SSD (gp2)",
+    "gp3": "General Purpose SSD (gp3)",
+    "io1": "Provisioned IOPS SSD (io1)",
+    "io2": "Provisioned IOPS SSD (io2)",
+    "magnetic": "Magnetic",
+    "aurora": "Aurora Storage",
+}
+
+# us-east-1 Single-AZ list prices (approx) — used when the live lookup is
+# unavailable (no creds / API error / empty result).
+RDS_STORAGE_STATIC_FALLBACK = [
+    {"volume_code": "gp3", "volume_label": RDS_STORAGE_LABELS["gp3"], "rate_usd_per_gb_mo": 0.115, "unit": "GB-Mo"},
+    {"volume_code": "gp2", "volume_label": RDS_STORAGE_LABELS["gp2"], "rate_usd_per_gb_mo": 0.115, "unit": "GB-Mo"},
+    {"volume_code": "io1", "volume_label": RDS_STORAGE_LABELS["io1"], "rate_usd_per_gb_mo": 0.125, "unit": "GB-Mo"},
+    {"volume_code": "magnetic", "volume_label": RDS_STORAGE_LABELS["magnetic"], "rate_usd_per_gb_mo": 0.10, "unit": "GB-Mo"},
+]
+
+
+def _rds_storage_code(volume_type):
+    """Normalise an RDS `volumeType` attribute to a short volume code."""
+    v = (volume_type or "").strip().lower()
+    if not v:
+        return None
+    if "aurora" in v:
+        return "aurora"
+    if "gp3" in v:
+        return "gp3"
+    if "provisioned iops" in v or "io1" in v:
+        return "io1"
+    if "io2" in v:
+        return "io2"
+    if "magnetic" in v:
+        return "magnetic"
+    if "general purpose" in v or "gp2" in v:
+        return "gp2"
+    return v.replace(" ", "-")
+
+
+def list_rds_storage(env, region_label):
+    client = _client(env)
+    filters = [
+        {"Type": "TERM_MATCH", "Field": "productFamily", "Value": "Database Storage"},
+        {"Type": "TERM_MATCH", "Field": "location", "Value": region_label},
+    ]
+    result_by_code = {}
+    for page in client.get_paginator("get_products").paginate(
+        ServiceCode="AmazonRDS", FormatVersion="aws_v1", Filters=filters
+    ):
+        for s in page.get("PriceList", []):
+            try:
+                p = json.loads(s)
+            except (ValueError, TypeError):
+                continue
+            attrs = p.get("product", {}).get("attributes", {}) or {}
+            code = _rds_storage_code(attrs.get("volumeType"))
+            if not code:
+                continue
+            od = _first_on_demand(p.get("terms", {}))
+            if not od or not od.get("usd"):
+                continue
+            unit = (od.get("unit") or "").strip()
+            if unit and unit.lower() != "gb-mo":
+                continue
+            try:
+                rate = float(od["usd"])
+            except (ValueError, TypeError):
+                continue
+            if rate <= 0:
+                continue
+            prev = result_by_code.get(code)
+            # Keep the cheapest (typically Single-AZ) rate per storage type.
+            if prev is None or rate < prev["rate_usd_per_gb_mo"]:
+                result_by_code[code] = {
+                    "volume_code": code,
+                    "volume_label": RDS_STORAGE_LABELS.get(code, attrs.get("volumeType") or code),
+                    "rate_usd_per_gb_mo": rate,
+                    "unit": unit or "GB-Mo",
+                }
+    return sorted(result_by_code.values(), key=lambda v: v["volume_code"])
+
+
+def fetch_rds_storage_pricing_cached(env, region_label, force_refresh=False):
+    """Live RDS-storage option list for a region, with a static fallback.
+
+    Returns the same envelope shape as [fetch_ebs_pricing_cached] so the Flutter
+    volume parser can be reused verbatim.
+    """
+    source = "live"
+    try:
+        volumes = list_rds_storage(env, region_label)
+        if not volumes:
+            volumes = list(RDS_STORAGE_STATIC_FALLBACK)
+            source = "fallback"
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning(
+            "RDS storage pricing fetch failed for region %s, using static "
+            "fallback: %s",
+            region_label,
+            exc,
+        )
+        volumes = list(RDS_STORAGE_STATIC_FALLBACK)
+        source = "fallback"
+
+    return {
+        "source": source,
+        "region": region_label,
+        "count": len(volumes),
+        "volumes": volumes,
+        "cached": False,
+    }

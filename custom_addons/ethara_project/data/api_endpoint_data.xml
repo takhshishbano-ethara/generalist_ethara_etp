@@ -102,6 +102,11 @@
             <field name="note">GET - EBS/volume list prices for a region. ?region &amp;force_refresh</field>
         </record>
 
+        <record id="endpoint_api_v1_ethara_project_budget_infra_rds_storage" model="api.endpoint">
+            <field name="url_pattern">/api/v1/ethara_project/budget/infra/rds_storage</field>
+            <field name="note">GET - RDS database-storage list prices for a region (same volumes[] shape as ebs_pricing; used when an RDS service is picked on the Infrastructure step). ?region &amp;force_refresh</field>
+        </record>
+
         <record id="endpoint_api_v1_ethara_project_budget_infra_providers" model="api.endpoint">
             <field name="url_pattern">/api/v1/ethara_project/budget/infra/providers</field>
             <field name="note">GET - ethara.project.infra.provider catalog (AWS, Microsoft, ...) for the Provider selector on the Infrastructure step. ?search &amp;include_inactive &amp;limit &amp;offset</field>

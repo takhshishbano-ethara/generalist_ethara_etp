@@ -1725,6 +1725,39 @@ class EtharaBudgetController(http.Controller):
             )
 
     # -----------------------------------------------------------------------
+    # GET /api/v1/ethara_project/budget/infra/rds_storage
+    #
+    # RDS "Database Storage" list prices for a region via
+    # aws_pricing_service.fetch_rds_storage_pricing_cached. Returns the same
+    # top-level `volumes[]` shape as ebs_pricing (Flutter reuses the tolerant
+    # volume parser). Query: region (label; default "US East (N. Virginia)"),
+    # force_refresh.
+    # -----------------------------------------------------------------------
+    @http.route(
+        '/api/v1/ethara_project/budget/infra/rds_storage',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def aws_rds_storage_pricing(self, **params):
+        try:
+            region = (params.get('region') or '').strip() \
+                or 'US East (N. Virginia)'
+            force_refresh = bool(_coerce_int(params.get('force_refresh'), 0))
+            result = aws_pricing_service.fetch_rds_storage_pricing_cached(
+                request.env, region, force_refresh=force_refresh,
+            )
+            return return_Response(
+                message='RDS storage pricing fetched.', status=200,
+                data=result,
+            )
+        except Exception as e:
+            _logger.exception('ethara_project budget/infra/rds_storage failed')
+            return return_Response(
+                message='Failed to fetch RDS storage pricing.',
+                status=400, errors=[str(e)],
+            )
+
+    # -----------------------------------------------------------------------
     # LEGACY URL ALIASES for the pre-existing Flutter build.
     #
     # Rationale: the Flutter web bundle currently in production still points
