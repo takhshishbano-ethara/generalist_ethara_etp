@@ -37,6 +37,13 @@ _LLM_QC_DEFAULT_SEED_PROMPT = (
     "empty answers, 100 for perfect answers."
 )
 
+# Status write-guard: never overwrite anything outside this set (HR has advanced the pipeline).
+_ASSESSMENT_STATUSES = frozenset({
+    "assessment_pending_review",
+    "assessment_passed",
+    "assessment_rejected",
+})
+
 
 class EtpApplicantAssessment(models.Model):
     _name = "etp.applicant.assessment"
@@ -611,42 +618,15 @@ class EtpApplicantAssessment(models.Model):
                 ["objective_score", "warning_penalty",
                  "final_score", "has_pending_review"]
             )
+            rec._sync_applicant_status_from_score()
             if rec.has_pending_review:
                 _logger.info(
                     "action_score: assessment=%s left in submitted state "
-                    "(has_pending_review=True)",
+                    "pending review; applicant status set provisionally",
                     rec.id,
                 )
                 continue
             rec.state = "scored"
-            applicant = rec.applicant_id
-            if applicant:
-                final_score = rec.final_score or 0.0
-                pass_mark = rec.pass_mark_percent or 0.0
-                passed = final_score >= pass_mark
-                new_status = (
-                    "assessment_passed" if passed
-                    else "assessment_rejected"
-                )
-                applicant_sudo = applicant.sudo()
-                try:
-                    applicant_sudo.write({"status": new_status})
-                    applicant_sudo.flush_recordset(["status"])
-                    _logger.info(
-                        "action_score: applicant=%s status set to %s "
-                        "(final_score=%.2f pass_mark=%.2f) assessment=%s",
-                        applicant.id, new_status, final_score,
-                        pass_mark, rec.id,
-                    )
-                except Exception:
-                    _logger.exception(
-                        "Failed to set applicant status to %s for "
-                        "applicant=%s assessment=%s "
-                        "(final_score=%.2f pass_mark=%.2f "
-                        "current status=%s)",
-                        new_status, applicant.id, rec.id,
-                        final_score, pass_mark, applicant.status,
-                    )
             rec._send_result_email()
         return True
 
@@ -862,12 +842,26 @@ class EtpApplicantAssessment(models.Model):
         self.ensure_one()
         cfg = self._llm_qc_settings()
         if not cfg["key"]:
+            _logger.warning(
+                "LLM QC key not configured; assessment=%s marked failed. "
+                "Attempting finalize so applicant status still transitions "
+                "when no answers require review.",
+                self.id,
+            )
             self.write({
                 "llm_qc_state": "failed",
                 "llm_qc_error": "LLM QC API key is not configured.",
                 "llm_qc_ran_at": fields.Datetime.now(),
                 "llm_qc_attempts": (self.llm_qc_attempts or 0) + 1,
             })
+            # Finalize guarded by has_pending_review; safe on failure so pure-MCQ still transitions.
+            try:
+                self._finalize_scoring_after_llm_qc()
+            except Exception:
+                _logger.exception(
+                    "_finalize_scoring_after_llm_qc raised after LLM key "
+                    "failure for assessment=%s", self.id,
+                )
             return False
 
         targets = self.answer_ids.filtered(
@@ -902,6 +896,14 @@ class EtpApplicantAssessment(models.Model):
                 "llm_qc_error": str(exc)[:2000],
                 "llm_qc_ran_at": fields.Datetime.now(),
             })
+            # Finalize guarded by has_pending_review; safe on failure so pure-MCQ still transitions.
+            try:
+                self._finalize_scoring_after_llm_qc()
+            except Exception:
+                _logger.exception(
+                    "_finalize_scoring_after_llm_qc raised after LLM API "
+                    "failure for assessment=%s", self.id,
+                )
             return False
 
         target_by_id = {a.id: a for a in targets}
@@ -939,6 +941,49 @@ class EtpApplicantAssessment(models.Model):
         self._finalize_scoring_after_llm_qc()
         return True
 
+    def _sync_applicant_status_from_score(self):
+        for rec in self:
+            applicant = rec.applicant_id
+            if not applicant:
+                continue
+            current = applicant.status
+            if current and current not in _ASSESSMENT_STATUSES:
+                _logger.info(
+                    "_sync_applicant_status: skip applicant=%s status=%s "
+                    "assessment=%s (past assessment stage)",
+                    applicant.id, current, rec.id,
+                )
+                continue
+            final_score = rec.final_score or 0.0
+            pass_mark = rec.pass_mark_percent or 0.0
+            passed = final_score >= pass_mark
+            target = (
+                "assessment_passed" if passed else "assessment_rejected"
+            )
+            if current == target:
+                continue
+            applicant_sudo = applicant.sudo()
+            try:
+                applicant_sudo.write({"status": target})
+                applicant_sudo.flush_recordset(["status"])
+                _logger.info(
+                    "_sync_applicant_status: applicant=%s %s -> %s "
+                    "(final_score=%.2f pass_mark=%.2f) assessment=%s "
+                    "llm_qc_state=%s pending_review=%s",
+                    applicant.id, current, target,
+                    final_score, pass_mark, rec.id,
+                    rec.llm_qc_state, rec.has_pending_review,
+                )
+            except Exception:
+                _logger.exception(
+                    "Failed to set applicant status to %s for "
+                    "applicant=%s assessment=%s "
+                    "(final_score=%.2f pass_mark=%.2f current=%s)",
+                    target, applicant.id, rec.id,
+                    final_score, pass_mark, current,
+                )
+        return True
+
     def _finalize_scoring_after_llm_qc(self):
         for rec in self:
             if rec.state != "submitted":
@@ -949,44 +994,17 @@ class EtpApplicantAssessment(models.Model):
                 ["objective_score", "warning_penalty",
                  "final_score", "has_pending_review"]
             )
+            # Sync status provisionally on current score; LLM re-run will re-evaluate.
+            rec._sync_applicant_status_from_score()
             if rec.has_pending_review:
                 _logger.info(
                     "_finalize_scoring_after_llm_qc: assessment=%s left in "
-                    "submitted state (has_pending_review=True, "
-                    "llm_qc_state=%s)",
+                    "submitted state pending review (llm_qc_state=%s); "
+                    "applicant status set provisionally",
                     rec.id, rec.llm_qc_state,
                 )
                 continue
             rec.state = "scored"
-            applicant = rec.applicant_id
-            if applicant:
-                final_score = rec.final_score or 0.0
-                pass_mark = rec.pass_mark_percent or 0.0
-                passed = final_score >= pass_mark
-                new_status = (
-                    "assessment_passed" if passed
-                    else "assessment_rejected"
-                )
-                applicant_sudo = applicant.sudo()
-                try:
-                    applicant_sudo.write({"status": new_status})
-                    applicant_sudo.flush_recordset(["status"])
-                    _logger.info(
-                        "_finalize_scoring_after_llm_qc: applicant=%s "
-                        "status set to %s (final_score=%.2f "
-                        "pass_mark=%.2f) assessment=%s",
-                        applicant.id, new_status, final_score,
-                        pass_mark, rec.id,
-                    )
-                except Exception:
-                    _logger.exception(
-                        "Failed to set applicant status to %s for "
-                        "applicant=%s assessment=%s "
-                        "(final_score=%.2f pass_mark=%.2f "
-                        "current status=%s)",
-                        new_status, applicant.id, rec.id,
-                        final_score, pass_mark, applicant.status,
-                    )
             if not rec.llm_qc_result_email_sent:
                 rec._send_llm_qc_result_email()
         return True
@@ -1026,7 +1044,9 @@ class EtpApplicantAssessment(models.Model):
             raise UserError(
                 _("Cannot re-run LLM QC in state '%s'.") % self.state
             )
+        # Revert to submitted so _finalize_scoring_after_llm_qc re-syncs applicant status.
         self.write({
+            "state": "submitted",
             "llm_qc_state": "pending",
             "llm_qc_error": False,
             "llm_qc_result_email_sent": False,
