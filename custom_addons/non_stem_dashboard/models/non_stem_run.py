@@ -1,6 +1,8 @@
 import base64
+import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +22,9 @@ SCRIPT_PATH = os.path.join(
 
 # Use the same Python interpreter that Odoo is running under (the venv python)
 PYTHON_PATH = sys.executable
+
+# Window keys matching WINDOW_PRESETS in the pipeline script
+WINDOW_KEYS = ["all", "mtd", "ytd", "last_3d", "last_1w", "last_2w", "last_3w"]
 
 
 class NonStemRun(models.Model):
@@ -49,6 +54,9 @@ class NonStemRun(models.Model):
     )
     management_dashboard_html = fields.Text(
         string="Management Dashboard HTML", readonly=True,
+    )
+    window_dashboards_json = fields.Text(
+        string="Window Dashboards JSON", readonly=True,
     )
     public_token = fields.Char(
         string="Public Token", readonly=True, copy=False,
@@ -156,18 +164,44 @@ class NonStemRun(models.Model):
                 )
                 out_dir = os.path.join(script_dir, output_dirs[0])
 
-                # Read the HTML dashboards
-                tasker_html = ""
-                mgmt_html = ""
-                tasker_path = os.path.join(out_dir, "tasker_performance_dashboard.html")
-                mgmt_path = os.path.join(out_dir, "management_dashboard.html")
+                # Read all window HTML dashboards
+                window_data = {}  # {window_key: {tasker: html, management: html}}
+                for wkey in WINDOW_KEYS:
+                    if wkey == "all":
+                        w_dir = out_dir
+                    else:
+                        w_dir = os.path.join(out_dir, "windows", wkey)
+                    tasker_path = os.path.join(w_dir, "tasker_performance_dashboard.html")
+                    mgmt_path = os.path.join(w_dir, "management_dashboard.html")
+                    t_html = ""
+                    m_html = ""
+                    if os.path.exists(tasker_path):
+                        with open(tasker_path, "r", encoding="utf-8") as f:
+                            t_html = f.read()
+                    if os.path.exists(mgmt_path):
+                        with open(mgmt_path, "r", encoding="utf-8") as f:
+                            m_html = f.read()
+                    if t_html or m_html:
+                        window_data[wkey] = {}
+                        if t_html:
+                            window_data[wkey]["tasker"] = t_html
+                        if m_html:
+                            window_data[wkey]["management"] = m_html
 
-                if os.path.exists(tasker_path):
-                    with open(tasker_path, "r", encoding="utf-8") as f:
-                        tasker_html = f.read()
-                if os.path.exists(mgmt_path):
-                    with open(mgmt_path, "r", encoding="utf-8") as f:
-                        mgmt_html = f.read()
+                # Rewrite nav links in all HTMLs to use Odoo routes
+                run_id = self.id
+                for wkey, dashboards in window_data.items():
+                    for dtype in ("tasker", "management"):
+                        html = dashboards.get(dtype, "")
+                        if not html:
+                            continue
+                        # Replace relative hrefs in nav tabs with Odoo route URLs
+                        html = self._rewrite_window_nav(html, dtype, run_id)
+                        window_data[wkey][dtype] = html
+
+                # "all" window is the default/main dashboard
+                tasker_html = window_data.get("all", {}).get("tasker", "")
+                mgmt_html = window_data.get("all", {}).get("management", "")
 
                 # Copy output to a persistent location
                 persistent_dir = os.path.join(
@@ -184,6 +218,7 @@ class NonStemRun(models.Model):
                     "output_dir": persistent_dir,
                     "tasker_dashboard_html": tasker_html,
                     "management_dashboard_html": mgmt_html,
+                    "window_dashboards_json": json.dumps(window_data),
                 })
 
             except subprocess.TimeoutExpired:
@@ -195,6 +230,36 @@ class NonStemRun(models.Model):
                 _logger.exception("Pipeline execution failed")
                 self.write({"state": "error", "log_output": str(e)})
                 raise UserError(f"Pipeline error: {e}")
+
+    def _rewrite_window_nav(self, html, dashboard_type, run_id):
+        """Rewrite nav tab hrefs from relative file paths to Odoo route URLs."""
+        base = f"/non_stem_dashboard/{dashboard_type}/{run_id}"
+
+        def _replace_href(match):
+            href = match.group(1)
+            # Check each non-"all" window key in the href path
+            for wkey in WINDOW_KEYS:
+                if wkey == "all":
+                    continue
+                if f"/{wkey}/" in href or href.startswith(f"{wkey}/") or href.startswith(f"../{wkey}/"):
+                    return f'href="{base}/{wkey}"'
+            # If no window key matched, it points to the root = "all"
+            return f'href="{base}/all"'
+
+        html = re.sub(
+            r'href="([^"]*(?:tasker_performance_dashboard|management_dashboard)\.html[^"]*)"',
+            _replace_href, html,
+        )
+        return html
+
+    def get_window_html(self, dashboard_type, window_key):
+        """Return HTML for a specific window and dashboard type."""
+        self.ensure_one()
+        if not self.window_dashboards_json:
+            return False
+        data = json.loads(self.window_dashboards_json)
+        window = data.get(window_key, {})
+        return window.get(dashboard_type, False)
 
     @api.model
     def check_is_manager(self):

@@ -6,37 +6,41 @@ from odoo.http import request
 
 class NonStemDashboardController(http.Controller):
 
-    @http.route(
+    @http.route([
         "/non_stem_dashboard/tasker/<int:run_id>",
-        type="http", auth="user", website=False,
-    )
-    def tasker_dashboard(self, run_id, **kw):
+        "/non_stem_dashboard/tasker/<int:run_id>/<string:window>",
+    ], type="http", auth="user", website=False)
+    def tasker_dashboard(self, run_id, window=None, **kw):
         run = request.env["non.stem.run"].sudo().browse(run_id)
-        if not run.exists() or not run.tasker_dashboard_html:
+        if not run.exists():
             return request.not_found()
-        return http.Response(
-            run.tasker_dashboard_html,
-            content_type="text/html",
-            status=200,
-        )
+        if window and window != "all":
+            html = run.get_window_html("tasker", window)
+        else:
+            html = run.tasker_dashboard_html
+        if not html:
+            return request.not_found()
+        return http.Response(html, content_type="text/html", status=200)
 
-    @http.route(
+    @http.route([
         "/non_stem_dashboard/management/<int:run_id>",
-        type="http", auth="user", website=False,
-    )
-    def management_dashboard(self, run_id, **kw):
+        "/non_stem_dashboard/management/<int:run_id>/<string:window>",
+    ], type="http", auth="user", website=False)
+    def management_dashboard(self, run_id, window=None, **kw):
         user = request.env.user
         has_access = user._is_admin() or user.has_group("non_stem_dashboard.group_viewer")
         if not has_access:
             raise Forbidden("You do not have access to the management dashboard.")
         run = request.env["non.stem.run"].sudo().browse(run_id)
-        if not run.exists() or not run.management_dashboard_html:
+        if not run.exists():
             return request.not_found()
-        return http.Response(
-            run.management_dashboard_html,
-            content_type="text/html",
-            status=200,
-        )
+        if window and window != "all":
+            html = run.get_window_html("management", window)
+        else:
+            html = run.management_dashboard_html
+        if not html:
+            return request.not_found()
+        return http.Response(html, content_type="text/html", status=200)
 
     @http.route(
         "/non_stem_dashboard/public/<string:token>",
@@ -54,28 +58,30 @@ class NonStemDashboardController(http.Controller):
             status=200,
         )
 
-    @http.route(
+    @http.route([
         "/non_stem_dashboard/latest/tasker",
-        type="http", auth="user", website=False,
-    )
-    def latest_tasker_dashboard(self, **kw):
+        "/non_stem_dashboard/latest/tasker/<string:window>",
+    ], type="http", auth="user", website=False)
+    def latest_tasker_dashboard(self, window=None, **kw):
         run = request.env["non.stem.run"].sudo().search(
             [("state", "=", "done"), ("tasker_dashboard_html", "!=", False)],
             order="create_date desc", limit=1,
         )
         if not run:
             return request.not_found()
-        return http.Response(
-            run.tasker_dashboard_html,
-            content_type="text/html",
-            status=200,
-        )
+        if window and window != "all":
+            html = run.get_window_html("tasker", window)
+        else:
+            html = run.tasker_dashboard_html
+        if not html:
+            return request.not_found()
+        return http.Response(html, content_type="text/html", status=200)
 
-    @http.route(
+    @http.route([
         "/non_stem_dashboard/latest/management",
-        type="http", auth="user", website=False,
-    )
-    def latest_management_dashboard(self, **kw):
+        "/non_stem_dashboard/latest/management/<string:window>",
+    ], type="http", auth="user", website=False)
+    def latest_management_dashboard(self, window=None, **kw):
         user = request.env.user
         has_access = user._is_admin() or user.has_group("non_stem_dashboard.group_viewer")
         if not has_access:
@@ -86,45 +92,51 @@ class NonStemDashboardController(http.Controller):
         )
         if not run:
             return request.not_found()
-        return http.Response(
-            run.management_dashboard_html,
-            content_type="text/html",
-            status=200,
-        )
+        if window and window != "all":
+            html = run.get_window_html("management", window)
+        else:
+            html = run.management_dashboard_html
+        if not html:
+            return request.not_found()
+        return http.Response(html, content_type="text/html", status=200)
 
-    @http.route(
+    @http.route([
         "/non_stem_dashboard/public/tasker",
-        type="http", auth="public", website=False, csrf=False,
-    )
-    def public_latest_tasker(self, **kw):
+        "/non_stem_dashboard/public/tasker/<string:window>",
+    ], type="http", auth="public", website=False, csrf=False)
+    def public_latest_tasker(self, window=None, **kw):
         run = request.env["non.stem.run"].sudo().search(
             [("state", "=", "done"), ("tasker_dashboard_html", "!=", False)],
             order="create_date desc", limit=1,
         )
         if not run:
             return request.not_found()
-        return http.Response(
-            run.tasker_dashboard_html,
-            content_type="text/html",
-            status=200,
-        )
+        if window and window != "all":
+            html = run.get_window_html("tasker", window)
+        else:
+            html = run.tasker_dashboard_html
+        if not html:
+            return request.not_found()
+        return http.Response(html, content_type="text/html", status=200)
 
-    @http.route(
+    @http.route([
         "/non_stem_dashboard/public/management",
-        type="http", auth="public", website=False, csrf=False,
-    )
-    def public_latest_management(self, **kw):
+        "/non_stem_dashboard/public/management/<string:window>",
+    ], type="http", auth="public", website=False, csrf=False)
+    def public_latest_management(self, window=None, **kw):
         run = request.env["non.stem.run"].sudo().search(
             [("state", "=", "done"), ("management_dashboard_html", "!=", False)],
             order="create_date desc", limit=1,
         )
         if not run:
             return request.not_found()
-        return http.Response(
-            run.management_dashboard_html,
-            content_type="text/html",
-            status=200,
-        )
+        if window and window != "all":
+            html = run.get_window_html("management", window)
+        else:
+            html = run.management_dashboard_html
+        if not html:
+            return request.not_found()
+        return http.Response(html, content_type="text/html", status=200)
 
     @http.route(
         "/non_stem_dashboard/api/runs",
