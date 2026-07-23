@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ============================================================ -->
+        <!-- System-owned refuse reasons used by the one-active-applicant  -->
+        <!-- policy. Created with noupdate=1 so admins can rename/edit at  -->
+        <!-- runtime without those edits being reverted on module upgrade. -->
+        <!-- ============================================================ -->
+
+        <record id="refuse_reason_superseded" model="hr.applicant.refuse.reason">
+            <field name="name">Superseded by new application</field>
+        </record>
+
+        <record id="refuse_reason_candidate_withdrew" model="hr.applicant.refuse.reason">
+            <field name="name">Candidate withdrew</field>
+        </record>
+
+    </data>
+</odoo>

@@ -8,6 +8,7 @@
     'external_dependencies': {'python': ['requests', 'PyPDF2']},
     'data': [
         'security/ir.model.access.csv',
+        'data/refuse_reason_data.xml',
         'views/res_config_settings_views.xml',
         'views/hr_job_views.xml',
         'views/ethara_candidate_views.xml',
