@@ -314,11 +314,6 @@ class EvaluationsApi(http.Controller):
             return err
 
         vals = {}
-        if "pi_score" in data:
-            v = _float(data["pi_score"])
-            if v is None or not (0 <= v <= 100):
-                return return_Response(message="pi_score must be 0-100.", status=400)
-            vals["pi_score"] = v
         verdict = data.get("final_verdict")
         if verdict is not None:
             if verdict not in ("hire", "reject", "hold", "next_round", "", False, None):

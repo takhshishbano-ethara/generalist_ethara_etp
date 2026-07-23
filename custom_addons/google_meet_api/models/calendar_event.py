@@ -146,6 +146,12 @@ class CalendarEvent(models.Model):
     def _sync_candidate_hiring_status(self, candidate):
         if not candidate:
             return
+        evaluation = self.env["hr.applicant.evaluation"].sudo().search(
+            [("candidate_id", "=", candidate.id)], limit=1,
+        )
+        if evaluation:
+            evaluation.invalidate_recordset(["pi_score"])
+            evaluation._compute_pi_score()
         events = self.env["calendar.event"].sudo().search(
             [("candidate_id", "=", candidate.id)],
         )
