@@ -147,6 +147,9 @@
                             <field name="assessment_evaluator_ids" readonly="1">
                                 <list>
                                     <field name="applicant_id"/>
+                                    <field name="candidate_link" widget="url"
+                                           string="Assessment Link"
+                                           text="Open link" optional="show"/>
                                     <field name="state" widget="badge"
                                            decoration-info="state == 'pending'"
                                            decoration-warning="state == 'in_progress'"
@@ -166,8 +169,13 @@
                                            optional="show"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-danger="llm_state in ('failed', 'error')"/>
+                                    <field name="score_marks_display"
+                                           column_invisible="1"/>
                                     <field name="score_percent"
-                                           string="Final Score /100" optional="show"/>
+                                           widget="etp_score_marks"
+                                           string="Score" optional="show"/>
+                                    <field name="raw_result"
+                                           string="Raw Score" optional="show"/>
                                     <field name="result" widget="badge"
                                            decoration-success="result == 'pass'"
                                            decoration-danger="result == 'fail'"
@@ -277,6 +285,7 @@
                         </page>
                     </notebook>
                 </sheet>
+                <chatter/>
             </form>
         </field>
     </record>
@@ -383,7 +392,9 @@
                 <field name="total_questions"/>
                 <field name="total_score"/>
                 <field name="llm_total_score" string="Subjective Marks" optional="show"/>
-                <field name="score_percent" string="Final Score /100" optional="show"/>
+                <field name="score_marks_display" column_invisible="1"/>
+                <field name="score_percent" widget="etp_score_marks"
+                       string="Score" optional="show"/>
                 <field name="result" widget="badge"
                        decoration-success="result == 'pass'"
                        decoration-danger="result == 'fail'"
@@ -548,6 +559,12 @@
                                     <field name="assessment_id"/>
                                     <field name="applicant_id"/>
                                     <field name="llm_state"/>
+                                    <field name="score_marks_display"
+                                           column_invisible="1"/>
+                                    <field name="score_percent"
+                                           widget="etp_score_marks"
+                                           string="Score"/>
+                                    <field name="raw_result"/>
                                     <field name="results_released"/>
                                     <field name="is_locked"/>
                                 </group>
@@ -555,6 +572,9 @@
                                     <field name="started_at"/>
                                     <field name="deadline_datetime"/>
                                     <field name="access_token"/>
+                                    <field name="candidate_link" widget="url"
+                                           readonly="1"
+                                           text="Open candidate assessment link"/>
                                 </group>
                             </group>
                         </div>
@@ -577,9 +597,9 @@
                                     <field name="max_score" string="Objective Max"/>
                                     <field name="needs_llm" string="Subjective?"
                                            widget="boolean" optional="hide"/>
-                                    <field name="llm_raw_100"
-                                           string="Subjective Score (0-100)"
-                                           widget="float" digits="[5,1]"/>
+                                    <field name="llm_raw_score"
+                                           string="Subjective Score (0-1)"
+                                           widget="float" digits="[4, 3]"/>
                                     <field name="subjective_result" widget="badge"
                                            string="Subjective Result"
                                            decoration-success="subjective_result == 'pass'"
@@ -606,9 +626,9 @@
                                         </group>
                                         <group string="Result"
                                                invisible="not needs_llm">
-                                            <field name="llm_raw_100"
-                                                   string="Subjective Score (0-100)"
-                                                   widget="float" digits="[5,1]"/>
+                                            <field name="llm_raw_score"
+                                                   string="Subjective Score (0-1)"
+                                                   widget="float" digits="[4, 3]"/>
                                             <field name="subjective_result"
                                                    widget="badge"
                                                    decoration-success="subjective_result == 'pass'"
@@ -683,8 +703,8 @@
                 <field name="question_id"/>
                 <field name="objective_score" string="Objective" sum="Total Objective"/>
                 <field name="needs_llm" string="Subjective?" widget="boolean"/>
-                <field name="llm_raw_100" string="Subjective Score (0-100)"
-                       widget="float" digits="[5,1]" optional="show"/>
+                <field name="llm_raw_score" string="Subjective Score (0-1)"
+                       widget="float" digits="[4, 3]" optional="show"/>
                 <field name="subjective_result" widget="badge" string="Subjective"
                        decoration-success="subjective_result == 'pass'"
                        decoration-danger="subjective_result == 'fail'"/>
@@ -731,9 +751,9 @@
                                    string="Subjective Result"
                                    decoration-success="subjective_result == 'pass'"
                                    decoration-danger="subjective_result == 'fail'"/>
-                            <field name="llm_raw_100"
-                                   string="Subjective Score (0-100)"
-                                   widget="float" digits="[5,1]"/>
+                            <field name="llm_raw_score"
+                                   string="Subjective Score (0-1)"
+                                   widget="float" digits="[4, 3]"/>
                             <field name="llm_score" string="Mark (0/1)"/>
                             <field name="llm_max_score" string="Mark Max"/>
                             <field name="llm_state" string="Subjective State"/>

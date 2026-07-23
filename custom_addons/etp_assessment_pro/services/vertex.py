@@ -68,7 +68,7 @@ INLINE_QUESTION_PROMPT = (
 )
 
 _SELF_CONTAINED_RULE = (
-    "\n\nHARD RULE — SELF-CONTAINED: Every question MUST be answerable from the "
+    "\n\nHARD RULE - SELF-CONTAINED: Every question MUST be answerable from the "
     "scenario you write plus the candidate's skill ALONE. NEVER reference, cite, "
     "quote, or allude to the SOP, the source material, the guidelines, a "
     "Section/Step/Clause, or any document the candidate cannot see. Bake every "
@@ -2376,14 +2376,87 @@ def _allowed_types_directive(allowed, count, ab_dims=None):
     count_clause = f"Generate approximately {count} question(s). " if count else ""
     return (
         count_clause
-        + "EVERY item's question_type MUST be one of [" + type_list + "] — do "
+        + "EVERY item's question_type MUST be one of [" + type_list + "] - do "
         "NOT produce any other type; an item of any other type is DISCARDED. "
-        "Choose the best-fitting allowed type per item, and use EVERY allowed "
-        "type at least once across the batch where the SOP supports it. "
+        "MANDATORY TYPE COVERAGE: you MUST author AT LEAST ONE item for EVERY "
+        "one of these allowed types [" + type_list + "]; a selected type left "
+        "with zero items is a failure and will be back-filled by a forced "
+        "follow-up pass, so cover it now. Beyond that one-each floor, choose the "
+        "best-fitting allowed type per item. "
         "Return ONLY a JSON array, no markdown."
         + _text_contracts_note(allowed)
         + _image_contracts_note(ab_dims, types=allowed)
         + _SELF_CONTAINED_RULE)
+
+
+def _single_type_contract_note(qtype):
+    """The output-shape contract for ONE question type (text or image), ready to
+    append to a forced-single-type top-up directive so the returned items carry
+    the exact answer-key / image_specs shape that type's validator requires.
+    Falls back cleanly to '' for a type with no special contract."""
+    if qtype in _IMAGE_OR_VIDEO_TYPES:
+        return _image_contracts_note(_ab_fallback_dims(), types=(qtype,))
+    return _text_contracts_note((qtype,))
+
+
+def _missing_allowed_types(allowed, items, ab_dims=None):
+    """Selected types that NO SURVIVING item carries yet, in the admin's
+    allow-list order. This is the coverage invariant the type-coverage self-heal
+    stage closes: an allow-list is a REQUEST for each of those types, not merely
+    a filter against the others, so a type the batch skipped is a gap to fill.
+
+    Coverage is measured on items that would actually PERSIST - an item is
+    counted for its type only if it resolves in-list AND passes that type's
+    validator. A malformed image_ab (dropped later at create) therefore does NOT
+    mask the image_ab gap; without this the fill would never fire for it."""
+    if not allowed:
+        return []
+    present = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        qt = _resolve_item_type(it, allowed)
+        if qt is None or qt in present:
+            continue
+        if _validate_question_item(it, qt, ab_dims=ab_dims):
+            continue  # malformed for its type -> would be dropped at create
+        present.add(qt)
+    return [t for t in allowed if t not in present]
+
+
+def _trim_preserving_type_coverage(items, count, allowed, ab_dims=None):
+    """Trim ITEMS down to COUNT WITHOUT re-dropping a selected type that only has
+    one representative. A naive items[:count] slice can delete the sole msq/rubric
+    the type-coverage stage just fought to add (they arrive LAST), silently
+    re-introducing the very gap we closed. This keeps the FIRST surviving item of
+    each allowed type first (so every covered selected type keeps >=1 slot when
+    count allows), then fills the remaining slots with the rest in original order
+    for stability. With no allow-list it degrades to a stable head slice."""
+    if count <= 0 or len(items) <= count:
+        return items
+    protected = set()
+    if allowed:
+        seen = set()
+        for i, it in enumerate(items):
+            if not isinstance(it, dict):
+                continue
+            qt = _resolve_item_type(it, allowed)
+            if qt is None or qt in seen:
+                continue
+            if _validate_question_item(it, qt, ab_dims=ab_dims):
+                continue
+            seen.add(qt)
+            protected.add(i)
+    keep = [i for i in range(len(items)) if i in protected][:count]
+    if len(keep) < count:
+        chosen = set(keep)
+        for i in range(len(items)):
+            if i in chosen:
+                continue
+            keep.append(i)
+            if len(keep) >= count:
+                break
+    return [items[i] for i in sorted(keep[:count])]
 
 
 def _resolve_item_type(item, allowed):
@@ -2444,12 +2517,17 @@ def _uncovered_elements(prompt_record, items):
 
 
 def _topup_items(env, model, system_prompt, base_parts, existing, want,
-                 allowed, target_elements=None, usage_ctx=None):
+                 allowed, target_elements=None, usage_ctx=None, force_type=None):
     """Request WANT more items when the primary run came up short (early
     truncation) or to close a coverage gap. Passes the titles already authored so
     the model does not duplicate, and asks for exactly the shortfall. Returns raw
     item dicts (with any solutions attached); the caller's validate/create loop
-    is the single gate that shapes and persists them."""
+    is the single gate that shapes and persists them.
+
+    When ``force_type`` is set the request is HARD-pinned to that single type
+    (used by the type-coverage stage to fill a selected-but-missing type): the
+    allow-clause forces exactly that type and carries that type's output
+    contract, so the returned items validate as ``force_type``."""
     made = [{"name": _item_title(q), "question_type": q.get("question_type")}
             for q in existing]
     focus = ""
@@ -2459,7 +2537,12 @@ def _topup_items(env, model, system_prompt, base_parts, existing, want,
                  + "\n".join("- %s: %s" % (eid, desc)
                              for eid, desc in target_elements))
     allow_clause = ""
-    if allowed:
+    if force_type:
+        allow_clause = (
+            ' EVERY new item\'s question_type MUST be exactly "%s" - do NOT '
+            "produce any other type; an item of any other type is DISCARDED."
+            % force_type) + _single_type_contract_note(force_type)
+    elif allowed:
         allow_clause = (" Every item's question_type MUST be one of ["
                         + ", ".join(allowed) + "].")
     directive = (
@@ -2590,11 +2673,13 @@ def _critique_revise(env, model, base_parts, items, usage_ctx=None):
 def _selfheal_generation(env, prompt_record, items, base_parts, system_prompt,
                          model, count, allowed):
     """Harness-aligned robustness layer over a raw generation result: top up a
-    short/truncated batch (targeting uncovered SOP elements), backfill any missing
-    answer keys, then a critique pass to correct wrong/ambiguous keys. Each stage
-    is config-gated and best-effort - a failure here never sinks the base batch."""
+    short/truncated batch (targeting uncovered SOP elements), COVER every selected
+    question type the batch skipped, backfill any missing answer keys, then a
+    critique pass to correct wrong/ambiguous keys. Each stage is config-gated and
+    best-effort - a failure here never sinks the base batch."""
     prompt_id = prompt_record.id
     base = {"operation": "generate_questions", "prompt_id": prompt_id}
+    ab_dims = _ab_fallback_dims()
     if _selfheal_enabled(env) and count and len(items) < count:
         tries = 0
         while len(items) < count and tries < 3:
@@ -2613,12 +2698,42 @@ def _selfheal_generation(env, prompt_record, items, base_parts, system_prompt,
             if not new_items:
                 break
             items += new_items
-        # Never exceed the requested count: a top-up call can over-deliver past
-        # the shortfall, so trim back to what the admin asked for (matches the
-        # harness's questions[:n] cap). Solutions ride on each item dict, so the
-        # slice keeps every kept item's answer key intact.
-        if count and len(items) > count:
-            items = items[:count]
+    # TYPE-COVERAGE STAGE (the reported defect's fix): an allow-list is a REQUEST
+    # for EACH selected type, not merely a filter against the others. The count
+    # top-up above only closes a shortfall, so a batch that already met the count
+    # using a SUBSET of the selected types (screenshot: 7 items spanning 3 of 7
+    # selected types) still leaves types uncovered. Force one bounded, hard-typed
+    # top-up per missing type; the diversity-preserving trim below then keeps each
+    # newly-covered type when capping back to count.
+    if _selfheal_enabled(env) and allowed:
+        missing = _missing_allowed_types(allowed, items, ab_dims=ab_dims)
+        if missing:
+            _logger.info(
+                "etp_assessment type-coverage: %d selected type(s) missing from "
+                "the batch (%s); forcing one item each",
+                len(missing), ",".join(missing))
+        for qt in missing:
+            new_items = _topup_items(
+                env, model, system_prompt, base_parts, items, 1, allowed,
+                usage_ctx=dict(base, note="type-coverage"), force_type=qt)
+            kept = [it for it in new_items if isinstance(it, dict)
+                    and _resolve_item_type(it, allowed) == qt
+                    and not _validate_question_item(it, qt, ab_dims=ab_dims)]
+            if kept:
+                items += kept[:1]
+            else:
+                _logger.warning(
+                    "etp_assessment type-coverage: no usable %s item returned; "
+                    "selected type stays uncovered on prompt %s", qt, prompt_id)
+    # One final cap. Never exceed the requested count, but trim so a selected type
+    # with a SINGLE representative (the ones the coverage stage just added, which
+    # land LAST) is not re-dropped by a naive items[:count] slice - that would
+    # silently re-open the gap we just closed. count>=n_types is guaranteed by the
+    # form floor, so one-per-covered-type always fits. Solutions ride on each item
+    # dict, so the trim keeps every kept item's answer key intact.
+    if count and len(items) > count:
+        items = _trim_preserving_type_coverage(
+            items, count, allowed, ab_dims=ab_dims)
     if _selfheal_enabled(env):
         missing = [it for it in items
                    if not isinstance(it.get("_solution"), dict)]

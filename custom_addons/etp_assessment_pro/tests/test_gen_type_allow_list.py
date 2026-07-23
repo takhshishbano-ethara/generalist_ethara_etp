@@ -20,8 +20,8 @@ from odoo.addons.etp_assessment_pro.constants import QUESTION_TYPE_SELECTION
 _LOGGER = "odoo.addons.etp_assessment_pro.services.vertex"
 
 
-def _mcq_item():
-    return {"name": "MCQ", "prompt": "Under a threats-only policy, what applies?",
+def _mcq_item(name="MCQ"):
+    return {"name": name, "prompt": "Under a threats-only policy, what applies?",
             "question_type": "mcq", "difficulty": "easy",
             "options": ["Allow", "Remove", "Escalate"],
             "correct_answer": "Allow"}
@@ -318,3 +318,174 @@ class TestJsonSalvage(TransactionCase):
         out = vertex._extract_json_array(truncated)
         self.assertEqual(len(out), 2, "the two complete items survive")
         self.assertEqual(out[0]["name"], "Q1")
+
+
+def _msq_item(name="MSQ"):
+    return {"name": name, "prompt": "Which apply under the stated policy?",
+            "question_type": "msq", "difficulty": "medium",
+            "options": ["A", "B", "C"], "correct_answer": ["A", "B"]}
+
+
+def _subjective_item(name="Rubric"):
+    return {"name": name, "prompt": "Write a two-sentence apology.",
+            "question_type": "subjective_rubric", "difficulty": "hard",
+            "rubric": {"checklist": ["Acknowledges the delay"],
+                       "constraints": ["Under 60 words"],
+                       "pass_condition": "Warm and accountable"}}
+
+
+def _bad_msq_item(name="BadMSQ"):
+    # 1 option -> fails _validate_question_item for msq (needs >=2).
+    return {"name": name, "prompt": "p", "question_type": "msq",
+            "difficulty": "easy", "options": ["only"], "correct_answer": ["only"]}
+
+
+@tagged("-at_install", "post_install")
+class TestTypeCoverageHelpers(TransactionCase):
+    """The pure coverage/trim helpers behind the selected-type-not-honored fix.
+    These are DB-free logic units - no _call_vertex, no drafts."""
+
+    def test_base_directive_demands_one_item_per_selected_type(self):
+        d = vertex._allowed_types_directive(("mcq", "msq", "subjective_rubric"), 3)
+        self.assertIn("MANDATORY TYPE COVERAGE", d,
+                      "the multi-type directive must demand coverage of every type")
+        self.assertIn("AT LEAST ONE item for EVERY", d)
+
+    def test_missing_allowed_types_reports_uncovered_in_order(self):
+        items = [_mcq_item()]
+        self.assertEqual(
+            vertex._missing_allowed_types(
+                ("mcq", "msq", "subjective_rubric"), items),
+            ["msq", "subjective_rubric"],
+            "types with no surviving item are reported in allow-list order")
+
+    def test_missing_allowed_types_empty_when_all_covered(self):
+        items = [_mcq_item(), _msq_item(), _subjective_item()]
+        self.assertEqual(
+            vertex._missing_allowed_types(
+                ("mcq", "msq", "subjective_rubric"), items),
+            [], "a fully covered batch reports no missing types")
+
+    def test_missing_ignores_malformed_item_of_that_type(self):
+        # A malformed msq must NOT mask the msq gap: it would be dropped at
+        # create, so the type is still effectively uncovered.
+        items = [_mcq_item(), _bad_msq_item()]
+        self.assertEqual(
+            vertex._missing_allowed_types(("mcq", "msq"), items), ["msq"],
+            "a malformed msq does not count as covering msq")
+
+    def test_missing_ignores_out_of_list_item(self):
+        # An image_ab item when only text types are allowed resolves to None
+        # (dropped) and must not be miscounted as covering anything.
+        items = [_mcq_item(), _image_ab_item()]
+        self.assertEqual(
+            vertex._missing_allowed_types(("mcq", "msq"), items), ["msq"])
+
+    def test_trim_preserves_singleton_types(self):
+        # 4 mcq + 1 msq + 1 rubric, cap 3: a naive [:3] would keep 3 mcq and
+        # drop msq+rubric. The diversity trim must keep one of EACH instead.
+        items = ([_mcq_item("m%d" % i) for i in range(4)]
+                 + [_msq_item(), _subjective_item()])
+        allowed = ("mcq", "msq", "subjective_rubric")
+        kept = vertex._trim_preserving_type_coverage(items, 3, allowed)
+        self.assertEqual(len(kept), 3, "trim caps at the requested count")
+        self.assertEqual(
+            {it["question_type"] for it in kept}, set(allowed),
+            "each selected type keeps at least one representative after trim")
+
+    def test_trim_is_stable_head_slice_without_allow_list(self):
+        items = [_mcq_item("a"), _mcq_item("b"), _mcq_item("c")]
+        kept = vertex._trim_preserving_type_coverage(items, 2, ())
+        self.assertEqual([it["name"] for it in kept], ["a", "b"],
+                         "no allow-list -> stable head slice")
+
+    def test_trim_noop_when_within_count(self):
+        items = [_mcq_item(), _msq_item()]
+        self.assertEqual(
+            vertex._trim_preserving_type_coverage(items, 5, ("mcq", "msq")),
+            items, "nothing to trim when already within count")
+
+
+@tagged("-at_install", "post_install")
+class TestTypeCoverageEndToEnd(TransactionCase):
+    """The reported defect, end to end: an allow-list of N types whose base
+    generation only used a SUBSET must be back-filled so every selected type is
+    represented in the persisted drafts (the screenshot: 7 selected, 3 used)."""
+
+    def setUp(self):
+        super().setUp()
+        self.Prompt = self.env["etp.assessment.pro.prompt"]
+        self.Draft = self.env["etp.assessment.pro.prompt.question"]
+        self.ICP = self.env["ir.config_parameter"].sudo()
+        # Isolate the coverage stage from the critique pass.
+        self.ICP.set_param("etp_assessment_pro.gen_critique", "0")
+
+    def _sop(self):
+        return self.Prompt.create({
+            "name": "coverage SOP",
+            "source_text": "Author questions across every selected type."})
+
+    def test_selected_types_all_represented_after_backfill(self):
+        """count=3, allow-list of 3 types, but the base batch returns 3 MCQ only.
+        The forced type-coverage stage must add the missing msq + rubric, and the
+        diversity trim must keep one of each -> drafts span all 3 selected types."""
+        prompt = self._sop()
+
+        def brain(env, system_prompt, **kw):
+            parts = kw.get("user_parts") or []
+            text = " ".join(p.get("text", "") for p in parts
+                            if isinstance(p, dict))
+            if 'exactly "msq"' in text:
+                return json.dumps([_msq_item("Forced MSQ")])
+            if 'exactly "subjective_rubric"' in text:
+                return json.dumps([_subjective_item("Forced Rubric")])
+            if "FINALIZED questions" in text:          # backfill
+                return json.dumps({"solutions": []})
+            return json.dumps([_mcq_item("MCQ %d" % i) for i in range(3)])
+
+        with patch.object(vertex, "_call_vertex", side_effect=brain):
+            draft_ids = vertex.generate_questions_from_sop(
+                self.env, prompt, count=3,
+                allowed_types=("mcq", "msq", "subjective_rubric"))
+        types = set(self.Draft.browse(draft_ids).mapped("question_type"))
+        self.assertEqual(
+            types, {"mcq", "msq", "subjective_rubric"},
+            "every selected question type must appear in the persisted drafts")
+        self.assertLessEqual(len(draft_ids), 3,
+                             "the batch is still capped at the requested count")
+
+    def test_coverage_stage_logs_when_a_type_cannot_be_supplied(self):
+        """If the forced top-up cannot produce a usable item for a missing type,
+        the gap is logged (not silently swallowed) and the batch still persists."""
+        prompt = self._sop()
+
+        def brain(env, system_prompt, **kw):
+            parts = kw.get("user_parts") or []
+            text = " ".join(p.get("text", "") for p in parts
+                            if isinstance(p, dict))
+            if "FINALIZED questions" in text:
+                return json.dumps({"solutions": []})
+            # Always return mcq - even the forced msq call cannot satisfy msq.
+            return json.dumps([_mcq_item("MCQ %d" % i) for i in range(3)])
+
+        with patch.object(vertex, "_call_vertex", side_effect=brain):
+            with self.assertLogs(_LOGGER, level="WARNING") as cm:
+                draft_ids = vertex.generate_questions_from_sop(
+                    self.env, prompt, count=3, allowed_types=("mcq", "msq"))
+        self.assertTrue(
+            any("type-coverage" in m and "msq" in m for m in cm.output),
+            "an unsatisfiable selected type must be logged, not hidden")
+        self.assertTrue(draft_ids, "the base batch still persists")
+
+    def test_single_type_allow_list_unaffected(self):
+        """A 1-element allow-list has no 'other' type to cover, so the coverage
+        stage is a no-op and the legacy forced-type behaviour is preserved."""
+        prompt = self._sop()
+        with patch.object(vertex, "_call_vertex",
+                          return_value=json.dumps(
+                              [_mcq_item("A"), _mcq_item("B")])):
+            draft_ids = vertex.generate_questions_from_sop(
+                self.env, prompt, count=2, allowed_types=("mcq",))
+        types = set(self.Draft.browse(draft_ids).mapped("question_type"))
+        self.assertEqual(types, {"mcq"},
+                         "a single-type allow-list yields only that type")

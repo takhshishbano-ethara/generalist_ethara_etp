@@ -197,6 +197,7 @@
             <field name="has_stage_2" invisible="1"/>
             <field name="is_locked" invisible="1"/>
             <field name="is_doc_locked" invisible="1"/>
+            <field name="is_task_delivered" invisible="1"/>
             <field name="days_in_status" invisible="1"/>
             <field name="qc_candidate_ids" invisible="1"/>
             <field name="pl_candidate_ids" invisible="1"/>
@@ -716,10 +717,11 @@
               </page>
 
               <!-- ================= Feedback ================= -->
-              <!-- Lead feedback on the task. Only PL / QL / Admin see this tab
-                   (group-gated); a tasker never does. -->
+              <!-- Lead review of the finished task: appears only once the whole task
+                   is delivered (both stages complete). PL / QL / Admin edit it; a
+                   tasker sees it read-only (and the server guard blocks any write). -->
               <page string="Feedback" name="page_feedback"
-                    groups="project_tracker.group_project_tracker_ql,base.group_system">
+                    invisible="not is_task_delivered">
                 <group>
                   <group>
                     <field name="feedback_rating" widget="priority"
@@ -731,7 +733,7 @@
                 <separator string="Feedback"/>
                 <field name="feedback" nolabel="1" colspan="2"
                        readonly="not is_manager"
-                       placeholder="Feedback on this task — visible to PL / QL / Admin only…"/>
+                       placeholder="Feedback on this delivered task (leads only)…"/>
               </page>
 
             </notebook>

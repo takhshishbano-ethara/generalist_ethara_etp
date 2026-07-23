@@ -281,9 +281,9 @@
                         <div t-attf-class="etp-acard-ring is-#{evaluator.result or 'pending'}"
                              t-attf-style="--etp-ring-pct: #{int(round(evaluator.score_percent or 0))};"
                              role="img"
-                             t-attf-aria-label="Score #{int(round(evaluator.score_percent or 0))} percent">
-                            <span class="etp-acard-ring-val">
-                                <b t-out="int(round(evaluator.score_percent or 0))"/><small>%</small>
+                             t-attf-aria-label="Score #{evaluator.score_marks_display}">
+                            <span class="etp-acard-ring-val is-marks">
+                                <b t-out="evaluator.score_marks_display"/>
                             </span>
                         </div>
                         <span t-if="evaluator.result in ('pass', 'fail')"
@@ -296,7 +296,7 @@
                             Your assessment <strong t-out="assessment.name"/> has
                             been evaluated.
                         </p>
-                        <div class="etp-result-breakdown" t-out="evaluator.result_summary"/>
+                        <div class="etp-result-breakdown" t-out="evaluator.result_summary_public"/>
                         <a t-attf-href="/pro_assessment/#{evaluator.access_token}/answers" class="btn btn-outline-secondary etp-result-cta">
                             <i class="fa fa-list-ul"/> Review answers
                         </a>
@@ -343,7 +343,7 @@
                             <div class="border rounded-3 p-3 p-md-4 mb-3">
                                 <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
                                     <div class="fw-semibold lh-base"><t t-out="row['index']"/>. <t t-out="row['prompt'] or row['name']"/></div>
-                                    <span t-attf-class="badge rounded-pill #{row['badge']}" style="flex:0 0 auto"><t t-out="row['verdict']"/><t t-if="row['score_pct'] is not None"> · <t t-out="row['score_pct']"/>%</t></span>
+                                    <span t-attf-class="badge rounded-pill #{row['badge']}" style="flex:0 0 auto"><t t-out="row['verdict']"/><t t-if="row['score_raw'] is not None"> · <t t-out="'%.3f' % row['score_raw']"/></t></span>
                                 </div>
                                 <t t-if="row['chosen']">
                                     <p class="mb-1"><strong>Your answer: </strong><t t-out="', '.join(row['chosen'])"/></p>
@@ -436,7 +436,7 @@
                                     <li t-if="assessment.rule_block_right_click">Right-click is disabled.</li>
                                     <li t-if="assessment.rule_block_devtools">Developer tools are detected.</li>
                                     <li t-if="assessment.rule_fullscreen">The exam runs in fullscreen; leaving fullscreen is recorded.</li>
-                                    <li t-if="assessment.rule_webcam">Webcam access is required for proctoring.</li>
+                                    <li t-if="assessment.rule_webcam">Webcam access is requested for proctoring; you can continue if you decline.</li>
                                     <li t-if="assessment.rule_watermark">Your name and email are watermarked on each page.</li>
                                     <li>Answers are saved as you move between questions.</li>
                                 </ul>
@@ -1151,13 +1151,38 @@
                                 // not itself a violation (which would auto-submit
                                 // on load at cap 0).
                                 var everEntered = false;
+                                var lastFsWasMedia = false;
+                                // Exam fullscreen is the documentElement. When the
+                                // candidate fullscreens a question's video/image the
+                                // browser makes THAT inner element the fullscreen
+                                // element instead - benign media viewing, not leaving
+                                // the exam.
+                                function fsIsMedia() {
+                                    var el = document.fullscreenElement ||
+                                             document.webkitFullscreenElement;
+                                    return !!el &amp;&amp; el !== docEl;
+                                }
                                 function onFsChange() {
                                     if (isFs()) {
                                         everEntered = true;
+                                        lastFsWasMedia = fsIsMedia();
                                         hidePrompt();
                                     } else if (everEntered) {
-                                        reportViolation('Exited fullscreen');
-                                        showPrompt();
+                                        // Closing a video/image's OWN fullscreen drops
+                                        // the browser out of fullscreen entirely; that
+                                        // is the candidate dismissing media, not
+                                        // leaving the exam, so silently restore exam
+                                        // fullscreen instead of recording a violation.
+                                        if (lastFsWasMedia) {
+                                            lastFsWasMedia = false;
+                                            reqFs();
+                                            setTimeout(function () {
+                                                if (!isFs()) { showPrompt(); }
+                                            }, 300);
+                                        } else {
+                                            reportViolation('Exited fullscreen');
+                                            showPrompt();
+                                        }
                                     }
                                 }
                                 document.addEventListener('fullscreenchange', onFsChange);
@@ -1165,10 +1190,13 @@
                                 showPrompt();
                             })();
                         }
-                        // ---- Webcam: request camera access on load. A denial or a
-                        // later track-ended (camera unplugged / permission revoked)
-                        // is a proctoring violation. The stream is kept open only to
-                        // detect loss; no frames are captured or uploaded.
+                        // ---- Webcam: request camera access on load so candidates
+                        // who consent are proctored, but treat a denial / absent
+                        // camera / later disconnect as INFORMATIONAL only, never a
+                        // proctoring violation. The candidate can decline the camera
+                        // and still take the exam (the admin's Require Webcam toggle
+                        // only controls whether we ask). No frames are captured or
+                        // uploaded; a granted stream is held solely to show status.
                         if (RULES.webcam) {
                             (function () {
                                 var note = document.getElementById('etp-webcam-note');
@@ -1179,9 +1207,8 @@
                                 }
                                 if (!navigator.mediaDevices ||
                                     !navigator.mediaDevices.getUserMedia) {
-                                    reportViolation('Webcam unavailable in browser');
-                                    showNote('This exam requires a webcam and your ' +
-                                             'browser does not provide one.');
+                                    showNote('No webcam was detected. You can still ' +
+                                             'continue with the exam.');
                                     return;
                                 }
                                 navigator.mediaDevices.getUserMedia({ video: true })
@@ -1189,14 +1216,15 @@
                                         showNote('Webcam active for proctoring.');
                                         stream.getVideoTracks().forEach(function (tr) {
                                             tr.addEventListener('ended', function () {
-                                                reportViolation('Webcam disconnected');
+                                                showNote('Webcam was turned off. You ' +
+                                                         'can still continue with the ' +
+                                                         'exam.');
                                             });
                                         });
                                     })
                                     .catch(function () {
-                                        reportViolation('Webcam access denied');
-                                        showNote('Webcam access was denied. This has ' +
-                                                 'been recorded for proctoring.');
+                                        showNote('Webcam is off. You can still ' +
+                                                 'continue with the exam.');
                                     });
                             })();
                         }
@@ -1520,9 +1548,9 @@
                 <t t-if="bucket == 'completed' and item['results_released']">
                     <div t-attf-class="etp-acard-ring is-#{item['result'] or 'pending'}"
                          t-attf-style="--etp-ring-pct: #{item['score_pct']};"
-                         role="img" t-attf-aria-label="Score #{item['score_pct']} percent">
-                        <span class="etp-acard-ring-val">
-                            <b t-out="item['score_pct']"/><small>%</small>
+                         role="img" t-attf-aria-label="Score #{item['score_marks']}">
+                        <span class="etp-acard-ring-val is-marks">
+                            <b t-out="item['score_marks']"/>
                         </span>
                     </div>
                     <span t-if="item['result']"
@@ -1772,8 +1800,9 @@
                             <div class="etp-cand-ring-wrap">
                                 <div class="etp-acard-ring is-pass"
                                      t-attf-style="--etp-ring-pct: #{kpis['best_score']};"
-                                     role="img" t-attf-aria-label="Best score #{kpis['best_score']} percent">
-                                    <span class="etp-acard-ring-val"><b t-out="kpis['best_score']"/><small>%</small></span>
+                                     role="img" t-attf-aria-label="Best score #{kpis['best_score_marks'] or (str(kpis['best_score']) + ' percent')}">
+                                    <span t-if="kpis['best_score_marks']" class="etp-acard-ring-val is-marks"><b t-out="kpis['best_score_marks']"/></span>
+                                    <span t-else="" class="etp-acard-ring-val"><b t-out="kpis['best_score']"/><small>%</small></span>
                                 </div>
                                 <div class="etp-cand-ring-cap">BEST SCORE<small>your top result</small></div>
                             </div>
@@ -1823,7 +1852,7 @@
                                         <span class="etp-brk-bar-track">
                                             <span class="etp-brk-bar-fill" t-attf-style="width:#{row['score_pct']}%"/>
                                         </span>
-                                        <span class="etp-brk-bar-pct"><t t-out="row['score_pct']"/>%</span>
+                                        <span class="etp-brk-bar-pct"><t t-out="row['score_marks']"/></span>
                                     </span>
                                     <span t-attf-class="etp-my-verdict is-#{row['result']}"
                                           t-out="row['result'].capitalize()"/>

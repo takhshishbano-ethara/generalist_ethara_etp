@@ -22,8 +22,8 @@
 }
 
 .modal-dialog:has(.o_etp_evaluator_form) {
-    max-width: 1400px;
-    width: 92vw;
+    max-width: 1800px;
+    width: 96vw;
 }
 
 /* =======================================================================
@@ -441,6 +441,146 @@
     .o_chatter,
     .o-mail-Chatter {
         border-left: 1px solid var(--etp-border);
+    }
+}
+
+/* =======================================================================
+   ETP FORM CHATTER - pin the activity log to the RIGHT of the form, narrow
+   by default, and user-resizable by dragging its left edge.
+
+   Odoo only moves the <chatter/> to an aside (right) column at its XXL
+   breakpoint (>= 1400px); below that it stacks under the sheet. These forms
+   (Generators + Assessments) want the user-action log beside the form at
+   ordinary desktop widths too, so we force the renderer into a row and give
+   the chatter a fixed side column. Scoped hard to this module's form
+   (.o_etp_backend.o_form_view) so no other app's chatter is affected, and
+   gated at >= 992px so phones/tablets keep the native stacked layout.
+
+   Width is driven by the --etp-chatter-width CSS variable (default narrow),
+   clamped by min/max. static/src/chatter_resize/chatter_resize.js drags the
+   left edge to update that variable and persists it in localStorage.
+   ======================================================================= */
+@media (min-width: 992px) {
+    /* Force the row layout on BOTH Odoo renderer variants: .flex-column (below
+       Odoo's XXL breakpoint) AND .flex-nowrap (at/above it, on wide monitors).
+       Without matching .flex-nowrap, wide screens fall through to Odoo's native
+       aside and none of our width/handle rules apply. */
+    .o_etp_backend.o_form_view .o_form_renderer.flex-column,
+    .o_etp_backend.o_form_view .o_form_renderer.flex-nowrap {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        height: 100% !important;
+    }
+    .o_etp_backend.o_form_view .o_form_renderer > .o_form_sheet_bg {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        overflow: auto !important;
+        /* This makes sheet_bg the scroll container. The default 18px padding-top
+           (set above for non-scrolling forms) would sit ABOVE the sticky
+           statusbar's top:0 stick point, leaving an 18px band where scrolled
+           content bleeds over the ribbon. Zero it here and move the breathing
+           room onto the sheet card below, so the sticky header covers content
+           cleanly on scroll. */
+        padding-top: 0 !important;
+    }
+    /* keep the visual gap, now BELOW the flush-sticky statusbar */
+    .o_etp_backend.o_form_view .o_form_renderer > .o_form_sheet_bg
+    > .o_form_sheet {
+        margin-top: 18px;
+    }
+    /* the sticky action ribbon must fully cover scrolled content: opaque
+       background across its whole width and a stacking order above the sheet. */
+    .o_etp_backend.o_form_view .o_form_renderer > .o_form_sheet_bg
+    > .o_form_statusbar {
+        position: sticky;
+        top: 0;
+        z-index: 12;
+    }
+    .o_etp_backend.o_form_view .o_form_renderer > .o-mail-Form-chatter {
+        /* narrow default; overridable live via drag (sets --etp-chatter-width
+           on the renderer). Clamp keeps it usable at any drag distance. The
+           !important beats Odoo's native .o-aside sizing on wide screens.
+           overflow-x is visible so the left-edge resize grip is NOT clipped;
+           only vertical scroll is needed for the message list. */
+        flex: 0 0 var(--etp-chatter-width, 300px) !important;
+        width: var(--etp-chatter-width, 300px) !important;
+        max-width: 90vw !important;
+        min-width: 240px !important;
+        margin-top: 0 !important;
+        overflow-x: visible !important;
+        overflow-y: auto !important;
+        position: relative !important;
+    }
+
+    /* left-edge drag handle injected by chatter_resize.js: a full-height grab
+       strip sitting ON the chatter's inner left edge (not protruding, so an
+       overflow container never clips it), with an always-visible two-sided-
+       arrow grip centred vertically so the resize affordance is obvious. */
+    .o_etp_backend.o_form_view .o_form_renderer
+    > .o-mail-Form-chatter > .etp-chatter-resizer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 18px;
+        height: 100%;
+        z-index: 6;
+        cursor: col-resize;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        background: transparent;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+    }
+    /* thin persistent guide line on the actual border */
+    .o_etp_backend.o_form_view .o_form_renderer
+    > .o-mail-Form-chatter > .etp-chatter-resizer::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1px;
+        height: 100%;
+        background: var(--etp-border, #dee2e6);
+    }
+    /* the always-visible grip pill carrying the <-> icon: solid purple at rest
+       (the look the user preferred), deepening slightly on hover/drag. */
+    .o_etp_backend.o_form_view .o_form_renderer
+    > .o-mail-Form-chatter > .etp-chatter-resizer > .etp-chatter-grip {
+        position: relative;
+        z-index: 1;
+        display: inline-grid;
+        place-items: center;
+        width: 18px;
+        height: 46px;
+        border-radius: 9px;
+        background: #7c5cf6;
+        border: 1px solid #7c5cf6;
+        box-shadow: 0 2px 8px rgba(124, 92, 246, 0.45);
+        color: #ffffff;
+        font-size: 0.82rem;
+        transition: background 0.12s ease, color 0.12s ease,
+                    box-shadow 0.12s ease, transform 0.06s ease;
+    }
+    .o_etp_backend.o_form_view .o_form_renderer
+    > .o-mail-Form-chatter > .etp-chatter-resizer:hover > .etp-chatter-grip,
+    .o_etp_backend.o_form_view .o_form_renderer
+    > .o-mail-Form-chatter > .etp-chatter-resizer.is-dragging > .etp-chatter-grip {
+        background: #6b4de0;
+        border-color: #6b4de0;
+        color: #ffffff;
+        box-shadow: 0 3px 12px rgba(124, 92, 246, 0.6);
+    }
+    .o_etp_backend.o_form_view .o_form_renderer
+    > .o-mail-Form-chatter > .etp-chatter-resizer.is-dragging > .etp-chatter-grip {
+        transform: scale(0.94);
+    }
+    /* while dragging, kill the iframe/text selection + easing lag globally */
+    body.etp-chatter-resizing {
+        cursor: col-resize !important;
+        -webkit-user-select: none !important;
+        user-select: none !important;
     }
 }
 
@@ -2817,3 +2957,106 @@
 @media (max-width: 991px) {
     .o_etp_backend .etp-simrank-name { max-width: 100%; }
 }
+
+/* =======================================================================
+   BACKEND IMAGE-ZOOM LIGHTBOX
+   Mirrors the candidate portal image viewer (portal.scss .etp-zoom-overlay)
+   so an admin reviewing a Draft Question gets the same click-to-zoom preview
+   the candidate gets. Driven by static/src/image_zoom/image_zoom.js. The
+   overlay is appended to <body> (outside .o_etp_backend), so these selectors
+   are intentionally NOT scoped under .o_etp_backend. Values are self-contained
+   (no dependency on the portal --etp-* tokens, which are frontend-only).
+   ======================================================================= */
+
+/* clickable thumbnail affordance: the draft preview marks each figure/img
+   wrapper with .etp-image-zoomable. Keep the existing thumbnail intact, just
+   add a zoom-in cursor + hover lift. */
+.o_etp_backend .etp-image-zoomable {
+    cursor: zoom-in;
+    outline: none;
+    transition: filter 0.15s ease, transform 0.15s ease;
+
+    &:hover { filter: brightness(1.03); transform: translateY(-1px); }
+    &:focus-visible {
+        box-shadow: 0 0 0 3px rgba(124, 92, 246, 0.45);
+        border-radius: 4px;
+    }
+}
+
+.etp-zoom-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 11, 19, 0.92);
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: none;
+
+    &.is-open { display: flex; }
+
+    .etp-zoom-stage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        cursor: default;
+    }
+    &.is-zoomed .etp-zoom-stage { cursor: grab; }
+    .etp-zoom-stage.is-grabbing { cursor: grabbing; }
+
+    .etp-zoom-img {
+        max-width: 92vw;
+        max-height: 88vh;
+        transform-origin: center center;
+        transition: transform 0.08s ease-out;
+        will-change: transform;
+        -webkit-user-drag: none;
+        user-drag: none;
+        box-shadow: 0 18px 60px -12px rgba(0, 0, 0, 0.6);
+    }
+    .etp-zoom-stage.is-grabbing .etp-zoom-img { transition: none; }
+
+    .etp-zoom-toolbar {
+        position: absolute;
+        top: 18px;
+        right: 18px;
+        z-index: 2;
+        display: flex;
+        gap: 8px;
+    }
+
+    .etp-zoom-btn {
+        display: inline-grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 11px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.10);
+        color: #fff;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: background 0.15s ease, transform 0.06s ease;
+        backdrop-filter: blur(4px);
+
+        &:hover { background: rgba(255, 255, 255, 0.22); }
+        &:active { transform: translateY(1px); }
+        &:focus-visible {
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(124, 92, 246, 0.45);
+        }
+    }
+    .etp-zoom-close {
+        font-size: 1.5rem;
+        line-height: 1;
+    }
+}
+
+/* Lock background scroll while the lightbox is open (set on <body> by the JS
+   controller). */
+body.etp-zoom-lock { overflow: hidden; }

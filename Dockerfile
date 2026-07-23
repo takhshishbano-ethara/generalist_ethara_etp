@@ -95,8 +95,13 @@ RUN chmod +x odoo-bin
 
 EXPOSE 8071
 
-# Comma-separated custom modules to install/upgrade on deploy.
-# Read by the deployment initContainer (gitops) — edit this line when adding a module.
+# Custom modules the PreSync-hook Job installs/upgrades on deploy (comma-separated).
+# Edit this line when adding a module.
 ENV ODOO_MODULES="erza,erza_dashboard,aurora_dashboard,milobench_dashboard"
+
+# Gate: set to "true" ONLY for builds that need the module install/upgrade to run
+# on deploy (new module or version bump). Default "false" = the PreSync Job no-ops,
+# so normal deploys don't re-run the upgrade.
+ENV ODOO_RUN_UPGRADE="false"
 
 CMD ["./odoo-bin", "-c", "odoo.conf"]

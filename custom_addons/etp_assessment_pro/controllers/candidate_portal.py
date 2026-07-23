@@ -60,8 +60,8 @@ class EtpCandidatePortal(http.Controller):
                 score_pct = int(round(ev.score_percent or 0))
                 result_verdict = ev.result if ev.result in ("pass", "fail") else ""
                 verdict = result_verdict.upper()
-                score_display = "%s%%%s" % (
-                    score_pct,
+                score_display = "%s%s" % (
+                    ev.score_marks_display,
                     " · %s" % verdict if verdict else "")
 
         # Answered / total → progress-bar width (0 when nothing to answer yet).
@@ -87,6 +87,7 @@ class EtpCandidatePortal(http.Controller):
             "score_display": score_display,
             "results_released": results_released,
             "score_pct": score_pct,
+            "score_marks": ev.score_marks_display if results_released else "",
             "result": result_verdict,
             "progress_pct": progress_pct,
             "total_questions": ev.total_questions,
@@ -185,11 +186,20 @@ class EtpCandidatePortal(http.Controller):
         scored = len(graded)
         passed = sum(1 for c in graded if c.get("result") == "pass")
         avg = round(sum(c["score_pct"] for c in graded) / scored, 1) if scored else 0
-        best = max((c["score_pct"] for c in graded), default=0)
+        # Best = the single top attempt. Keep its numeric percent for the ring
+        # arc fill, and carry that same attempt's marks ("4 / 10") for the label
+        # -- "best" points at ONE attempt, so marks are meaningful (unlike avg /
+        # pass-rate, which aggregate across assessments and stay percentages).
+        best_row = max(graded, key=lambda c: c["score_pct"], default=None)
+        best = best_row["score_pct"] if best_row else 0
+        best_marks = (best_row.get("score_marks") or "") if best_row else ""
         pass_rate = round(passed / scored * 100.0, 0) if scored else 0
-        # Per-assessment breakdown rows (released only), best score first.
+        # Per-assessment breakdown rows (released only), best score first. The
+        # bar fill + sort stay on score_pct (proportional / cross-assessment
+        # comparable); score_marks is the marks label the row renders.
         breakdown = sorted(
             ({"name": c["name"], "score_pct": c["score_pct"],
+              "score_marks": c.get("score_marks") or "",
               "result": c.get("result") or "pending",
               "submitted_on": c.get("submitted_on", "")}
              for c in graded),
@@ -200,6 +210,7 @@ class EtpCandidatePortal(http.Controller):
             "passed": passed,
             "avg_score": avg,
             "best_score": best,
+            "best_score_marks": best_marks,
             "pass_rate": int(pass_rate),
             "awaiting": taken - scored,
             "has_any": taken > 0,

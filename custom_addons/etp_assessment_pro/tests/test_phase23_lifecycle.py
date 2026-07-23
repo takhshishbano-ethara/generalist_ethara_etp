@@ -654,13 +654,30 @@ class TestResultSummary(_Base):
 
     def test_summary_totals_match_evaluator_fields(self):
         ev = self._submitted_mixed(mcq_correct=True, subj_score=0.9)
-        # The card's totals must equal the stored scoring fields exactly.
+        html = ev.result_summary or ""
+        pub = ev.result_summary_public or ""
         # EQUAL MARKS: a passed subjective answer is worth 1, not `points`.
         total = (ev.total_score or 0) + (ev.llm_total_score or 0)
         self.assertEqual(ev.llm_total_score, 1)
-        self.assertIn("%s / %s pts" % (total, ev.max_possible_score
-                                       + ev.llm_max_score),
-                      ev.result_summary or "")
+        # Score reads as whole marks (earned / total_questions), the same figure
+        # score_marks_display carries, so card and sortable column agree.
+        denom = ev.total_questions or (ev.max_possible_score + ev.llm_max_score)
+        self.assertEqual(ev.score_marks_display, "%d / %d" % (total, denom))
+        # The card carries all three score rows, consistently, on both variants.
+        for doc in (html, pub):
+            self.assertIn("Total Marks", doc)
+            self.assertIn("%s / %s" % (total, denom), doc)
+            self.assertIn("Raw Score", doc)
+            self.assertIn("Score (%)", doc)
+            self.assertNotIn("pts", doc)
+        # Admin card keeps the internal descriptor sub-labels; the candidate
+        # variant strips them (no "over all questions" / "threshold" / raw hint).
+        self.assertIn("pass/fail marks over all questions", html)
+        self.assertIn("objective 0/1 + subjective raw", html)
+        self.assertIn("threshold", html)
+        self.assertNotIn("pass/fail marks over all questions", pub)
+        self.assertNotIn("objective 0/1 + subjective raw", pub)
+        self.assertNotIn("threshold", pub)
 
     def test_export_responses_has_summary_row(self):
         import base64

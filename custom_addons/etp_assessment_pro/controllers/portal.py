@@ -280,7 +280,7 @@ class EtpAssessmentPortal(http.Controller):
             chosen = r.line_ids.mapped("selected_option_id").mapped("name") \
                 if r else []
             justification = (r.justification or "") if r else ""
-            correct, score_pct = [], None
+            correct, score_raw = [], None
             if qtype in ("mcq", "msq"):
                 correct = q.question_dimension_ids.mapped("option_line_ids") \
                     .filtered("is_correct").mapped("name")
@@ -296,7 +296,13 @@ class EtpAssessmentPortal(http.Controller):
                 elif r.llm_state == "scored":
                     verdict = "Passed" if r.llm_passed else "Failed"
                     kind = "pass" if r.llm_passed else "fail"
-                    score_pct = int(round(r.llm_raw_100 or 0))
+                    # Raw grader score as a 0-1 decimal (e.g. 0.667), matching the
+                    # admin 'Raw Score' convention - NOT a 0-100 percentage.
+                    score_raw = round(r.llm_raw_score or 0.0, 3)
+                elif r.auto_submitted:
+                    # Auto-submitted placeholder from a time-expired sitting: it is
+                    # never sent to the grader, so it has no grade (not 'awaiting').
+                    verdict, kind = "No Grade", "info"
                 else:
                     verdict, kind = "Awaiting grading", "info"
             rows.append({
@@ -309,7 +315,7 @@ class EtpAssessmentPortal(http.Controller):
                 "justification": justification,
                 "verdict": verdict,
                 "badge": badge_map.get(kind, "text-bg-secondary"),
-                "score_pct": score_pct,
+                "score_raw": score_raw,
                 # Candidate-facing grader feedback for subjective/graded answers.
                 # Only surfaced once results are released (the /answers route already
                 # gates on results_released) and only for a genuinely scored answer,
