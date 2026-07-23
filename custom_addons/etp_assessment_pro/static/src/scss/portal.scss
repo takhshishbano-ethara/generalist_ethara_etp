@@ -1734,6 +1734,8 @@
         font-variant-numeric: tabular-nums;
 
         small { font-size: 0.62rem; font-weight: 700; color: var(--etp-muted); }
+        // Marks form ("4 / 10") is wider than "40%"; shrink to fit the ring.
+        &.is-marks { font-size: 0.92rem; letter-spacing: -0.01em; }
     }
 
     /* ---- pass/fail verdict pill -------------------------------------- */
@@ -2304,8 +2306,8 @@ body.etp-zoom-lock { overflow: hidden; }
     text-transform: uppercase;
     margin-bottom: .75rem;
 }
-.etp-cand-hero-title { font-size: 2.1rem; font-weight: 800; margin: 0 0 .35rem; }
-.etp-cand-hero-sub { opacity: .9; margin: 0 0 .6rem; }
+.etp-cand-hero-title { font-size: 2.1rem; font-weight: 800; margin: 0 0 .35rem; color: #fff; }
+.etp-cand-hero-sub { opacity: .9; margin: 0 0 .6rem; color: #fff; }
 .etp-cand-hero-live { font-size: .82rem; opacity: .85; display: inline-flex; align-items: center; gap: .4rem; }
 .etp-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; display: inline-block; box-shadow: 0 0 0 3px rgba(74, 222, 128, .3); }
 

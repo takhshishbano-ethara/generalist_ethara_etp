@@ -11,6 +11,7 @@ import uuid
 
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError, UserError
+from markupsafe import Markup, escape
 
 from ..constants import (
     DEFAULT_SUBJECTIVE_THRESHOLD,
@@ -36,7 +37,25 @@ _MAX_CANDIDATE_CSV_ROWS = 5000
 class EtpAssessment(models.Model):
     _name = "etp.assessment.pro"
     _description = "Assessment"
+    _inherit = ["mail.thread"]
     _order = "create_date desc"
+
+    def _log_activity(self, body):
+        """Post a timestamped audit line to each assessment's chatter.
+
+        message_post stamps author + date, so this is the single choke-point
+        every user action routes through. Best-effort: an audit note must never
+        sink the action that triggered it.
+        """
+        for rec in self:
+            if not rec.id:
+                continue
+            try:
+                rec.message_post(body=body, message_type="comment",
+                                 subtype_xmlid="mail.mt_note")
+            except Exception:  # noqa: BLE001 - logging is never load-bearing
+                _logger.exception(
+                    "Chatter audit post failed for assessment %s", rec.id)
 
     name = fields.Char(required=True)
     state = fields.Selection(
@@ -387,12 +406,18 @@ class EtpAssessment(models.Model):
                     "access_token": str(uuid.uuid4()),
                     "invite_state": "queued",
                 })
+            rec._log_activity(Markup(
+                "<b>Launched &amp; Invited</b> - assessment started with %d "
+                "candidate(s), %d question(s) each from generator '%s'.")
+                % (len(rec.evaluator_ids), limit,
+                   escape(rec.generator_id.name or "")))
 
     def action_done(self):
         for rec in self:
             if rec.state != "in_progress":
                 raise UserError("Only in-progress assessments can be marked done.")
         self.write({"state": "done"})
+        self._log_activity(Markup("<b>Marked Done</b> - assessment closed."))
 
     def action_cancel(self):
         for rec in self:
@@ -400,6 +425,8 @@ class EtpAssessment(models.Model):
                 raise UserError(
                     "Cannot cancel a completed or already cancelled assessment.")
         self.write({"state": "cancelled"})
+        self._log_activity(Markup(
+            "<b>Cancelled</b> - candidates can no longer take this assessment."))
 
     def action_reset_draft(self):
         for rec in self:
@@ -410,6 +437,9 @@ class EtpAssessment(models.Model):
             rec.write({"question_ids": [(5, 0, 0)],
                        "start_date": False, "end_date": False})
         self.write({"state": "draft"})
+        self._log_activity(Markup(
+            "<b>Reset to Draft</b> - all candidates and their responses were "
+            "deleted."))
 
     @api.constrains("start_date", "end_date")
     def _check_schedule_dates(self):
@@ -611,6 +641,9 @@ class EtpAssessment(models.Model):
         if not todo:
             raise UserError("No submitted candidates awaiting subjective scoring.")
         todo.write({"scoring_requested": True, "llm_state": "pending"})
+        self._log_activity(Markup(
+            "<b>Run Subjective Evaluation</b> - queued %d candidate(s) for "
+            "background subjective grading.") % len(todo))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -635,6 +668,9 @@ class EtpAssessment(models.Model):
         unscored = to_release.filtered(lambda e: any(
             r.needs_llm and r.llm_state != "scored" for r in e.response_ids))
         to_release.write({"results_released": True})
+        self._log_activity(Markup(
+            "<b>Release Results</b> - released results for %d candidate(s).")
+            % len(to_release))
         msg = "Released results for %s candidate(s)." % len(to_release)
         warn = bool(unscored)
         if unscored:
@@ -786,6 +822,21 @@ class EtpAssessmentEvaluator(models.Model):
     access_token = fields.Char(
         string="Access Token", index=True, copy=False,
         default=lambda self: str(uuid.uuid4()))
+    candidate_link = fields.Char(
+        string="Candidate's Assessment Link", compute="_compute_candidate_link",
+        help="The candidate-facing portal URL for this assignment. Share this "
+             "with the candidate if the invitation email did not reach them; "
+             "it opens the timed, proctored exam runner gated by the access "
+             "token.")
+
+    @api.depends("access_token")
+    def _compute_candidate_link(self):
+        base = self.env["ir.config_parameter"].sudo().get_param(
+            "web.base.url", "")
+        for rec in self:
+            rec.candidate_link = (
+                "%s/pro_assessment/%s" % (base, rec.access_token)
+                if rec.access_token else False)
     question_order = fields.Text(string="Shuffled Question Order (JSON)")
     started_at = fields.Datetime(string="Started At")
     submitted_at = fields.Datetime(
@@ -909,6 +960,18 @@ class EtpAssessmentEvaluator(models.Model):
     score_percent = fields.Float(
         string="Score %", compute="_compute_result", store=True,
         aggregator="avg")
+    score_marks_display = fields.Char(
+        string="Score", compute="_compute_score_marks_display", store=True,
+        help="Result expressed as whole marks (earned / total questions), the "
+             "pass/fail view of the score: each question is worth 1, so this is "
+             "the same figure as Score % rescaled out of the question count.")
+    raw_result = fields.Float(
+        string="Raw Score", compute="_compute_raw_result", store=True,
+        digits=(16, 3),
+        help="Secondary score: objective questions contribute their 0/1 mark "
+             "(pass/fail), subjective questions contribute their raw grader "
+             "score as a 0-1 fraction (e.g. 73/100 -> 0.730) INSTEAD of the "
+             "thresholded 0/1. The sum is the candidate's total raw score.")
     pass_threshold = fields.Float(
         string="Pass Threshold %", compute="_compute_result", store=True)
     result = fields.Selection(
@@ -931,10 +994,16 @@ class EtpAssessmentEvaluator(models.Model):
         sanitize=False,
         help="Post-scoring overview for this candidate: objective and "
              "subjective tallies, total, percentage, and pass/fail.")
+    result_summary_public = fields.Html(
+        string="Result Summary (Candidate)", compute="_compute_result_summary",
+        sanitize=False,
+        help="Candidate-facing variant of result_summary: the same cells "
+             "without the internal descriptor sub-labels (pass/fail marks over "
+             "all questions, objective 0/1 + subjective raw, threshold).")
 
     @api.depends(
         "state", "result", "score_percent", "pass_threshold",
-        "total_score", "max_possible_score",
+        "total_score", "max_possible_score", "raw_result",
         "llm_total_score", "llm_max_score", "subjective_pending",
         "answered_count", "total_questions", "violation_count",
         "response_ids.state", "response_ids.has_objective",
@@ -965,7 +1034,6 @@ class EtpAssessmentEvaluator(models.Model):
             sub_max = rec.llm_max_score or 0
             total_pts = obj_pts + sub_pts
             total_max = obj_max + sub_max
-            pct = rec.score_percent or 0.0
             thr = rec.pass_threshold or 0.0
 
             if rec.state != "submitted":
@@ -976,6 +1044,7 @@ class EtpAssessmentEvaluator(models.Model):
                     f'{esc(rec.total_questions or 0)} answered. '
                     'Summary appears once the assessment is submitted and '
                     'scored.</div>')
+                rec.result_summary_public = rec.result_summary
                 continue
 
             if rec.result == "pass":
@@ -998,47 +1067,61 @@ class EtpAssessmentEvaluator(models.Model):
                     'response(s) still awaiting scoring - totals below are '
                     'not final.</div>')
 
-            def cell(label, value, sub=""):
+            def cell(label, value, sub="", show_hints=True):
                 sub_html = (f'<div class="text-muted small">{sub}</div>'
-                            if sub else "")
+                            if (sub and show_hints) else "")
                 return (
                     '<div style="flex:1;min-width:120px;padding:0.4em 0.6em">'
                     f'<div class="text-muted small text-uppercase">{label}</div>'
                     f'<div style="font-size:1.15rem;font-weight:600">{value}</div>'
                     f'{sub_html}</div>')
 
-            cells = []
-            cells.append(cell(
-                "Objective",
-                f"{esc(obj_correct)} / {esc(obj_total)} correct",
-                f"{esc(obj_pts)} / {esc(obj_max)} pts")
-                if obj_total else "")
-            if subj_total:
-                cells.append(cell(
-                    "Subjective",
-                    f"{esc(subj_pass)} / {esc(subj_total)} passed",
-                    f"{esc(sub_pts)} / {esc(sub_max)} pts"))
-            cells.append(cell(
-                "Total",
-                f"{esc(total_pts)} / {esc(total_max)} pts"))
-            cells.append(cell(
-                "Score",
-                f"{esc(round(pct, 2))}%",
-                f"threshold {esc(round(thr, 2))}%"))
-            if rec.violation_count:
-                cells.append(cell(
-                    "Violations", esc(rec.violation_count)))
+            # Score = pass/fail marks earned over ALL assigned questions (each
+            # question worth 1); denominator mirrors _compute_result so the marks
+            # and the percentage never disagree.
+            total_denom = rec.total_questions or total_max
 
-            row = "".join(c for c in cells if c)
-            rec.result_summary = (
-                '<div class="border rounded p-2" '
-                'style="background:#f8f9fa">'
-                '<div style="display:flex;align-items:center;gap:0.75em;'
-                'flex-wrap:wrap">'
-                f'<div>{badge}</div>'
-                '<div style="display:flex;flex-wrap:wrap;flex:1">'
-                f'{row}</div></div>'
-                f'{pending_note}</div>')
+            def build_card(show_hints):
+                cells = []
+                cells.append(cell(
+                    "Objective",
+                    f"{esc(obj_correct)} / {esc(obj_total)} correct")
+                    if obj_total else "")
+                if subj_total:
+                    cells.append(cell(
+                        "Subjective",
+                        f"{esc(subj_pass)} / {esc(subj_total)} passed"))
+                cells.append(cell(
+                    "Total Marks",
+                    f"{esc(total_pts)} / {esc(total_denom)}",
+                    "pass/fail marks over all questions",
+                    show_hints=show_hints))
+                cells.append(cell(
+                    "Raw Score",
+                    f"{esc('%.3f' % (rec.raw_result or 0.0))}",
+                    "objective 0/1 + subjective raw (0-1)",
+                    show_hints=show_hints))
+                cells.append(cell(
+                    "Score (%)",
+                    f"{esc(round(rec.score_percent or 0.0, 2))}%",
+                    f"threshold {esc(round(thr, 2))}%",
+                    show_hints=show_hints))
+                if rec.violation_count:
+                    cells.append(cell(
+                        "Violations", esc(rec.violation_count)))
+                row = "".join(c for c in cells if c)
+                return (
+                    '<div class="border rounded p-2" '
+                    'style="background:#f8f9fa">'
+                    '<div style="display:flex;align-items:center;gap:0.75em;'
+                    'flex-wrap:wrap">'
+                    f'<div>{badge}</div>'
+                    '<div style="display:flex;flex-wrap:wrap;flex:1">'
+                    f'{row}</div></div>'
+                    f'{pending_note}</div>')
+
+            rec.result_summary = build_card(show_hints=True)
+            rec.result_summary_public = build_card(show_hints=False)
 
     @api.depends("response_ids.needs_llm", "response_ids.llm_score",
                  "response_ids.llm_max_score", "response_ids.llm_state",
@@ -1079,6 +1162,38 @@ class EtpAssessmentEvaluator(models.Model):
                 rec.result = "pending"
             else:
                 rec.result = "pass" if rec.score_percent >= threshold else "fail"
+
+    @api.depends("total_score", "llm_total_score", "max_possible_score",
+                 "llm_max_score", "total_questions")
+    def _compute_score_marks_display(self):
+        """Whole-marks view of the score ('4 / 10'): earned pass/fail marks over
+        the same denominator _compute_result uses for the percentage, so the two
+        never disagree. Each question is worth exactly 1 mark."""
+        for rec in self:
+            earned = (rec.total_score or 0) + (rec.llm_total_score or 0)
+            possible = rec.total_questions or (
+                (rec.max_possible_score or 0) + (rec.llm_max_score or 0))
+            rec.score_marks_display = "%d / %d" % (earned, possible)
+
+    @api.depends("response_ids.state", "response_ids.has_objective",
+                 "response_ids.score", "response_ids.needs_llm",
+                 "response_ids.llm_raw_score", "response_ids.llm_state")
+    def _compute_raw_result(self):
+        """Secondary 'raw' total: objective answers keep their 0/1 mark;
+        subjective answers contribute their raw grader score as a 0-1 fraction
+        (llm_raw_score) instead of the thresholded 0/1. Only SUBMITTED answers
+        count; an unscored subjective answer contributes 0 until it is scored.
+        """
+        for rec in self:
+            submitted = rec.response_ids.filtered(
+                lambda r: r.state == "submitted")
+            obj_pts = sum(
+                r.score for r in submitted.filtered(lambda r: r.has_objective))
+            subj_pts = sum(
+                r.llm_raw_score
+                for r in submitted.filtered(
+                    lambda r: r.needs_llm and r.llm_state == "scored"))
+            rec.raw_result = round(obj_pts + subj_pts, 3)
 
     def _compute_subjective_rollup(self):
         for rec in self:

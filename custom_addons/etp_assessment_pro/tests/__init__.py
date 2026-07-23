@@ -32,3 +32,5 @@ from . import test_security_audit_fixes
 from . import test_settings_upload_persistence
 from . import test_research_replication
 from . import test_week_ui_fixes
+from . import test_generator_chatter_log
+from . import test_assessment_feature_batch

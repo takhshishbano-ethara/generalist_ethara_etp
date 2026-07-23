@@ -86,6 +86,14 @@ class TestLlmDashboardProjects(TransactionCase):
         self.Applicant = self.env["hr.applicant"]
         self.Usage = self.env["etp.assessment.pro.llm.usage"]
         self.Dashboard = self.env["etp.assessment.pro.llm.dashboard"]
+        # These tests assert on the WHOLE ledger (empty-placeholder,
+        # per-project reconciliation to grand totals), so they must own the
+        # ledger they read. A dev DB that has had real generation run against
+        # it carries committed usage rows (e.g. a "Test local" generator) that
+        # would leak into the aggregation and break the fixed expectations.
+        # Clearing here gives each test a deterministic clean slate; the
+        # TransactionCase rolls it back, so committed dev-DB rows are untouched.
+        self.Usage.search([]).unlink()
 
     def _usage(self, operation, cost, tokens_in=0, prompt=None, evaluator=None):
         return self.Usage.create({

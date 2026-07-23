@@ -48,7 +48,25 @@ _VIDEO_OP_MAX_ATTEMPTS = 3
 class EtpAssessmentPrompt(models.Model):
     _name = "etp.assessment.pro.prompt"
     _description = "Assessment Prompt (LLM Skill/Question Generator)"
+    _inherit = ["mail.thread"]
     _order = "create_date desc"
+
+    def _log_activity(self, body):
+        """Post a timestamped audit line to each generator's chatter.
+
+        message_post already stamps the author + date, so this is the single
+        choke-point every user action routes through to keep the log uniform.
+        Best-effort: an audit note must never sink the action that triggered it.
+        """
+        for rec in self:
+            if not rec.id:
+                continue
+            try:
+                rec.message_post(body=body, message_type="comment",
+                                 subtype_xmlid="mail.mt_note")
+            except Exception:  # noqa: BLE001 - logging is never load-bearing
+                _logger.exception(
+                    "Chatter audit post failed for generator %s", rec.id)
 
     name = fields.Char(string="Title", default="New Prompt", required=True)
     source_text = fields.Text(string="Additional Notes (optional)")
@@ -420,6 +438,15 @@ class EtpAssessmentPrompt(models.Model):
                 "Upload a SOP document (or add notes) before generating.")
         self.write({"sop_gen_state": "queued", "sop_gen_error": False,
                     "state": "generating"})
+        if self.question_count_mode == "fixed" and self.sop_question_count:
+            count_txt = "%d question(s)" % self.sop_question_count
+        else:
+            count_txt = "auto (model decides)"
+        types_txt = ", ".join(
+            self.allowed_question_type_ids.mapped("name")) or "any (model picks)"
+        self._log_activity(Markup(
+            "<b>Generate Questions</b> requested.<br/>"
+            "Count: %s<br/>Allowed types: %s") % (count_txt, types_txt))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -470,6 +497,11 @@ class EtpAssessmentPrompt(models.Model):
                     prompt.write({"sop_gen_state": "finalizing"})
                     self.env.cr.commit()
                     self._finalize_sop_gen_state(prompt, len(draft_ids))
+                    prompt._log_activity(Markup(
+                        "<b>Generation complete</b> - %d draft question(s) "
+                        "authored from the SOP and ready for review.")
+                        % len(draft_ids))
+                    self.env.cr.commit()
                     _logger.info(
                         "etp_assessment SOP gen cron: prompt %s -> %d draft(s)",
                         prompt.id, len(draft_ids))
@@ -589,6 +621,8 @@ class EtpAssessmentPrompt(models.Model):
         drafts = self.question_ids.filtered(lambda r: r.state == "draft")
         if not drafts:
             raise UserError("There are no pending drafts to approve.")
+        # action_approve logs the approval rollup to this generator's chatter,
+        # so no separate note here (that would double-log the same event).
         drafts.action_approve()
         return True
 
@@ -598,6 +632,9 @@ class EtpAssessmentPrompt(models.Model):
             raise UserError(
                 "Upload a SOP document (or add notes) before extracting tags.")
         tags = self._run_tag_extract_inline()
+        self._log_activity(Markup(
+            "<b>Extract Tags</b> run - %d semantic tag(s) extracted from the "
+            "SOP.") % len(tags))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -877,6 +914,9 @@ class EtpAssessmentPrompt(models.Model):
         for prompt in targets:
             try:
                 prompt._run_tag_extract_inline()
+                prompt._log_activity(Markup(
+                    "<b>Normalize Tags</b> - tags re-extracted onto the cleaned "
+                    "shared vocabulary."))
                 done += 1
             except UserError:
                 failed += 1
@@ -1365,9 +1405,13 @@ class EtpAssessmentPromptQuestion(models.Model):
                     imgs.append(
                         '<figure style="display:inline-block;margin:6px;'
                         'text-align:center">'
+                        '<span class="etp-image-zoomable" tabindex="0" '
+                        'role="button" aria-label="Zoom image" '
+                        'title="Click to zoom">'
                         f'<img src="{_html.escape(src)}" '
                         'style="max-height:160px;max-width:220px;'
                         'border:1px solid #dee2e6;border-radius:4px"/>'
+                        '</span>'
                         f'<figcaption class="text-muted small">{label}'
                         '</figcaption></figure>')
             rec.image_preview = "".join(imgs) if imgs else False
@@ -1512,7 +1556,26 @@ class EtpAssessmentPromptQuestion(models.Model):
             if rec.question_type == "image_label":
                 rec._apply_authored_label_key(q)
             rec.write({"state": "approved", "approved_question_id": q.id})
+        self._log_drafts_to_generators(drafts, "approved")
         return True
+
+    def _log_drafts_to_generators(self, drafts, verb):
+        """Roll a per-draft approve/deny up to each parent generator's chatter.
+
+        Drafts approved/denied from the bank list can span several generators,
+        so group by prompt_id and post one summary line per generator.
+        """
+        by_gen = {}
+        for rec in drafts:
+            if rec.prompt_id:
+                by_gen.setdefault(rec.prompt_id, self.browse())
+                by_gen[rec.prompt_id] |= rec
+        for generator, recs in by_gen.items():
+            titles = ", ".join(
+                (r.name or r.question_prompt or "draft")[:60] for r in recs)
+            generator._log_activity(Markup(
+                "<b>%d draft(s) %s</b>: %s")
+                % (len(recs), escape(verb), escape(titles)))
 
     def _assert_no_key_drift(self, bank_question):
         self.ensure_one()
@@ -1901,7 +1964,9 @@ class EtpAssessmentPromptQuestion(models.Model):
         img.write(vals)
 
     def action_deny(self):
-        self.filtered(lambda r: r.state == "draft").write({"state": "denied"})
+        drafts = self.filtered(lambda r: r.state == "draft")
+        drafts.write({"state": "denied"})
+        self._log_drafts_to_generators(drafts, "denied")
         return True
 
     def _briefs(self):
