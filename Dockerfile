@@ -94,8 +94,6 @@ COPY . .
 RUN chmod +x odoo-bin
 
 EXPOSE 8071
-
-# Custom modules the PreSync-hook Job installs/upgrades on deploy (comma-separated).
 # Edit this line when adding a module.
 ENV ODOO_MODULES="erza,erza_dashboard,aurora_dashboard,milobench_dashboard"
 
