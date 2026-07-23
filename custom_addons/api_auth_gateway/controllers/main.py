@@ -766,7 +766,19 @@ class ApiAuthController(http.Controller):
                 'in_app_notification': safe_get_value(user_id, 'employee_id.in_app_notification', 'bool'),
                 'email_notification': safe_get_value(user_id, 'employee_id.email_notification', 'bool'),
                 'push_notification': safe_get_value(user_id, 'employee_id.push_notification', 'bool'),
-                'join_date': _resolve_join_date(user_id),
+                'join_date': (
+                    safe_get_value(user_id, 'employee_id.joining_date', 'str')
+                    or (
+                        request.env['hr.applicant'].sudo().search(
+                            [('candidate_user_id', '=', user_id.id)],
+                            order='create_date asc', limit=1,
+                        ).create_date.strftime('%Y-%m-%d')
+                        if request.env['hr.applicant'].sudo().search_count(
+                            [('candidate_user_id', '=', user_id.id)]
+                        ) else ''
+                    )
+                    or (user_id.create_date.strftime('%Y-%m-%d') if user_id.create_date else '')
+                ),
                 'project_count': len(projects),
                 'team_size': 0,
                 'blocked_resolved': 0,

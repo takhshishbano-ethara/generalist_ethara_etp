@@ -34,10 +34,10 @@ _PROFILE_WRITABLE = {
     "maritalStatus":   ("marital",            "str"),
     "experienceType":  ("experience",         "experience_type"),
     "experienceYears": ("experience_years",   "float_nonneg"),
-    "currentCompany":  ("current_company",    "str"),
+    "currentCompany":  ("current_company",    "company"),
     "currentRole":     ("current_role",       "str"),
-    "currentCTC":      ("current_ctc",        "float_nonneg"),
-    "expectedCTC":     ("expected_ctc",       "float_nonneg"),
+    "currentCTC":      ("current_ctc",        "ctc_lpa"),
+    "expectedCTC":     ("expected_ctc",       "ctc_lpa"),
     "noticePeriod":    ("notice_period_days", "int_nonneg"),
     "collegeId":       ("college_id",         "many2one"),
 }
@@ -77,6 +77,7 @@ def _slim_for_portal(payload):
 
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _NON_DIGIT_RE = re.compile(r"\D")
+_COMPANY_ALLOWED_RE = re.compile(r"^[\w\s.,&'\-()]+$", re.UNICODE)
 _GENDER_ALLOWED = frozenset({"male", "female", "other"})
 _EXPERIENCE_ALLOWED = frozenset({"fresher", "experienced"})
 
@@ -207,6 +208,23 @@ def _validate_and_coerce(raw, kind):
         if val < 0:
             return None, "Cannot be negative."
         return val, None
+    if kind == "ctc_lpa":
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return None, "Must be a number."
+        if val < 0:
+            return None, "Cannot be negative."
+        if val > 100:
+            return None, "Cannot exceed 100 LPA."
+        return val, None
+    if kind == "company":
+        text = str(raw).strip()
+        if len(text) > 100:
+            return None, "Cannot exceed 100 characters."
+        if not _COMPANY_ALLOWED_RE.match(text):
+            return None, "Only letters, numbers, spaces, and . , & - ' ( ) are allowed."
+        return text, None
     if kind == "int_nonneg":
         try:
             val = int(raw)
@@ -214,6 +232,8 @@ def _validate_and_coerce(raw, kind):
             return None, "Must be a whole number."
         if val < 0:
             return None, "Cannot be negative."
+        if val > 365:
+            return None, "Cannot exceed 365 days."
         return val, None
     if kind == "many2one":
         try:
@@ -374,9 +394,10 @@ class EtharaCandidateMeApi(http.Controller):
                 vals[odoo_field] = coerced
 
         if body.get("experienceType") == "experienced":
-            raw_years = body.get("experienceYears")
-            if raw_years is None or raw_years == "":
-                errors.append("experienceYears: required for experienced candidates.")
+            for req_when_exp in ("experienceYears", "currentCompany", "currentCTC", "expectedCTC", "noticePeriod"):
+                val = body.get(req_when_exp)
+                if val is None or (isinstance(val, str) and not val.strip()):
+                    errors.append(f"{req_when_exp}: required for experienced candidates.")
 
         if errors:
             return return_Response(

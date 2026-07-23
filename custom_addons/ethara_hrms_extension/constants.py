@@ -12,6 +12,7 @@ a terminal state that replaces the current step.
 PIPELINE_STATUS_KEYS = (
     "applied",
     "shortlisted",
+    "assessment",
     "evaluation",
     "submission",
     "contract",
@@ -23,6 +24,7 @@ PIPELINE_STATUS_KEYS = (
 PIPELINE_STATUS_LABELS = {
     "applied":     "Applied",
     "shortlisted": "Shortlisted",
+    "assessment":  "Assessment",
     "evaluation":  "Evaluation",
     "submission":  "Submission",
     "contract":    "Contract",
@@ -31,6 +33,19 @@ PIPELINE_STATUS_LABELS = {
     "onboarded":   "Onboarded",
     "rejected":    "Rejected",
 }
+
+_POST_ASSESSMENT_STATUSES = frozenset({
+    "assessment_passed",
+    "pi_scheduled", "pi_completed", "pi_selected", "pi_hold", "pi_rejected",
+    "documents_requested", "documents_submitted", "documents_rejected",
+    "document_verification_done",
+    "contract_sent", "contract_declined", "contract_signed",
+    "onboard",
+})
+_IN_ASSESSMENT_STATUSES = frozenset({
+    "pending_assessment", "assessment_in_progress",
+    "assessment_pending_review", "assessment_rejected",
+})
 
 RESUME_RECOMMENDATION_OUT = {
     "shortlist":    "shortlisted",

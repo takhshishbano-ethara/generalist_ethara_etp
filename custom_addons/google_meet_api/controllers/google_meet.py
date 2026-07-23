@@ -387,7 +387,8 @@ def _active_upcoming_event_for(candidate_id):
         [
             ("candidate_id", "=", candidate_id),
             ("active", "=", True),
-            ("interview_status", "in", ("upcoming", "in_progress")),
+            ("stop", ">=", datetime.utcnow()),
+            ("evaluation_submitted", "=", False),
         ],
         limit=1,
         order="start desc",
@@ -433,6 +434,10 @@ def _event_or_404(eid):
 
 
 def _event_dict(rec):
+    if (rec.candidate_id and rec.stop and rec.stop < datetime.utcnow()
+            and rec.interview_status in ("upcoming", "in_progress")):
+        rec.invalidate_recordset(["interview_status"])
+        rec._compute_interview_status()
     return {
         "id": rec.id,
         "name": rec.name,
@@ -873,7 +878,8 @@ class GoogleMeetApi(http.Controller):
             request.env["calendar.event"].sudo().search([
                 ("candidate_id", "!=", False),
                 ("active", "=", True),
-                ("interview_status", "in", ("upcoming", "in_progress")),
+                ("stop", ">=", datetime.utcnow()),
+                ("evaluation_submitted", "=", False),
             ]).mapped("candidate_id.id")
         )
         SCHEDULABLE_STATUSES = ("assessment_passed", "pi_completed", "pi_hold")

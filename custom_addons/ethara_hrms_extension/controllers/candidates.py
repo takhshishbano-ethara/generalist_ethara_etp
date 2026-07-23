@@ -13,6 +13,8 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from odoo.addons.ethara_hrms_extension.constants import (
     PIPELINE_STATUS_KEYS,
     PIPELINE_STATUS_LABELS,
+    _POST_ASSESSMENT_STATUSES,
+    _IN_ASSESSMENT_STATUSES,
     RESUME_RECOMMENDATION_OUT,
 )
 
@@ -46,6 +48,33 @@ def _current_status(applicant):
     if applicant.on_hold:
         return "On Hold"
     return PIPELINE_STATUS_LABELS.get(_current_stage(applicant), "Applied")
+
+
+def _derive_effective_status(applicant):
+    raw = applicant.status or "pending"
+    if raw != "pending":
+        return raw
+    if applicant.pipeline_status == "rejected" or applicant.resume_recommendation == "reject":
+        return "resume_screening_rejected"
+    if applicant.resume_recommendation == "shortlist":
+        state = _f(applicant, "latest_assessment_state")
+        result = _f(applicant, "latest_assessment_result")
+        if state == "scored":
+            if result == "pass":
+                return "assessment_passed"
+            if result == "fail":
+                return "assessment_rejected"
+            return "assessment_pending_review"
+        if state == "submitted":
+            return "assessment_pending_review"
+        if state == "in_progress":
+            return "assessment_in_progress"
+        if state == "sent":
+            return "pending_assessment"
+        return "resume_screening_passed"
+    if applicant.job_id:
+        return "resume_screening_in_progress"
+    return "pending"
 
 
 def _active_application_conflict(candidate_user_id, exclude_applicant_id):
@@ -313,7 +342,7 @@ def _serialize(applicant):
         "stageName":                applicant.stage_id.name if applicant.stage_id else None,
         "currentStage":             _current_stage(applicant),
         "currentStatus":            _current_status(applicant),
-        "status":                   _f(applicant, "status") or None,
+        "status":                   _derive_effective_status(applicant) or None,
         "priorityScore":            applicant.priority_score or 0,
         "onHold":                   bool(applicant.on_hold),
         "isDuplicate":              bool(applicant.is_duplicate),
@@ -806,6 +835,9 @@ def _build_progress_payload(rec):
         else None
     )
 
+    status_val = rec.status or ""
+    assessment_done = status_val in _POST_ASSESSMENT_STATUSES
+    assessment_in_progress = status_val in _IN_ASSESSMENT_STATUSES
     evidence = {
         "applied": (_iso(rec.create_date), "Registered as candidate"),
         "shortlisted": (
@@ -819,6 +851,11 @@ def _build_progress_payload(rec):
                 )) if rec_out else None
             ),
         ) if rec.resume_screened_at else (None, None),
+        "assessment": (
+            (_iso(rec.write_date), status_val.replace("_", " ").title())
+            if assessment_done
+            else (None, "In progress" if assessment_in_progress else None)
+        ),
     }
 
     total = len(PIPELINE_STATUS_KEYS)

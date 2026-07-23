@@ -155,8 +155,9 @@ class CalendarEvent(models.Model):
         events = self.env["calendar.event"].sudo().search(
             [("candidate_id", "=", candidate.id)],
         )
+        now = fields.Datetime.now()
         active_upcoming = events.filtered(
-            lambda e: e.interview_status in ("upcoming", "in_progress")
+            lambda e: e.stop and e.stop >= now and not e.evaluation_submitted
         )
         if active_upcoming:
             new_status = "pi_scheduled"
