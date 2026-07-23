@@ -1,3 +1,21 @@
+import pytz
+
+# All datetimes are stored in UTC (Odoo convention). API responses convert
+# them to IST at serialization time only — never at write time.
+IST_TZ = pytz.timezone("Asia/Kolkata")
+
+
+def to_ist(dt):
+    """Return the given naive-UTC datetime as an IST-aware datetime.
+
+    Falsy input (None/False) is returned unchanged so callers can keep
+    their existing ``if value`` guards.
+    """
+    if not dt:
+        return dt
+    return pytz.utc.localize(dt).astimezone(IST_TZ)
+
+
 QUESTION_TYPE_SELECTION = [
     ("mcq_single", "Single-choice"),
     ("mcq_multi", "Multi-choice"),

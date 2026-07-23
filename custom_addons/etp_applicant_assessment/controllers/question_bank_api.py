@@ -10,6 +10,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from odoo.addons.etp_applicant_assessment.models._common import (
     MCQ_TYPES,
     VALID_QUESTION_TYPE_KEYS,
+    to_ist,
 )
 
 _logger = logging.getLogger(__name__)
@@ -176,10 +177,10 @@ def _serialize_bank_full(bank):
             for o in bank.option_ids.sorted(key=lambda x: (x.sequence, x.id))
         ],
         "create_date": (
-            bank.create_date.isoformat() if bank.create_date else ""
+            to_ist(bank.create_date).isoformat() if bank.create_date else ""
         ),
         "write_date": (
-            bank.write_date.isoformat() if bank.write_date else ""
+            to_ist(bank.write_date).isoformat() if bank.write_date else ""
         ),
         "create_uid": bank.create_uid.id if bank.create_uid else False,
         "create_user": bank.create_uid.name if bank.create_uid else "",

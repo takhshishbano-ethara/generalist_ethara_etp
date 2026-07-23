@@ -12,6 +12,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from odoo.addons.etp_applicant_assessment.models.hr_applicant import (
     HIRING_STATUS_KEYS,
 )
+from odoo.addons.etp_applicant_assessment.models._common import to_ist
 
 _logger = logging.getLogger(__name__)
 
@@ -28,10 +29,10 @@ _INVITATION_SENT_STATES = ('sent', 'in_progress', 'submitted', 'scored')
 _INVITATION_FILTER_KEYS = ('sent', 'not_sent', 'all')
 
 
-def _iso_utc(dt):
+def _iso_ist(dt):
     if not dt:
         return None
-    return dt.strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'
+    return to_ist(dt).strftime('%Y-%m-%dT%H:%M:%S.%f') + '+05:30'
 
 
 def _coerce_int(value, default=None):
@@ -52,9 +53,9 @@ def _serialize_applicant_assessment(assessment):
         'id': assessment.id,
         'state': assessment.state,
         'result': assessment.result,
-        'sent_at': _iso_utc(assessment.create_date),
-        'started_at': _iso_utc(assessment.started_at),
-        'submitted_at': _iso_utc(assessment.submitted_at),
+        'sent_at': _iso_ist(assessment.create_date),
+        'started_at': _iso_ist(assessment.started_at),
+        'submitted_at': _iso_ist(assessment.submitted_at),
         'final_score': assessment.final_score,
         'test_link': safe_get_value(assessment, 'portal_url', 'str'),
     }
@@ -75,10 +76,10 @@ def _serialize_applicant_row(applicant, assessment_info=None):
         'stage_id': safe_get_value(applicant, 'stage_id.id', 'int'),
         'stage': safe_get_value(applicant, 'stage_id.name', 'str'),
         'status': safe_get_value(applicant, 'status', 'str'),
-        'status_updated_at': _iso_utc(applicant.status_updated_at),
+        'status_updated_at': _iso_ist(applicant.status_updated_at),
         'active': safe_get_value(applicant, 'active', 'bool'),
-        'created_at': _iso_utc(applicant.create_date),
-        'updated_at': _iso_utc(applicant.write_date),
+        'created_at': _iso_ist(applicant.create_date),
+        'updated_at': _iso_ist(applicant.write_date),
         # Whether the assessment invitation/link has been dispatched to this
         # candidate (derived from their assessment records for the job).
         'invitation_sent': invitation_sent,
@@ -315,7 +316,7 @@ class ApplicantAssessmentApplicantApi(http.Controller):
                         ),
                         'previous_status': previous_status,
                         'status': applicant.status,
-                        'status_updated_at': _iso_utc(
+                        'status_updated_at': _iso_ist(
                             applicant.status_updated_at,
                         ),
                     },

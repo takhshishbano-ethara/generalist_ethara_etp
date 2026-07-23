@@ -6,7 +6,7 @@ from datetime import datetime
 from odoo import fields, http
 from odoo.http import request
 
-from ..models._common import MCQ_TYPES, OPTION_STORAGE_TYPES
+from ..models._common import MCQ_TYPES, OPTION_STORAGE_TYPES, to_ist
 from ..services import s3_service
 
 _logger = logging.getLogger(__name__)
@@ -268,7 +268,10 @@ class ApplicantAssessmentPortal(http.Controller):
         return self._json_response({
             "ok": True,
             "consent": {
-                "at": consent.get("at").isoformat() if consent.get("at") else None,
+                "at": (
+                    to_ist(consent.get("at")).isoformat()
+                    if consent.get("at") else None
+                ),
                 "version": consent.get("version") or "",
             },
         })

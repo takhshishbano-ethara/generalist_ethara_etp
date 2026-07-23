@@ -11,7 +11,10 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token, validate_request, return_Response,
 )
-from odoo.addons.etp_applicant_assessment.models._common import MCQ_TYPES
+from odoo.addons.etp_applicant_assessment.models._common import (
+    MCQ_TYPES,
+    to_ist,
+)
 from ..services import s3_service
 
 _logger = logging.getLogger(__name__)
@@ -78,7 +81,7 @@ def _coerce_int(value, default=None):
 
 
 def _dt(value):
-    return value.isoformat() if value else False
+    return to_ist(value).isoformat() if value else False
 
 
 def _coerce_date(value):
@@ -1490,7 +1493,7 @@ class ApplicantAssessmentApi(http.Controller):
 
             xlsx_bytes = _build_assessment_export_xlsx(records)
 
-            stamp = fields.Datetime.now().strftime("%Y%m%d-%H%M%S")
+            stamp = to_ist(fields.Datetime.now()).strftime("%Y%m%d-%H%M%S")
             url, s3_key = s3_service.upload_bytes(
                 env,
                 xlsx_bytes,
