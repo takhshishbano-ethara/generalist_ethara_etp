@@ -430,6 +430,14 @@ class EtpAssessmentPortal(http.Controller):
         private-S3 question image (raw S3 URLs 403). Mirrors the candidate
         ``serve_question_image`` serving logic but gates on the internal user's
         model/record read access instead of an exam token."""
+        # Portal candidates must NEVER reach this backend route: they carry a
+        # broad base.group_portal read grant on question.image with no record
+        # rule, so check_access("read") alone would pass for ANY image_id and
+        # leak question content across assessments (bypassing the token +
+        # question_order scoping the candidate route enforces). Restrict to
+        # internal/backend users; check_access stays as the second layer.
+        if not request.env.user._is_internal():
+            return request.not_found()
         image = request.env["etp.assessment.pro.question.image"].browse(
             image_id)
         if not image.exists():
@@ -494,6 +502,12 @@ class EtpAssessmentPortal(http.Controller):
         """Internal, ACL-checked proxy so backend admins can preview a
         private-S3 question video. Mirrors serve_admin_question_image: gates on
         the internal user's record read access, then reuses _serve_video."""
+        # Same IDOR guard as serve_admin_question_image: portal candidates hold
+        # a base.group_portal read grant on question.video with no record rule,
+        # so check_access("read") alone would leak any clip by integer id.
+        # Backend users only; check_access remains the second layer.
+        if not request.env.user._is_internal():
+            return request.not_found()
         video = request.env["etp.assessment.pro.question.video"].browse(
             video_id)
         if not video.exists():

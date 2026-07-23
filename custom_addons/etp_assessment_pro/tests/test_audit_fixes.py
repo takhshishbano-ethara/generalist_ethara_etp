@@ -218,7 +218,7 @@ class TestCandidateInvite(_Base):
         app = self.Applicant.create({
             "partner_name": "Fresh Cand", "email_from": "freshcand@x.com"})
         # Provisioning creates the portal user but NO LONGER sends the invite
-        # synchronously — that is deferred to the background invite cron.
+        # synchronously - that is deferred to the background invite cron.
         self.assertEqual(a._ensure_candidate_user(app), "created")
         app.invalidate_recordset()
         user = app.candidate_user_id

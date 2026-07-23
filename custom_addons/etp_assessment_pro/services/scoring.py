@@ -486,10 +486,9 @@ def _verified_judge_100(it):
     Always returns (score_0_100, drift_note).
 
     Composition lanes (image_ab / image_label) MUST call this BEFORE they blend.
-    Re-deriving after composition throws the composition away — the bug this
+    Re-deriving after composition throws the composition away (the bug this
     replaces: _store_scored overwrote the 75/25 blend with the justification-only
-    score, so the A/B verdict (whether the candidate picked the right image)
-    contributed nothing to the stored mark.
+    score, so the A/B verdict contributed nothing to the stored mark).
     """
     recomputed, note = _recompute_v10(it)
     if recomputed is not None:
@@ -515,8 +514,8 @@ def _mark_recomputed(it, note):
 def _blend_ab_justification(resp, it):
     verdict_score = _score_ab_verdicts(resp)
     # The judge grades the justification on the 0-100 scale (prompts/scoring.md
-    # "Every score runs 0 to 100"), while the blend math is 0-1. Normalise —
-    # never clamp: min(1.0, 91) silently handed every justification full credit.
+    # "Every score runs 0 to 100"), while the blend math is 0-1. Normalise, never
+    # clamp: min(1.0, 91) silently handed every justification full credit.
     justification_100, note = _verified_judge_100(it)
     justification_score = max(0.0, min(1.0, justification_100 / 100.0))
     blend = (AB_VERDICT_WEIGHT * verdict_score
@@ -547,14 +546,13 @@ def _apply_image_label_coverage(resp, it):
     attempted = _label_attempted_boxes(resp)
     coverage = attempted / total
     # Judge grades correctness 0-100; normalise, never clamp (see
-    # _verified_judge_100 — min(1.0, 87) made every answer a perfect 100).
+    # _verified_judge_100: min(1.0, 87) made every answer a perfect 100).
     correctness_100, note = _verified_judge_100(it)
     correctness = max(0.0, min(1.0, correctness_100 / 100.0))
     raw100 = correctness * 100.0
     # H-10: cap AT the floor, not just below it (<=), so labelling exactly half
-    # the boxes is still capped. Combined with the >=2-char attempted-box filter,
-    # a candidate can no longer pad junk labels to sit on the boundary and dodge
-    # the cap.
+    # the boxes is still capped. With the >=2-char attempted-box filter, a
+    # candidate can no longer pad junk labels to sit on the boundary and dodge it.
     capped = min(raw100, _COVERAGE_CAP) if coverage <= _COVERAGE_FLOOR else raw100
     it = _mark_recomputed(dict(it), note)
     it["composed_raw_100"] = capped
@@ -605,15 +603,14 @@ def _attach_verification(item, q):
 def _media_parts_for(resp):
     """The rendered media the candidate actually saw, as Gemini inlineData parts.
 
-    prompts/scoring.md ("the rendered media is attached to the call when
-    available") requires this: without it every image_ab / image_label
-    justification is graded BLIND on its text alone, while the judge is asked to
-    reason about images it was never shown. Returns [] when nothing is renderable
-    -- the caller then stamps media_unseen, which the same contract requires.
+    Required by prompts/scoring.md ("the rendered media is attached to the call
+    when available"): without it every image_ab / image_label justification is
+    graded BLIND on its text alone. Returns [] when nothing is renderable; the
+    caller then stamps media_unseen, which the same contract requires.
 
-    A Binary field already holds base64, which is exactly what inlineData wants;
-    never re-encode. Order is deterministic (A then B) so 'Response A' in the
-    prompt always refers to the first image part.
+    A Binary field already holds base64, exactly what inlineData wants; never
+    re-encode. Order is deterministic (A then B) so 'Response A' in the prompt
+    always refers to the first image part.
     """
     q = resp.question_id
     qtype = q.question_type or ""
@@ -673,8 +670,7 @@ def _build_item(resp):
     except (ValueError, TypeError):
         # Malformed element JSON silently thins the grading context (the v6/v10
         # rubric loses required_elements / covered_by_all), which can lower a
-        # candidate's score with no trace. Log it and flag the item for review
-        # rather than swallowing it.
+        # score with no trace. Log and flag for review rather than swallow it.
         _logger.warning(
             "scoring: malformed element JSON on question %s (generator %s); "
             "grading without required/covered context",
@@ -745,11 +741,32 @@ def _parse_results(text):
                 "Could not parse JSON from scoring response: %s" % text[:200])
     if isinstance(parsed, dict):
         if isinstance(parsed.get("results"), list):
-            return parsed["results"]
-        return [parsed]
+            return _strip_platform_keys(parsed["results"])
+        return _strip_platform_keys([parsed])
     if not isinstance(parsed, list):
         raise ValueError("Scoring response is not a JSON array: %s" % text[:200])
-    return parsed
+    return _strip_platform_keys(parsed)
+
+
+# Composition OUTPUTS the platform derives itself and must never trust from the
+# grader. composed_raw_100 in particular short-circuits the _recompute_v10 trust
+# gate in _store_scored, so a hallucinated/injected "composed_raw_100": 100 in
+# the judge's JSON would be honored verbatim and score a wrong answer perfect.
+# The image_ab / image_label lanes re-add composed_raw_100 (+ ab_scores /
+# label_scores) from VERIFIED math after parse, so stripping here only removes an
+# untrusted echo, never the platform's own value.
+_PLATFORM_RESULT_KEYS = (
+    "composed_raw_100", "ab_scores", "label_scores", "recomputed",
+    "recompute_note",
+)
+
+
+def _strip_platform_keys(results):
+    for it in results:
+        if isinstance(it, dict):
+            for key in _PLATFORM_RESULT_KEYS:
+                it.pop(key, None)
+    return results
 
 
 def _salvage_truncated_results(text):
@@ -796,9 +813,9 @@ def _coerce_100(value):
     except (TypeError, ValueError):
         return 0.0
     # M-12: a judge on the 0-1 scale that overshoots 1.0 by a rounding hair (e.g.
-    # 1.001) is a PERFECT answer, not a 0.1% one. Treat the (1.0, 1.01] band as a
-    # full 1.0 so a perfect score is not silently suppressed to ~0. Anything above
-    # 1.01 is a genuine 0-100 score and passes through unchanged.
+    # 1.001) is a PERFECT answer, not a 0.1% one. Treat (1.0, 1.01] as a full 1.0
+    # so a perfect score is not suppressed to ~0. Above 1.01 is a genuine 0-100
+    # score and passes through unchanged.
     if 0.0 < v <= 1.0:
         v = v * 100.0
     elif 1.0 < v <= 1.01:
@@ -941,7 +958,7 @@ def _store_scored(resp, it):
     if composed is not None:
         # image_ab / image_label already folded the verified judge score into a
         # composed result (_verified_judge_100 ran before the blend). Re-deriving
-        # here would discard the composition — and with it the A/B verdict.
+        # here would discard the composition - and with it the A/B verdict.
         try:
             raw100 = max(0.0, min(100.0, float(composed)))
         except (TypeError, ValueError):
@@ -1033,9 +1050,9 @@ def _store_gated(resp, gate_info):
 
 
 def _store_error(env, resp, reason):
-    """State 'failed' means the cron retries; an exhausted response must resolve
-    to a surfaced 'error', never a silent scored-0 (indistinguishable from a
-    genuine low score)."""
+    """State 'failed' means the cron retries; an exhausted response resolves to a
+    surfaced 'error', never a silent scored-0 (indistinguishable from a genuine
+    low score)."""
     attempts = (resp.llm_attempts or 0) + 1
     if attempts >= _max_attempts(env):
         resp.write({
@@ -1114,8 +1131,8 @@ def _score_submission(env, responses):
     ev_ids = {r.assessment_evaluator_id.id for r in gradable
               if r.assessment_evaluator_id}
     # M-10: attribute the call's cost to a candidate for the per-candidate spend
-    # cap + budget report. Batches are built per-evaluator upstream, so a mix is
-    # not expected; if one ever occurs, attribute to the lowest evaluator id
+    # cap + budget report. Batches are per-evaluator upstream, so a mix is not
+    # expected; if one occurs, attribute to the lowest evaluator id
     # (deterministic) instead of dropping attribution to False, and log it.
     if len(ev_ids) == 1:
         evaluator_id = next(iter(ev_ids))
@@ -1129,9 +1146,9 @@ def _score_submission(env, responses):
         evaluator_id = False
     items = [_build_item(r) for r in gradable]
     system_prompt = _get_scoring_prompt(env)
-    # Attach the rendered media per item, and tell the judge where each item's
+    # Attach the rendered media per item and tell the judge where each item's
     # images sit in the parts stream. Items whose media is missing are named
-    # explicitly so the judge can stamp media_unseen rather than invent a view.
+    # explicitly so the judge stamps media_unseen rather than invent a view.
     media_parts = []
     media_index = []
     unseen = []

@@ -324,13 +324,13 @@ def plant(base_png_bytes, defects, seed=7):
         spec.setdefault("marker_xy", de.get("marker_xy"))
         try:
             drawn_box = fn(img, spec, rng)
-        except Exception:  # noqa: BLE001 — a bad box drops the defect, never crashes
+        except Exception:  # noqa: BLE001 - a bad box drops the defect, never crashes
             drawn_box = None
         if not (isinstance(drawn_box, (list, tuple)) and len(drawn_box) == 4):
             continue
         bx0, by0, bx1, by1 = drawn_box
         # A degenerate or off-canvas box means the op effectively drew nothing
-        # (PIL clamps/returns empty regions instead of raising) — drop it so a
+        # (PIL clamps/returns empty regions instead of raising) - drop it so a
         # marker never lands on empty space, and require a real overlap with the
         # canvas so out-of-bounds specs cannot produce a phantom marker.
         if (bx1 - bx0) < 4 or (by1 - by0) < 4:

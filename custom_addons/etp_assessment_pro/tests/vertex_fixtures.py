@@ -497,13 +497,13 @@ def _routing_side_effect(env=None, responses=None,
             return score_payload(recs)
         note = _multipass_note(kwargs)
         if note == "coverage-topup":
-            # Default: an EMPTY questions array (no shortfall to fill) — a test
+            # Default: an EMPTY questions array (no shortfall to fill) - a test
             # that wants real top-up passes ``topup=`` an envelope payload.
             return topup if topup is not None else '{"questions": [], "solutions": []}'
         if note == "solutions-backfill":
             return backfill if backfill is not None else "[]"
         if note == "critique":
-            # Default: no corrections, no issues — critique is a safe no-op.
+            # Default: no corrections, no issues - critique is a safe no-op.
             return critique if critique is not None else '{"solutions": [], "issues": []}'
         # Primary SOP question generation: keyed by operation, so it matches even
         # when the directive text ("Generate exactly" vs the fallback wording)
@@ -582,7 +582,7 @@ def mock_vertex(return_value=None, *, mode="route", env=None, responses=None,
 
 
 # --------------------------------------------------------------------------- #
-# Optional test mixin — tiny sugar over the helpers above.
+# Optional test mixin - tiny sugar over the helpers above.
 # --------------------------------------------------------------------------- #
 class VertexMockMixin(object):
     """Mix into a TransactionCase for one-liner Vertex mocking. Example::

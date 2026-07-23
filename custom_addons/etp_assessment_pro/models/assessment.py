@@ -43,9 +43,8 @@ class EtpAssessment(models.Model):
     def _log_activity(self, body):
         """Post a timestamped audit line to each assessment's chatter.
 
-        message_post stamps author + date, so this is the single choke-point
-        every user action routes through. Best-effort: an audit note must never
-        sink the action that triggered it.
+        Single choke-point for user-action audit. Best-effort: an audit note
+        must never sink the action that triggered it.
         """
         for rec in self:
             if not rec.id:
@@ -328,9 +327,9 @@ class EtpAssessment(models.Model):
 
     @api.constrains("subjective_threshold")
     def _check_subjective_threshold(self):
-        # M-11: reject an out-of-range pass bar at the WRITE path instead of
-        # relying on the read-time defensive clamp in _compute_result. A stored
-        # -50 / 250 silently changed pass/fail semantics and hid the bad value.
+        # M-11: reject an out-of-range pass bar at the WRITE path, not just via
+        # the read-time clamp in _compute_result. A stored -50 / 250 silently
+        # changed pass/fail semantics and hid the bad value.
         for rec in self:
             if not (0.0 <= rec.subjective_threshold <= 100.0):
                 raise ValidationError(
@@ -366,11 +365,10 @@ class EtpAssessment(models.Model):
                     f"Requested {limit} questions but only "
                     f"{len(available_questions)} available in this generator.")
 
-            # H-11 + M-13: refuse to start if any objective (mcq/msq) OR image_ab
+            # H-11 + M-13: refuse to start if any objective (mcq/msq) or image_ab
             # question has dimensions but NO correct option marked. Such a
-            # question scores 0 for EVERY candidate (an authoring bug) with no
-            # error - surface it now, before candidates sit, not after results
-            # look wrong.
+            # question scores 0 for EVERY candidate (authoring bug); surface it
+            # before candidates sit, not after results look wrong.
             def _is_keyless(q):
                 if q.question_type not in ("mcq", "msq", "image_ab"):
                     return False
@@ -497,10 +495,10 @@ class EtpAssessment(models.Model):
                 "this candidate should sit the exam.",
                 applicant.partner_name, email, user.id)
         # H-1/H-2: never bind a portal user that is ALREADY the candidate_user_id
-        # of a DIFFERENT applicant. Without this, two applicants sharing an email
-        # (duplicate CSV row, or an attacker who pre-registered the email) both
-        # resolve to the same login -> that user could sit either exam, and
-        # _deliver_invitation would fire a password-reset on the victim's account.
+        # of a DIFFERENT applicant. Otherwise two applicants sharing an email
+        # (duplicate CSV row, or an attacker who pre-registered it) resolve to
+        # the same login -> either could sit the other's exam, and
+        # _deliver_invitation fires a password-reset on the victim's account.
         if not created:
             other = self.env["hr.applicant"].sudo().search([
                 ("candidate_user_id", "=", user.id),
@@ -526,10 +524,9 @@ class EtpAssessment(models.Model):
         except Exception:
             raise UserError(
                 "Invalid CSV file. Please upload a valid UTF-8 CSV file.")
-        # L-9: bound the roster import. Each row can create an hr.applicant, so an
-        # unbounded file is a worker-pinning / record-bloat vector. 5000 rows
-        # covers any realistic cohort; the byte guard rejects a huge file before
-        # it is decoded.
+        # L-9: bound the roster import. Each row can create an hr.applicant, so
+        # an unbounded file is a worker-pinning / record-bloat vector. The byte
+        # guard rejects a huge file before it is decoded.
         if len(csv_data) > _MAX_CANDIDATE_CSV_BYTES:
             raise UserError(
                 "CSV too large (%d bytes; max %dMB)."
@@ -694,7 +691,7 @@ class EtpAssessment(models.Model):
     def _scoring_shard_count(self):
         """Configured parallel scoring lanes (ir.config_parameter
         etp_assessment_pro.scoring_shards). Clamped to [1, MAX_SCORING_SHARDS];
-        1 (default) reproduces the original single-lock serial drainer.
+        1 (default) is the original single-lock serial drainer.
         """
         raw = self.env["ir.config_parameter"].sudo().get_param(
             "etp_assessment_pro.scoring_shards", "1")
@@ -708,10 +705,10 @@ class EtpAssessment(models.Model):
     def _cron_llm_auto_score(self, shard=0):
         """Drain one scoring shard. Each shard cron owns a disjoint slice of
         submitted evaluators (id %% shard_count == shard) under its OWN advisory
-        lock, so N shard crons score N candidates in parallel instead of one at a
-        time. Shard 0 keeps ADVISORY_LOCK_AUTOSCORE (identical to the single-lock
-        design at shard_count=1); higher shards are no-ops until scoring_shards is
-        raised, so parallelism is a pure config lever with no cron/code change.
+        lock, so N shard crons score N candidates in parallel. Shard 0 keeps
+        ADVISORY_LOCK_AUTOSCORE (identical to the single-lock design at
+        shard_count=1); higher shards are no-ops until scoring_shards is raised,
+        so parallelism is a pure config lever with no cron/code change.
         """
         shard_count = self._scoring_shard_count()
         if shard >= shard_count:
@@ -743,9 +740,9 @@ class EtpAssessment(models.Model):
     def _scoring_shard_evaluators(self, shard, shard_count, limit=20):
         """Up to ``limit`` submitted-and-queued evaluators owned by this shard
         (id %% shard_count == shard). shard_count=1 skips the modulo so the query
-        is identical to the original drainer. Queued evaluators are bounded by the
-        live cohort, so selecting matching ids and capping in Python is cheap and
-        keeps the per-shard limit exact without ORM-version-specific raw SQL.
+        matches the original drainer. Queued evaluators are bounded by the live
+        cohort, so selecting matching ids and capping in Python keeps the
+        per-shard limit exact without ORM-version-specific raw SQL.
         """
         Evaluator = self.env["etp.assessment.pro.evaluator"]
         domain = [
@@ -808,10 +805,9 @@ class EtpAssessmentEvaluator(models.Model):
             user = self.env["res.users"].sudo().search(
                 [("partner_id", "=", self.applicant_id.partner_id.id)], limit=1)
         if not user and (self.applicant_id.email_from or "").strip():
-            # Security (M-1): the login==email fallback can match an INTERNAL
-            # user who was never bound as a candidate, widening candidate auth to
-            # staff. Restrict the fallback to portal/non-internal users so a
-            # matching employee login is never treated as "the candidate".
+            # Security (M-1): the login==email fallback could match an INTERNAL
+            # user never bound as a candidate, widening candidate auth to staff.
+            # Restrict the fallback to portal/non-internal users.
             match = self.env["res.users"].sudo().with_context(
                 active_test=False).search(
                 [("login", "=ilike", self.applicant_id.email_from.strip())],
@@ -937,14 +933,12 @@ class EtpAssessmentEvaluator(models.Model):
                 super(EtpAssessmentEvaluator, rec).write(
                     {"submitted_at": stamp})
         res = super().write(vals)
-        # Auto-queue subjective grading the moment a candidate submits, so the
-        # every-minute background cron (_cron_llm_auto_score) drains it without
-        # an admin having to click "Run Subjective Evaluation" - and without
-        # lagging the exam, because the actual Vertex call happens in the cron,
-        # never in this request. Respects the per-assessment llm_auto_score
-        # toggle (default OFF while the Vertex testing budget is frozen; flip ON
-        # per-assessment to auto-grade, or OFF to halt all Vertex spend).
-        # Only flags candidates that actually have subjective (needs_llm)
+        # Auto-queue subjective grading on submit so the every-minute cron
+        # (_cron_llm_auto_score) drains it without an admin clicking "Run
+        # Subjective Evaluation" - and without lagging the exam, since the Vertex
+        # call happens in the cron, never in this request. Respects the
+        # per-assessment llm_auto_score toggle (default OFF while the Vertex
+        # budget is frozen). Only flags candidates with subjective (needs_llm)
         # answers still awaiting a score.
         if vals.get("state") == "submitted":
             to_queue = self.filtered(
@@ -1135,9 +1129,9 @@ class EtpAssessmentEvaluator(models.Model):
             # A terminal 'error' (e.g. a Vertex outage, not the candidate's
             # fault) is counted as UNRESOLVED on purpose: it holds the result on
             # 'pending' so an admin can Reset & Re-score, rather than silently
-            # finalizing a wrongful 0/FAIL. The '!' scoring_error_flag surfaces it
-            # in the candidate list. (Audit H-9 proposed auto-releasing on error;
-            # we deliberately do NOT, to avoid mis-failing on infra faults.)
+            # finalizing a wrongful 0/FAIL. The '!' scoring_error_flag surfaces
+            # it in the candidate list. (Audit H-9 proposed auto-releasing on
+            # error; we deliberately do NOT, to avoid mis-failing on infra faults.)
             rec.subjective_pending = len(need.filtered(
                 lambda r: r.llm_state in (
                     "pending", "queued", "failed", "error")))
@@ -1301,8 +1295,8 @@ class EtpAssessmentEvaluator(models.Model):
         """Rescue abandoned in-progress attempts past their deadline. Without
         this, a candidate who closes the tab is never auto-submitted (that only
         happened on a live portal request), leaving answers unscored and the
-        assessment pinned in 'in_progress'. Unlimited sittings (no
-        deadline_datetime) are skipped by the '<' filter.
+        assessment pinned in 'in_progress'. Unlimited sittings (no deadline) are
+        skipped by the '<' filter.
         """
         self.env.cr.execute("SELECT pg_advisory_unlock_all()")
         self.env.cr.execute(
@@ -1511,9 +1505,9 @@ class EtpAssessmentResponse(models.Model):
         "etp.assessment.pro.question", required=True, ondelete="cascade",
         index=True)
     justification = fields.Text()
-    # L-5: a robust marker for a time-expiry auto-submission, replacing a fragile
-    # match on a justification prefix a candidate could type verbatim. Set only by
-    # the auto-submit paths; drives _compute_scoring_kind (an auto-submitted
+    # L-5: robust marker for a time-expiry auto-submission, replacing a fragile
+    # match on a justification prefix a candidate could type verbatim. Set only
+    # by the auto-submit paths; drives _compute_scoring_kind (an auto-submitted
     # placeholder must not trigger an LLM scoring call).
     auto_submitted = fields.Boolean(default=False, string="Auto-submitted")
     line_ids = fields.One2many(
@@ -1869,9 +1863,9 @@ class EtpAssessmentResponse(models.Model):
             objective_dims = rec.question_id.question_dimension_ids.filtered(
                 lambda qd: qd.option_line_ids.filtered("is_correct"))
             if not objective_dims:
-                # Keyless objective question (no correct option on any dimension):
-                # an authoring bug that action_start refuses to launch. If one
-                # slips in at runtime (key cleared after start, or a legacy
+                # Keyless objective question (no correct option on any
+                # dimension): an authoring bug action_start refuses to launch. If
+                # one slips in at runtime (key cleared after start, or a legacy
                 # in-flight assessment), score it 0/0 so it drops OUT of the
                 # denominator instead of silently costing every candidate a mark.
                 rec.score = 0
@@ -1925,8 +1919,8 @@ class EtpAssessmentResponse(models.Model):
                 rec._check_all_submitted()
 
     def _enqueue_subjective_scoring(self):
-        # Queue only: LLM scoring must never run inline on the candidate's
-        # submit path - the cron drains it.
+        # Queue only: LLM scoring never runs inline on the candidate's submit
+        # path - the cron drains it.
         from ..services import scoring as scoring_svc
         auto_eval_ids = set()
         repend_eval_ids = set()
@@ -1950,12 +1944,11 @@ class EtpAssessmentResponse(models.Model):
                 rec.llm_state = "not_needed"
                 continue
             # H-16: don't re-queue an answer that is ALREADY scored and whose
-            # text has not changed. Without this, a candidate re-submitting a
-            # scored subjective answer (while still in-progress on other
-            # questions, with llm_auto_score on) forces the cron to grade the
-            # same text again and again - a candidate-driven cost loop. A genuine
-            # edit changes the hash and DOES re-queue (once), and an exhausted
-            # attempt budget is left alone.
+            # text has not changed. Otherwise a candidate re-submitting a scored
+            # subjective answer (still in-progress, llm_auto_score on) forces the
+            # cron to grade the same text repeatedly - a candidate-driven cost
+            # loop. A genuine edit changes the hash and DOES re-queue (once); an
+            # exhausted attempt budget is left alone.
             cur_hash = hashlib.sha256(
                 (rec.justification or "").encode("utf-8")).hexdigest()
             if (rec.llm_state == "scored"
@@ -1979,8 +1972,8 @@ class EtpAssessmentResponse(models.Model):
             return
         # M-2: guard the lock transition against concurrent final submits. Take a
         # row lock on the evaluator, re-read is_locked, and only write when it is
-        # still open - so two racing "last" submits don't double-flip the state or
-        # interleave with _check_locked and 500 the candidate's submit. The
+        # still open - so two racing "last" submits don't double-flip the state
+        # or interleave with _check_locked and 500 the candidate's submit. The
         # SELECT ... FOR UPDATE serializes the two workers on this one row.
         self.env.cr.execute(
             "SELECT is_locked FROM etp_assessment_pro_evaluator "

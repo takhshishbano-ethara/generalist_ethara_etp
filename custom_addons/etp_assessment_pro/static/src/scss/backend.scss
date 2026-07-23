@@ -424,7 +424,48 @@
     .o_field_x2many .o_list_view {
         border: 1px solid var(--etp-border);
         border-radius: var(--etp-radius-sm);
+        /* Keep the rounded frame clipped, but let the TABLE inside scroll
+           horizontally instead of being cut off. These embedded lists
+           (Candidates, result breakdowns, etc.) carry many columns and would
+           otherwise clip at the right edge of the notebook page. */
         overflow: hidden;
+    }
+
+    /* Horizontal scroll for any wide embedded list table in this module.
+       .o_list_renderer is Odoo's scroll viewport; force it to scroll on
+       overflow and keep the header sticky so column labels stay visible while
+       the user scrolls right. Applies module-wide (Candidates list, o2m
+       breakdowns, anywhere a <list> is embedded under .o_etp_backend). */
+    .o_field_x2many .o_list_renderer {
+        overflow-x: auto;
+        overflow-y: hidden;
+        /* thin, unobtrusive scrollbar so it reads as scrollable, not broken */
+        scrollbar-width: thin;
+        scrollbar-color: var(--etp-border) transparent;
+    }
+    .o_field_x2many .o_list_renderer::-webkit-scrollbar {
+        height: 9px;
+    }
+    .o_field_x2many .o_list_renderer::-webkit-scrollbar-thumb {
+        background: var(--etp-border);
+        border-radius: 6px;
+    }
+    .o_field_x2many .o_list_renderer > table.o_list_table {
+        /* Two problems this solves at once:
+           1) GAPS: Odoo's default table-layout:fixed + width:100% stretches a
+              few columns to fill the frame, ballooning one column (e.g. STARTED
+              AT to ~200px) and leaving ugly whitespace gaps. table-layout:auto
+              sizes every column to its actual content instead.
+           2) CLIPPING: min-width:100% lets the table grow PAST the frame when
+              many columns are on, so the renderer's overflow-x:auto kicks in and
+              scrolls horizontally rather than compressing columns to a smear.
+           !important is required because Odoo's list renderer sets
+           `table-layout: fixed` as an INLINE style on the <table>, which a
+           plain stylesheet rule cannot override. Net: snug content-fit columns
+           when narrow, horizontal scroll when wide - no gaps either way. */
+        table-layout: auto !important;
+        width: auto !important;
+        min-width: 100%;
     }
 
     .alert {
@@ -1305,10 +1346,17 @@
             i { color: var(--etp-accent-400); margin-right: 6px; }
         }
 
-        /* let the native progressbar span the row + taller track */
+        /* Native progressbar: full-width track with the value pill pinned to the
+           end of the coloured fill (offset published as --etp-fill by
+           dashboard_bars.js from the bar's aria values). */
         .o_field_progressbar {
             width: 100%;
-            .o_progressbar, .progress {
+            .o_progressbar {
+                position: relative;
+                display: block !important;
+                width: 100% !important;
+            }
+            .o_progress, .progress {
                 width: 100% !important;
                 height: 22px;
                 border-radius: 999px;
@@ -1316,15 +1364,34 @@
                 box-shadow: inset 0 1px 2px rgba(30, 24, 80, 0.08);
                 overflow: hidden;
             }
-            .o_progressbar_value, .progress-bar {
+            /* the coloured fill itself */
+            .o_progress > div, .bg-primary, .progress-bar {
                 background:
                     linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 48%),
                     var(--etp-accent-grad) !important;
+                height: 100%;
+                border-radius: 999px;
+                box-shadow: 0 2px 6px -1px rgba(91, 75, 230, 0.45);
+            }
+            /* the value pill, pinned to the fill's end and clamped inside the track */
+            .o_progressbar_value {
+                position: absolute;
+                top: 50%;
+                left: clamp(1.7rem, var(--etp-fill, 0%), calc(100% - 1.7rem));
+                transform: translate(-50%, -50%);
+                margin: 0;
+                padding: 1px 10px;
+                background: var(--etp-accent-grad);
+                color: #fff;
                 font-weight: 800;
                 font-variant-numeric: tabular-nums;
                 border-radius: 999px;
                 box-shadow: 0 2px 6px -1px rgba(91, 75, 230, 0.45);
+                z-index: 2;
+                white-space: nowrap;
+                pointer-events: none;
             }
+            .o_progressbar_value span { margin: 0 2px; }
             .o_progressbar_complete { color: var(--etp-muted); font-weight: 700; }
         }
     }

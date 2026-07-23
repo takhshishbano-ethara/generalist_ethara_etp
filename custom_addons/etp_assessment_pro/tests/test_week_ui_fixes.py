@@ -10,6 +10,21 @@ class TestTagMachineKeyAutoPopulate(TransactionCase):
     """g5: a human adds a tag by typing Prefix + Readable Name; the machine key
     builds itself in canonical form, and bad input is rejected."""
 
+    # Fixed keys these tests mint. A real generation run (SOP tag extraction)
+    # can leave any of these committed in a shared dev DB, which would trip the
+    # one-key-one-tag uniqueness guard on create. Clear them in setUp so the
+    # test owns a clean slate; TransactionCase rolls the delete back afterwards,
+    # so committed data in CI/prod is never actually touched.
+    _MINTED_KEYS = (
+        "skill:quality-prompt-writing", "domain:ai-image-editing",
+        "task:evaluate-quality", "skill:evaluate-quality", "modality:video",
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.env["etp.assessment.pro.tag"].search(
+            [("name", "in", list(self._MINTED_KEYS))]).unlink()
+
     def _Tag(self):
         return self.env["etp.assessment.pro.tag"]
 

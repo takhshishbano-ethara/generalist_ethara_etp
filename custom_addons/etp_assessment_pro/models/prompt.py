@@ -27,11 +27,10 @@ _TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS = 5
 
 
 def _preview_src_ok(src):
-    """L-2: allow only safe image sources in admin-preview markup — http(s), our
-    own relative controller paths (/...), or image data: URLs. Rejects
-    javascript:/vbscript:/data-non-image and other schemes so an LLM- or
-    admin-supplied spec can never inject an active-content URL, even if this
-    markup is later refactored from <img src> to an href-bearing tag."""
+    """L-2: allow only safe image sources - http(s), our own relative paths
+    (/...), or image data: URLs. Rejects javascript:/vbscript:/non-image
+    schemes so an LLM/admin-supplied spec can never inject an active-content
+    URL, even if this markup is later refactored to an href-bearing tag."""
     s = str(src or "").strip()
     if not s:
         return False
@@ -54,8 +53,6 @@ class EtpAssessmentPrompt(models.Model):
     def _log_activity(self, body):
         """Post a timestamped audit line to each generator's chatter.
 
-        message_post already stamps the author + date, so this is the single
-        choke-point every user action routes through to keep the log uniform.
         Best-effort: an audit note must never sink the action that triggered it.
         """
         for rec in self:
@@ -112,7 +109,7 @@ class EtpAssessmentPrompt(models.Model):
              "multimodal model which authors questions directly per the format "
              "in the SOP. Runs in the background (a cron does the slow call off "
              "the web request). 'finalizing' means the drafts are committed and "
-             "only the status write remains — a killed worker resumes WITHOUT "
+             "only the status write remains - a killed worker resumes WITHOUT "
              "re-calling Vertex.")
     sop_gen_error = fields.Char(
         string="SOP Generation Error", readonly=True, copy=False)
@@ -488,12 +485,11 @@ class EtpAssessmentPrompt(models.Model):
                     # Commit the drafts before the contended state write, so a
                     # serialization retry there cannot lose them or re-run Vertex.
                     self.env.cr.commit()
-                    # H-8: flip to 'finalizing' and COMMIT before the final
-                    # status write. The drainer only selects queued/generating,
-                    # so if the worker is killed between the draft commit and the
-                    # 'done' write, the row is left 'finalizing' (needs an admin
-                    # nudge) and is NEVER re-sent to Vertex — no duplicate drafts,
-                    # no double spend.
+                    # H-8: flip to 'finalizing' and COMMIT before the final status
+                    # write. The drainer only selects queued/generating, so a worker
+                    # killed after the draft commit leaves the row 'finalizing'
+                    # (needs an admin nudge) and NEVER re-sends to Vertex - no
+                    # duplicate drafts, no double spend.
                     prompt.write({"sop_gen_state": "finalizing"})
                     self.env.cr.commit()
                     self._finalize_sop_gen_state(prompt, len(draft_ids))
@@ -526,9 +522,9 @@ class EtpAssessmentPrompt(models.Model):
 
     def _finalize_sop_gen_state(self, prompt, draft_count):
         """Retry on 40001 only: the tag-extract cron writes the same row under a
-        different advisory lock. Never re-queue here — the drainer cannot tell
+        different advisory lock. Never re-queue here - the drainer cannot tell
         'needs generation' from 'needs finalization', so it would re-run Vertex
-        and duplicate the already-committed drafts."""
+        and duplicate already-committed drafts."""
         import time
         import psycopg2
         from psycopg2 import errorcodes, errors as pg_errors
@@ -621,9 +617,52 @@ class EtpAssessmentPrompt(models.Model):
         drafts = self.question_ids.filtered(lambda r: r.state == "draft")
         if not drafts:
             raise UserError("There are no pending drafts to approve.")
-        # action_approve logs the approval rollup to this generator's chatter,
-        # so no separate note here (that would double-log the same event).
-        drafts.action_approve()
+        # Skip-and-continue: approve each draft in its own savepoint so one bad
+        # draft (e.g. an image_ab whose planted flaw never rendered) cannot roll
+        # back the good ones. action_approve suppresses its own chatter note; we
+        # post a single rollup below. The accumulator is an empty slice of
+        # `drafts` so it matches the draft model, never the generator's own model.
+        approved = drafts.browse()
+        failures = []
+        for draft in drafts:
+            try:
+                with self.env.cr.savepoint():
+                    draft.with_context(skip_approval_log=True).action_approve()
+                approved |= draft
+            except (UserError, ValidationError) as exc:
+                # savepoint rolled the failed draft back; its ORM cache may be
+                # stale, so drop it before touching the record again.
+                draft.invalidate_recordset()
+                failures.append((draft, str(exc)))
+        if approved:
+            approved._log_drafts_to_generators(approved, "approved")
+        if failures:
+            detail = "\n".join(
+                "- %s: %s" % (
+                    (d.name or d.question_prompt or "draft"),
+                    (msg or "").strip().splitlines()[0] if msg else "unknown error")
+                for d, msg in failures)
+            self._log_activity(Markup(
+                "<b>%d draft(s) skipped during Approve All</b> "
+                "(the other %d were approved):<br/>%s")
+                % (len(failures), len(approved), escape(detail)))
+            if not approved:
+                # Nothing got through - surface the reasons instead of a silent
+                # no-op so the admin knows why.
+                raise UserError(
+                    "No drafts could be approved. Each failed its approval "
+                    "check:\n%s" % detail)
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Approved with skips",
+                    "message": "%d draft(s) approved; %d skipped (see the "
+                               "generator log for why)."
+                               % (len(approved), len(failures)),
+                    "type": "warning", "sticky": False,
+                },
+            }
         return True
 
     def action_extract_tags(self):
@@ -881,16 +920,11 @@ class EtpAssessmentPrompt(models.Model):
     def action_normalize_tags(self):
         """Fix the tag vocabulary AND evolve the shared knowledge base.
 
-        Two stages, so the knowledge base gets BETTER every time a project is
-        added and this is run:
-          1. CONSOLIDATE the whole live vocabulary (LLM clusters true synonyms,
-             merges drift onto one canonical key, and refreshes every readable
-             display) — data-driven, no hardcoded synonym map.
-          2. RE-EXTRACT the selected generators against that cleaned vocabulary,
-             so their tags + knowledge profile snap onto the shared canonical
-             values. Cleaner shared vocabulary -> the NEXT project's extraction
-             converges on it too -> similarity ranking and future assessments
-             keep improving as projects accumulate.
+        Two stages so the knowledge base improves as projects accumulate:
+          1. CONSOLIDATE the whole live vocabulary (LLM clusters synonyms onto
+             one canonical key) - data-driven, no hardcoded synonym map.
+          2. RE-EXTRACT the selected generators onto that cleaned vocabulary, so
+             the next project's extraction converges on it too.
         """
         from ..services import vertex
         # Stage 1: consolidate the shared vocabulary (once, globally).
@@ -1024,10 +1058,8 @@ class EtpAssessmentPromptQuestion(models.Model):
              "so detection uses the right prompt.")
     options_json = fields.Text(string="Options (JSON)")
     correct_answer_json = fields.Text(string="Correct Answer (JSON)")
-    # --- Generation-run tracking (UI clarity: "which questions came from which
-    # run I just triggered"). gen_batch is stamped at create time by the SOP
-    # generation cron; role is derived from the "Task:" title prefix so the
-    # real-task replicas are self-labelling in every list. ---
+    # Generation-run tracking: gen_batch is stamped at create time by the SOP
+    # generation cron so each draft shows which run produced it.
     gen_batch = fields.Char(
         string="Generation Run", readonly=True, copy=False, index=True,
         help="Timestamped id of the generation run that produced this draft, so "
@@ -1394,10 +1426,9 @@ class EtpAssessmentPromptQuestion(models.Model):
                            or spec.get("data"))
                     if not src:
                         continue
-                    # L-2: only render http(s), our own relative paths, or
-                    # image data: URLs. Blocks javascript:/vbscript:/other
-                    # schemes from an LLM/admin-supplied spec ever reaching an
-                    # href-like attribute if this markup is refactored later.
+                    # L-2: _preview_src_ok allows only http(s), our own relative
+                    # paths, or image data: URLs - blocks javascript:/vbscript:/
+                    # other schemes from an LLM/admin-supplied spec.
                     if not _preview_src_ok(src):
                         continue
                     label = _html.escape(str(
@@ -1556,7 +1587,10 @@ class EtpAssessmentPromptQuestion(models.Model):
             if rec.question_type == "image_label":
                 rec._apply_authored_label_key(q)
             rec.write({"state": "approved", "approved_question_id": q.id})
-        self._log_drafts_to_generators(drafts, "approved")
+        # action_approve_all_drafts posts its own rollup, so it suppresses this
+        # per-call log to avoid one note per draft.
+        if not self.env.context.get("skip_approval_log"):
+            self._log_drafts_to_generators(drafts, "approved")
         return True
 
     def _log_drafts_to_generators(self, drafts, verb):
@@ -2157,12 +2191,11 @@ class EtpAssessmentPromptQuestion(models.Model):
         return True
 
     def _plant_defects_on_render(self, images):
-        """DEFECT form (q7r) true-by-construction render. The rendered 'single'
-        image is the CLEAN base; plant every defect with PIL at a known pixel and
-        stamp the numbered marker on the ACTUAL drawn region, then write the
-        worker-facing original (with defects, NO markers) as the stimulus and the
-        annotated (with markers) as the answer-key overlay. The answer key is true
-        by construction, so no marker ever lands on empty space."""
+        """DEFECT form (q7r) true-by-construction render: the rendered 'single'
+        image is the CLEAN base. Plant each defect with PIL at a known pixel and
+        stamp the marker on the ACTUAL drawn region, then store the worker-facing
+        original (defects, no markers) as stimulus and the annotated (markers) as
+        the answer key - true by construction, so no marker lands on empty space."""
         import base64 as _b64
         import json as _json
         self.ensure_one()
@@ -2221,23 +2254,19 @@ class EtpAssessmentPromptQuestion(models.Model):
             return images
         # DEFECT form (q7r): a defect plan means the rendered image is the CLEAN
         # base; plant each defect and stamp the marker on the ACTUAL drawn region
-        # (true by construction — no misplaced labels).
+        # (true by construction, no misplaced labels).
         if (self.defect_plan_json or "").strip():
             return self._plant_defects_on_render(images)
         if (self.source_url or "").strip():
             if self._capture_source_url_on_render(images):
                 return images
             return self._draw_dense_preview(images)
-        # SYNTHETIC image (model-rendered, no live page): DETECT-AFTER-RENDER
-        # (research renderers/ui.py). We do NOT draw the generator's guessed
-        # `label_boxes_json` here — those coordinates were authored by the TEXT
-        # model before the screenshot existed, so they never align with the
-        # rendered pixels (the "labels at the wrong positions" bug). The box
-        # GEOMETRY must come from vision detection on the actual render; the
-        # authored behavioural key (per-box functionality) is preserved
-        # independently and reconciled against the detected boxes. Previously an
-        # authored behavioural_key_json short-circuited detection and shipped the
-        # guessed boxes — that is exactly what produced misplaced labels.
+        # SYNTHETIC image (model-rendered, no live page): DETECT-AFTER-RENDER.
+        # Do NOT draw the generator's guessed `label_boxes_json` - those coords
+        # were authored by the TEXT model before the screenshot existed, so they
+        # never align with the rendered pixels (the "labels at wrong positions"
+        # bug). Geometry must come from vision detection on the actual render; the
+        # authored behavioural key is preserved and reconciled separately.
         QImage = self.env["etp.assessment.pro.question.image"]
         ui = (self.detection_mode == "ui")
         for spec in images:
@@ -2380,7 +2409,7 @@ class EtpAssessmentPromptQuestion(models.Model):
     def _cron_render_pending_images(self):
         """The advisory lock must stay SESSION-level: an xact lock would release
         at the first per-draft commit. Commit per draft so an Odoo cron-timeout
-        kill cannot roll back — and re-pay for — images already rendered."""
+        kill cannot roll back (and re-pay for) images already rendered."""
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_IMAGE_RENDER,))
         if not self.env.cr.fetchone()[0]:
@@ -2729,9 +2758,9 @@ class EtpAssessmentPromptResource(models.Model):
             elif (rec.extracted_text or "").strip():
                 rec.status = "ready"
             elif ext in NATIVE_DOC_EXTENSIONS:
-                # _extract_text() deliberately returns empty-with-no-error for these:
-                # they go to the model as inline document parts. Reporting them as
-                # "pending" left a permanent amber dot on a perfectly good PDF.
+                # _extract_text() returns empty-with-no-error for these (sent to
+                # the model as inline parts); reporting "pending" left a permanent
+                # amber dot on a perfectly good PDF.
                 rec.status = "native"
             else:
                 rec.status = "pending"
@@ -2744,7 +2773,7 @@ class EtpAssessmentPromptResource(models.Model):
         try:
             from defusedxml.ElementTree import fromstring as _xml_fromstring
         except ImportError as exc:
-            # H-12: do NOT silently fall back to stdlib xml.etree — it is exposed
+            # H-12: do NOT silently fall back to stdlib xml.etree - it is exposed
             # to billion-laughs entity expansion on an attacker .docx. defusedxml
             # is a declared manifest dependency; if it is missing, fail loudly.
             raise RuntimeError(

@@ -35,17 +35,15 @@ _logger = logging.getLogger(__name__)
 
 _IMAGE_OR_VIDEO_TYPES = frozenset(_IMAGE_TYPES | _VIDEO_TYPES)
 
-# The deterministic defect-injection ops the true-by-construction image_label
-# (q7r) renderer supports. Single source of truth shared by the generation
-# contract, the item validator, and services/defect_render.py (_OPS).
+# Defect-injection ops the true-by-construction image_label (q7r) renderer
+# supports. Single source of truth for the gen contract, validator, defect_render.
 _DEFECT_OPS = frozenset({
     "garbled_card", "text_card", "garbled_words", "float_copy",
     "smear", "warp", "smooth", "shadow",
 })
 
-# Internal-taxonomy label the generator sometimes prepends to a question title
-# (e.g. "Rule Application: ...", "Skill Probe: ..."). Stripped at draft-build so
-# titles stay plain and candidate-facing. Keeps the "Task:" prefix (meaningful).
+# Strips an internal-taxonomy label the generator sometimes prepends to a title
+# (e.g. "Rule Application: ...") so titles stay candidate-facing. Keeps "Task:".
 _JARGON_NAME_PREFIX_RE = re.compile(
     r"^\s*(?:rule\s+application|skill\s+probe|skill\s+check|fact\s+recall|"
     r"knowledge\s+check|assessment\s+question|assessment|concept\s+check|"
@@ -134,10 +132,9 @@ def _httpx():
     if _HTTPX_CLIENT is None:
         import httpx
         _HTTPX_CLIENT = httpx.Client(
-            # write=180: a large SOP (a 6MB+ PDF becomes ~8MB base64 on the wire)
-            # can exceed a short write timeout on a slow uplink and abort the whole
-            # generation with WriteTimeout. read=180 covers the thinking model's
-            # long generateContent latency.
+            # write=180: a large SOP (~8MB base64 on the wire) can exceed a short
+            # write timeout on a slow uplink and abort with WriteTimeout. read=180
+            # covers the thinking model's long generateContent latency.
             timeout=httpx.Timeout(connect=30, read=180, write=180, pool=30),
             limits=httpx.Limits(max_keepalive_connections=20,
                                 max_connections=50))
@@ -180,8 +177,8 @@ def _minted_bearer(env):
     sa = json.loads(sa_json)
     # M-5: the JWT assertion (signed with the SA private key) is POSTed to
     # sa["token_uri"]. A tampered SA JSON could point token_uri at an attacker
-    # host and exfiltrate a valid Google-signed assertion. Pin it to Google's
-    # OAuth token endpoints before signing anything.
+    # host to exfiltrate a valid Google-signed assertion; pin it to Google's
+    # OAuth endpoints before signing.
     token_uri = (sa.get("token_uri") or "").strip()
     _allowed_token_hosts = ("oauth2.googleapis.com",
                             "accounts.google.com",
@@ -366,12 +363,11 @@ def _log_usage(env, model, usage_meta, image_count, ctx):
             image_count or 0, vsec, cost,
             (ctx.get("note") or "")[:60])
     except Exception as exc:
-        # NEVER swallow a billing-accounting failure silently: the Vertex call
-        # already happened and Google WILL bill for it, so a lost usage row means
-        # the LLM-budget dashboard silently under-reports real spend. Log loudly
-        # with the estimated cost so a human can reconcile against the Vertex
-        # invoice; still swallow (don't crash the scoring/gen path on a logging
-        # DB hiccup), but the money is now traceable, not invisible.
+        # NEVER swallow a billing-accounting failure silently: Google WILL bill
+        # for the call that already happened, so a lost usage row makes the
+        # LLM-budget dashboard under-report real spend. Log loudly with the
+        # estimated cost for invoice reconciliation, but still swallow so a
+        # logging-DB hiccup can't crash the scoring/gen path.
         try:
             _est = (_estimate_video_cost(model, float((ctx or {}).get(
                         "video_seconds") or 0.0))
@@ -434,10 +430,9 @@ def _apply_thinking_budget(gen_config, model):
 _MAX_OUTPUT_TOKENS_CEILING = 64000
 
 # C-2: the MAX_TOKENS / bad-JSON retry doubles maxOutputTokens AND re-sends the
-# whole (candidate-controlled) input. Left unbounded that is a cost-DoS lever, so
-# the retry is capped hard here — 16k output covers any legitimate scoring or
-# generation JSON (8 items * ~2k tokens) with headroom, while denying an
-# adversary a 64k-token doubled retry on a payload they crafted to overflow.
+# whole candidate-controlled input, an unbounded cost-DoS lever. Cap it hard:
+# 16k output covers any legitimate scoring/gen JSON (8 items * ~2k tokens) with
+# headroom while denying an adversary a 64k-token doubled retry.
 _RETRY_OUTPUT_TOKENS_CEILING = 16000
 
 # Billed per generated token, so this high cap costs nothing on short outputs.
@@ -577,17 +572,15 @@ class VertexQuotaError(RuntimeError):
 class VertexBudgetError(RuntimeError):
     """A per-day or per-candidate LLM spend cap would be exceeded by this call.
 
-    Raised BEFORE the HTTP request so no money is spent. Not transient: the
-    admin must raise the cap or wait for the daily window to roll over. Callers
-    surface it like a refusal (the response resolves to error, not a silent
-    partial)."""
+    Raised BEFORE the HTTP request so no money is spent. Not transient: the admin
+    must raise the cap or wait for the daily window. Callers surface it like a
+    refusal (response resolves to error, not a silent partial)."""
 
 
-# H-5: default spend caps (USD). Data-driven — overridable per deployment via
-# ir.config_parameter, ON by default so a fresh install is protected without any
-# flag to remember. 0 disables a cap. Defaults are generous for a real cohort
-# (300 candidates * a few subjective Qs is well under $100/day) but stop the
-# unbounded-input / retry-doubling cost-DoS dead.
+# H-5: default spend caps (USD), overridable per deployment via ir.config_parameter
+# and ON by default so a fresh install is protected. 0 disables a cap. Defaults
+# are generous for a real cohort but stop the unbounded-input / retry-doubling
+# cost-DoS dead.
 _DEFAULT_DAILY_LLM_CAP_USD = 100.0
 _DEFAULT_PER_EVALUATOR_LLM_CAP_USD = 5.0
 
@@ -612,9 +605,9 @@ def _spend_since(env, domain):
 
 def _check_budget(env, usage_ctx):
     """Refuse a Vertex call that would push same-day or per-candidate LLM spend
-    over the configured cap. Uses the persisted usage ledger (actual recorded
-    cost, not an estimate) so the gate is honest even across workers. Called at
-    the top of every _call_vertex, before any billable HTTP request."""
+    over the configured cap. Reads the persisted usage ledger (actual recorded
+    cost) so the gate stays honest across workers. Called at the top of every
+    _call_vertex, before any billable HTTP request."""
     ctx = usage_ctx or {}
     daily_cap = _spend_cap(env, "daily_llm_cap_usd", _DEFAULT_DAILY_LLM_CAP_USD)
     if daily_cap > 0:
@@ -644,7 +637,7 @@ def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
     import httpx
     model = _vertex_image_model(env)
     url, headers = _gemini_request(env, model, "generateContent")
-    # H-5: image render is billable too — honour the spend caps before the call.
+    # H-5: image render is billable too; honour the spend caps before the call.
     _check_budget(env, usage_ctx)
     prompt_text = image_prompt or ""
     if aspect_hint:
@@ -734,7 +727,7 @@ def _brief_prompt_text(brief):
 
 def submit_video_op(env, brief, *, model=None, location=None, duration_s=None,
                     aspect="16:9", prompt_id=None):
-    """Veo 404s on the 'global' location — never reuse the gemini location here."""
+    """Veo 404s on the 'global' location; never reuse the gemini location here."""
     model = model or _video_model(env)
     location = location or _video_location(env)
     bearer = _minted_bearer(env) or _vertex_bearer(env)
@@ -873,7 +866,15 @@ def _extract_json_array(text):
     text = re.sub(r"^```(?:json)?", "", text).strip()
     text = re.sub(r"```$", "", text).strip()
     try:
-        return _unwrap_json_list(json.loads(text))
+        out = _unwrap_json_list(json.loads(text))
+        if isinstance(out, list):
+            return out
+        # A lone JSON object (not wrapped in a known list key) parses fine but is
+        # NOT a list; callers doing `[it for it in ... if isinstance(it, dict)]`
+        # would iterate the dict's string KEYS -> zero items. Wrap it as a
+        # one-item list, mirroring the regex branch below.
+        if isinstance(out, dict):
+            return [out]
     except Exception:
         pass
     for pattern in (r"\[.*\]", r"\{.*\}"):
@@ -883,6 +884,8 @@ def _extract_json_array(text):
                 out = _unwrap_json_list(json.loads(m.group(0)))
                 if isinstance(out, list):
                     return out
+                if isinstance(out, dict):
+                    return [out]
             except Exception:
                 pass
     salvaged = _salvage_json_objects(text)
@@ -1510,10 +1513,9 @@ def _image_label_draft_fields(specs):
     vals = {}
     _apply_capture_directives(specs, vals)
     # DEFECT form (q7r): a base_prompt + defects[] means true-by-construction
-    # injection — capture the plan so the render path plants each defect and
-    # stamps the marker on the ACTUAL drawn region (defect_render.plant). This is
-    # the faithful single-image defect-annotation lane; the DENSE/box lane below
-    # is for UI-control labelling.
+    # injection. Capture the plan so the render path plants each defect and stamps
+    # the marker on the ACTUAL drawn region (defect_render.plant). The DENSE/box
+    # lane below is for UI-control labelling instead.
     base_prompt = str(specs.get("base_prompt") or "").strip()
     raw_defects = specs.get("defects")
     if base_prompt and isinstance(raw_defects, list) and raw_defects:
@@ -1659,7 +1661,7 @@ def render_draft_images(env, briefs, usage_ctx=None, only_slot=None):
                 "data": "data:%s;base64,%s" % (mime, b64),
             })
         except VertexQuotaError as exc:
-            # Money safety: hand back the already-paid slots to re-render only the rest.
+            # Money safety: hand back already-paid slots so only the rest re-render.
             exc.partial = images
             raise
         except Exception as exc:
@@ -1953,7 +1955,7 @@ def _validate_question_item(it, qtype, ab_dims=None):
             errs.append("video_prompt needs answer_key with ideal_prompt")
     elif qtype == "image_label":
         specs = it.get("image_specs") or {}
-        # DEFECT form (q7r) — true by construction: a base_prompt + a non-empty
+        # DEFECT form (q7r) - true by construction: a base_prompt + a non-empty
         # defects[] plan with valid ops is a complete, self-contained image_label
         # item (the platform renders the clean base then plants each defect). This
         # is the FAITHFUL single-image defect-annotation lane and needs neither a
@@ -1998,8 +2000,8 @@ def _generation_model(env):
 
 
 def _scoring_model(env):
-    """NEVER fall back to vertex_model: it is the image model on this deployment,
-    and grading through it is wrong, expensive and image-quota-bound."""
+    """NEVER fall back to vertex_model: on this deployment it is the image model,
+    so grading through it is wrong, expensive and image-quota-bound."""
     return _param(env, "etp_assessment_pro.scoring_model") \
         or _param(env, "etp_assessment_pro.generation_model") \
         or GENERATION_DEFAULT_MODEL
@@ -2015,7 +2017,7 @@ _SOP_MIME_BY_EXT = {
 
 def _inline_doc_part(name, data, default_mime="application/pdf"):
     """An Odoo Binary field already holds base64, which is exactly Gemini's
-    inlineData — do not re-encode."""
+    inlineData; do not re-encode."""
     import base64
     if not data:
         return None
@@ -2025,8 +2027,7 @@ def _inline_doc_part(name, data, default_mime="application/pdf"):
     if mime == "application/pdf":
         # M-6: verify the PDF magic properly. base64 decodes in 3-byte/4-char
         # groups, so slice on a 4-char boundary and require the "%PDF-" signature
-        # at offset 0 (a real PDF always starts with "%PDF-1.x"), not merely
-        # "%PDF" somewhere in a loosely-decoded head.
+        # at offset 0, not merely "%PDF" somewhere in a loosely-decoded head.
         try:
             _b64head = (raw or "")[:16]
             _b64head = _b64head[:len(_b64head) // 4 * 4]  # whole base64 groups
@@ -2045,8 +2046,7 @@ _SOP_TEXT_EXTS = frozenset({"docx", "txt", "md", "markdown", "csv",
 
 
 def _sop_doc_parts(resources):
-    """docx/text cannot be sent to Gemini as inlineData; they must be extracted to
-    a text part."""
+    """docx/text can't be sent to Gemini as inlineData; extract to a text part."""
     parts = []
     for res in resources.sorted("sequence"):
         ext = (res.name or "").rsplit(".", 1)[-1].lower() if "." in (res.name or "") else ""
@@ -2070,10 +2070,9 @@ def _sop_doc_parts(resources):
 def _sample_doc_parts(prompt_record):
     """Sample-question files, newest storage first.
 
-    Sample questions ride the same resource pipeline as the SOP and reference files
-    (category "sample"), so they show up under Resources like everything else. The
-    sample_questions_file fallback stays for records saved before that switch,
-    whose bytes still live on the old field.
+    Samples ride the same resource pipeline as SOP/reference files (category
+    "sample"). The sample_questions_file fallback stays for records saved before
+    that switch, whose bytes still live on the old field.
     """
     parts = []
     for res in getattr(prompt_record, "resource_ids", []) or []:
@@ -2122,9 +2121,9 @@ def _facet_vocabulary_note(env):
     try:
         vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
     except Exception as exc:  # noqa: BLE001
-        # A silent "" here strips the tag-vocabulary steering from the
-        # generation directive, so the model can invent off-taxonomy facets
-        # with no trace. Degrade gracefully, but log why.
+        # A silent "" here strips tag-vocabulary steering from the directive, so
+        # the model can invent off-taxonomy facets with no trace. Degrade
+        # gracefully, but log why.
         _logger.warning(
             "generation: facet vocabulary unavailable (%s); "
             "proceeding without vocab steering", repr(exc)[:160])
@@ -2184,7 +2183,7 @@ def _extract_solutions(raw):
 
 
 def _attach_solutions(items, sols, prompt_id):
-    """Match by reference, else positionally ONLY on an exact 1:1 — never guess:
+    """Match by reference, else positionally ONLY on an exact 1:1; never guess:
     a mis-keyed solution grades a worker against another question's answer key."""
     if not (items and sols):
         return
@@ -2235,15 +2234,15 @@ def _attach_solutions(items, sols, prompt_id):
 def _extract_metadata_object(text):
     """Pull just the metadata {...} object out of a possibly-truncated envelope.
 
-    The envelope emits metadata FIRST, so even when questions/solutions are cut off
-    by MAX_TOKENS the metadata block is usually complete. A whole-string json.loads
-    (and the greedy {.*} fallback) both fail on a truncated tail, silently losing
-    the SOP grounding (evidence quotes, required_elements). This does a balanced
-    brace scan from the "metadata" key so grounding survives truncation."""
+    The envelope emits metadata FIRST, so it usually survives a MAX_TOKENS cut
+    that drops questions/solutions. A whole-string json.loads (and the greedy
+    {.*} fallback) both fail on a truncated tail and silently lose SOP grounding;
+    a balanced brace scan from the "metadata" key recovers it.
+    """
     m = re.search(r'"metadata"\s*:\s*\{', text)
     if not m:
         return None
-    start = m.end() - 1  # the opening brace of the metadata object
+    start = m.end() - 1  # opening brace of the metadata object
     depth = 0
     in_str = False
     esc = False
@@ -2290,9 +2289,9 @@ def _capture_sop_metadata(env, prompt_record, raw):
                         meta = obj.get("metadata")
                 except Exception:  # noqa: BLE001
                     meta = None
-        # Truncation-robust fallback: the envelope truncated after metadata, so a
-        # whole-object parse failed — recover the (complete) metadata block alone
-        # so evidence quotes and required_elements are never silently lost.
+        # Truncation-robust fallback: recover the (complete) metadata block alone
+        # when a whole-object parse failed, so evidence quotes and
+        # required_elements are never silently lost.
         if not isinstance(meta, dict):
             meta = _extract_metadata_object(text)
         if not isinstance(meta, dict):
@@ -2303,10 +2302,9 @@ def _capture_sop_metadata(env, prompt_record, raw):
             return json.dumps(v, ensure_ascii=False) if isinstance(v, list) and v else False
 
         vals = {"metadata_json": json.dumps(meta, ensure_ascii=False)}
-        # The model sometimes emits `evidence` as a dict keyed by concept
-        # ({"where_to_click": "<quote>"}) instead of the canonical list of
-        # {id, quote, supports}. Normalize to the list form so the grounding lands
-        # in the queryable evidence_json field (not just the raw metadata blob).
+        # The model sometimes emits `evidence` as a dict keyed by concept instead
+        # of the canonical list of {id, quote, supports}. Normalize to the list
+        # form so grounding lands in the queryable evidence_json field.
         ev = meta.get("evidence")
         if isinstance(ev, dict) and ev:
             meta["evidence"] = [
@@ -2390,25 +2388,23 @@ def _allowed_types_directive(allowed, count, ab_dims=None):
 
 
 def _single_type_contract_note(qtype):
-    """The output-shape contract for ONE question type (text or image), ready to
-    append to a forced-single-type top-up directive so the returned items carry
-    the exact answer-key / image_specs shape that type's validator requires.
-    Falls back cleanly to '' for a type with no special contract."""
+    """Output-shape contract for ONE question type, ready to append to a
+    forced-single-type top-up directive so returned items carry the exact
+    answer-key / image_specs shape that type's validator requires. Falls back to
+    '' for a type with no special contract."""
     if qtype in _IMAGE_OR_VIDEO_TYPES:
         return _image_contracts_note(_ab_fallback_dims(), types=(qtype,))
     return _text_contracts_note((qtype,))
 
 
 def _missing_allowed_types(allowed, items, ab_dims=None):
-    """Selected types that NO SURVIVING item carries yet, in the admin's
-    allow-list order. This is the coverage invariant the type-coverage self-heal
-    stage closes: an allow-list is a REQUEST for each of those types, not merely
-    a filter against the others, so a type the batch skipped is a gap to fill.
+    """Selected types that NO SURVIVING item carries yet, in allow-list order. An
+    allow-list is a REQUEST for each type, not merely a filter, so a skipped type
+    is a gap to fill.
 
-    Coverage is measured on items that would actually PERSIST - an item is
-    counted for its type only if it resolves in-list AND passes that type's
-    validator. A malformed image_ab (dropped later at create) therefore does NOT
-    mask the image_ab gap; without this the fill would never fire for it."""
+    Coverage counts only items that would PERSIST (resolve in-list AND pass the
+    type's validator), so a malformed image_ab does not mask its own gap.
+    """
     if not allowed:
         return []
     present = set()
@@ -2419,19 +2415,17 @@ def _missing_allowed_types(allowed, items, ab_dims=None):
         if qt is None or qt in present:
             continue
         if _validate_question_item(it, qt, ab_dims=ab_dims):
-            continue  # malformed for its type -> would be dropped at create
+            continue  # malformed for its type -> dropped at create
         present.add(qt)
     return [t for t in allowed if t not in present]
 
 
 def _trim_preserving_type_coverage(items, count, allowed, ab_dims=None):
-    """Trim ITEMS down to COUNT WITHOUT re-dropping a selected type that only has
-    one representative. A naive items[:count] slice can delete the sole msq/rubric
-    the type-coverage stage just fought to add (they arrive LAST), silently
-    re-introducing the very gap we closed. This keeps the FIRST surviving item of
-    each allowed type first (so every covered selected type keeps >=1 slot when
-    count allows), then fills the remaining slots with the rest in original order
-    for stability. With no allow-list it degrades to a stable head slice."""
+    """Trim ITEMS to COUNT without re-dropping a selected type that has only one
+    representative. A naive items[:count] slice can delete the sole msq/rubric the
+    type-coverage stage just added (they arrive LAST), re-opening the gap. Keeps
+    the FIRST surviving item of each allowed type, then fills remaining slots in
+    original order. Degrades to a stable head slice with no allow-list."""
     if count <= 0 or len(items) <= count:
         return items
     protected = set()
@@ -2464,8 +2458,8 @@ def _resolve_item_type(item, allowed):
     shaped for the type the model chose, so a restamp can pass validation with the
     wrong answer-key shape."""
     raw = item.get("question_type")
-    # A non-string question_type (e.g. ["mcq"]) would raise TypeError: unhashable
-    # in the frozenset test and abort the whole batch.
+    # A non-string question_type (e.g. ["mcq"]) is unhashable -> TypeError in the
+    # frozenset test, aborting the whole batch.
     qtype = raw if isinstance(raw, str) and raw in _QUESTION_TYPES else None
     if not allowed:
         return qtype or "mcq"
@@ -2489,10 +2483,9 @@ def _item_title(it):
 
 
 def _uncovered_elements(prompt_record, items):
-    """[(id, description)] for the SOP's required_elements that no item's
+    """[(id, description)] for the SOP's required_elements no item's
     covers_elements references yet. Reads the profile captured on the generator
-    (required_elements_json), so coverage is measured against what the SOP said it
-    needed - the same signal the harness targets its top-up passes at."""
+    (required_elements_json), the same signal the harness targets top-ups at."""
     try:
         req = json.loads(prompt_record.required_elements_json or "[]")
     except Exception:  # noqa: BLE001
@@ -2518,16 +2511,14 @@ def _uncovered_elements(prompt_record, items):
 
 def _topup_items(env, model, system_prompt, base_parts, existing, want,
                  allowed, target_elements=None, usage_ctx=None, force_type=None):
-    """Request WANT more items when the primary run came up short (early
-    truncation) or to close a coverage gap. Passes the titles already authored so
-    the model does not duplicate, and asks for exactly the shortfall. Returns raw
-    item dicts (with any solutions attached); the caller's validate/create loop
-    is the single gate that shapes and persists them.
+    """Request WANT more items when the primary run came up short (truncation) or
+    to close a coverage gap. Passes the titles already authored so the model does
+    not duplicate. Returns raw item dicts (with any solutions attached); the
+    caller's validate/create loop is the single gate that shapes and persists.
 
     When ``force_type`` is set the request is HARD-pinned to that single type
-    (used by the type-coverage stage to fill a selected-but-missing type): the
-    allow-clause forces exactly that type and carries that type's output
-    contract, so the returned items validate as ``force_type``."""
+    (used by the type-coverage stage) and carries that type's output contract, so
+    returned items validate as ``force_type``."""
     made = [{"name": _item_title(q), "question_type": q.get("question_type")}
             for q in existing]
     focus = ""
@@ -2576,9 +2567,9 @@ def _topup_items(env, model, system_prompt, base_parts, existing, want,
 
 def _backfill_solutions(env, model, base_parts, items, usage_ctx=None):
     """Regenerate answer keys from the FINALIZED items in a dedicated bounded
-    call. Solutions are emitted LAST in the envelope, so a big-metadata SOP that
-    truncates drops them first; this guarantees one keyed answer per item on its
-    own token budget. Attaches results in place; returns the count backfilled."""
+    call. Solutions are emitted LAST in the envelope, so a big-metadata SOP drops
+    them first on truncation; this guarantees one keyed answer per item on its own
+    token budget. Attaches in place; returns the count backfilled."""
     slim = []
     for it in items:
         keep = {k: it.get(k) for k in ("name", "prompt", "question_type")
@@ -2615,10 +2606,9 @@ def _backfill_solutions(env, model, base_parts, items, usage_ctx=None):
 
 def _critique_revise(env, model, base_parts, items, usage_ctx=None):
     """Strict second-opinion audit of the assembled answer keys against the SOP.
-    Only answer-key corrections are auto-applied (safe - no media change); item /
-    prompt issues are logged. This is the main content-quality lever, and the
-    discipline that catches a wrong or ambiguous key before candidates sit it.
-    Returns the list of flagged issues."""
+    Only answer-key corrections are auto-applied (safe, no media change); item /
+    prompt issues are logged. The main content-quality lever: catches a wrong or
+    ambiguous key before candidates sit it. Returns the flagged issues."""
     pack = []
     for it in items:
         keep = {k: it.get(k) for k in ("name", "prompt", "question_type")
@@ -2660,7 +2650,7 @@ def _critique_revise(env, model, base_parts, items, usage_ctx=None):
             issues = obj["issues"]
     except Exception:  # noqa: BLE001
         pass
-    # Only apply a fully-aligned 1:1 correction set - never a partial remap that
+    # Only apply a fully-aligned 1:1 correction set, never a partial remap that
     # could key an answer to the wrong item.
     if isinstance(corr, list) and len(corr) == len(items):
         for it in items:
@@ -2674,9 +2664,9 @@ def _selfheal_generation(env, prompt_record, items, base_parts, system_prompt,
                          model, count, allowed):
     """Harness-aligned robustness layer over a raw generation result: top up a
     short/truncated batch (targeting uncovered SOP elements), COVER every selected
-    question type the batch skipped, backfill any missing answer keys, then a
-    critique pass to correct wrong/ambiguous keys. Each stage is config-gated and
-    best-effort - a failure here never sinks the base batch."""
+    type the batch skipped, backfill missing answer keys, then a critique pass to
+    correct wrong/ambiguous keys. Each stage is config-gated and best-effort; a
+    failure here never sinks the base batch."""
     prompt_id = prompt_record.id
     base = {"operation": "generate_questions", "prompt_id": prompt_id}
     ab_dims = _ab_fallback_dims()
@@ -2698,13 +2688,11 @@ def _selfheal_generation(env, prompt_record, items, base_parts, system_prompt,
             if not new_items:
                 break
             items += new_items
-    # TYPE-COVERAGE STAGE (the reported defect's fix): an allow-list is a REQUEST
-    # for EACH selected type, not merely a filter against the others. The count
-    # top-up above only closes a shortfall, so a batch that already met the count
-    # using a SUBSET of the selected types (screenshot: 7 items spanning 3 of 7
-    # selected types) still leaves types uncovered. Force one bounded, hard-typed
-    # top-up per missing type; the diversity-preserving trim below then keeps each
-    # newly-covered type when capping back to count.
+    # TYPE-COVERAGE STAGE (the reported defect's fix): an allow-list REQUESTS each
+    # selected type, not merely filters the others. The count top-up above only
+    # closes a shortfall, so a batch that met the count using a SUBSET of selected
+    # types still leaves types uncovered. Force one bounded, hard-typed top-up per
+    # missing type; the diversity-preserving trim below keeps each when capping.
     if _selfheal_enabled(env) and allowed:
         missing = _missing_allowed_types(allowed, items, ab_dims=ab_dims)
         if missing:
@@ -2725,12 +2713,10 @@ def _selfheal_generation(env, prompt_record, items, base_parts, system_prompt,
                 _logger.warning(
                     "etp_assessment type-coverage: no usable %s item returned; "
                     "selected type stays uncovered on prompt %s", qt, prompt_id)
-    # One final cap. Never exceed the requested count, but trim so a selected type
-    # with a SINGLE representative (the ones the coverage stage just added, which
-    # land LAST) is not re-dropped by a naive items[:count] slice - that would
-    # silently re-open the gap we just closed. count>=n_types is guaranteed by the
-    # form floor, so one-per-covered-type always fits. Solutions ride on each item
-    # dict, so the trim keeps every kept item's answer key intact.
+    # Final cap. Trim so a selected type with a SINGLE representative (the ones the
+    # coverage stage just added, which land LAST) is not re-dropped by a naive
+    # items[:count] slice, which would re-open the gap. count>=n_types is
+    # guaranteed by the form floor. Solutions ride on each item dict, so keys stay.
     if count and len(items) > count:
         items = _trim_preserving_type_coverage(
             items, count, allowed, ab_dims=ab_dims)
@@ -2771,8 +2757,7 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             "No SOP document or notes to generate from — upload a SOP file first.")
     system_prompt = _get_question_prompt(env)
     model = _generation_model(env)
-    # Stamp every draft from this call with one run id so the UI can group and
-    # label "the batch I just triggered".
+    # One run id per call so the UI can group "the batch I just triggered".
     gen_batch = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     allowed = tuple(dict.fromkeys(allowed_types or ()))
     unknown = [t for t in allowed
@@ -2864,8 +2849,8 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
             items = []
     # Harness-aligned self-heal: top up a short/truncated batch (targeting
     # uncovered SOP elements), backfill missing answer keys, then a critique pass
-    # that corrects wrong/ambiguous keys before any draft is persisted. All stages
-    # are config-gated and best-effort - never sink the base batch.
+    # that corrects wrong/ambiguous keys before any draft persists. All stages are
+    # config-gated and best-effort; never sink the base batch.
     if items:
         try:
             items = _selfheal_generation(
@@ -2880,9 +2865,8 @@ def generate_questions_from_sop(env, prompt_record, sample_text="", count=0,
     dropped_out_of_scope = 0
     for it in items:
         name = (it.get("name") or it.get("title") or "").strip()
-        # Strip internal-taxonomy prefixes the generator sometimes prepends to a
-        # title (e.g. "Rule Application: Where to click", "Skill Probe: ...").
-        # These read as jargon to a candidate/admin; keep the plain question.
+        # Strip internal-taxonomy prefixes the generator prepends (e.g. "Rule
+        # Application: ...") - jargon to a candidate/admin; keep the plain question.
         name = _JARGON_NAME_PREFIX_RE.sub("", name).strip()
         prompt_text = (it.get("prompt") or "").strip()
         if not name and not prompt_text:
@@ -2993,9 +2977,8 @@ def _get_tag_prompt(env):
 
 
 def _render_vocabulary_block(env):
-    """Frequency-ranked existing vocabulary, so runs CONVERGE on popular values
-    instead of minting near-duplicates (drift fix). Data-driven from live tags;
-    no hardcoded synonym map."""
+    """Frequency-ranked existing vocabulary so runs CONVERGE on popular values
+    instead of minting near-duplicates (drift fix). Data-driven from live tags."""
     vocab = env["etp.assessment.pro.tag"].sudo()._facet_vocabulary()
     if not vocab:
         return "(none yet - this is an early project; coin clean values.)"
@@ -3012,9 +2995,8 @@ def _render_vocabulary_block(env):
 
 
 def _capture_knowledge_profile(env, prompt_record, obj):
-    """Persist the knowledge_profile object onto the prompt's existing metadata
-    fields (no inert blob surfaced to end users; every artifact a queryable
-    field). Mirrors _capture_sop_metadata's field mapping."""
+    """Persist the knowledge_profile object onto the prompt's queryable metadata
+    fields (no inert blob for end users). Mirrors _capture_sop_metadata's map."""
     kp = obj.get("knowledge_profile") if isinstance(obj, dict) else None
     if not isinstance(kp, dict):
         return {}
