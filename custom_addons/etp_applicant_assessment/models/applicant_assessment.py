@@ -605,16 +605,48 @@ class EtpApplicantAssessment(models.Model):
         for rec in self:
             if rec.state != "submitted":
                 continue
+            # Force fresh recompute so stale final_score can't fail the pass check.
+            rec.answer_ids.flush_recordset()
+            rec.invalidate_recordset(
+                ["objective_score", "warning_penalty",
+                 "final_score", "has_pending_review"]
+            )
             if rec.has_pending_review:
+                _logger.info(
+                    "action_score: assessment=%s left in submitted state "
+                    "(has_pending_review=True)",
+                    rec.id,
+                )
                 continue
             rec.state = "scored"
             applicant = rec.applicant_id
             if applicant:
-                passed = (rec.final_score or 0.0) >= (rec.pass_mark_percent or 0.0)
-                applicant.status = (
+                final_score = rec.final_score or 0.0
+                pass_mark = rec.pass_mark_percent or 0.0
+                passed = final_score >= pass_mark
+                new_status = (
                     "assessment_passed" if passed
                     else "assessment_rejected"
                 )
+                applicant_sudo = applicant.sudo()
+                try:
+                    applicant_sudo.write({"status": new_status})
+                    applicant_sudo.flush_recordset(["status"])
+                    _logger.info(
+                        "action_score: applicant=%s status set to %s "
+                        "(final_score=%.2f pass_mark=%.2f) assessment=%s",
+                        applicant.id, new_status, final_score,
+                        pass_mark, rec.id,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Failed to set applicant status to %s for "
+                        "applicant=%s assessment=%s "
+                        "(final_score=%.2f pass_mark=%.2f "
+                        "current status=%s)",
+                        new_status, applicant.id, rec.id,
+                        final_score, pass_mark, applicant.status,
+                    )
             rec._send_result_email()
         return True
 
@@ -911,18 +943,50 @@ class EtpApplicantAssessment(models.Model):
         for rec in self:
             if rec.state != "submitted":
                 continue
+            # Force fresh recompute so stale final_score can't fail the pass check.
+            rec.answer_ids.flush_recordset()
+            rec.invalidate_recordset(
+                ["objective_score", "warning_penalty",
+                 "final_score", "has_pending_review"]
+            )
             if rec.has_pending_review:
+                _logger.info(
+                    "_finalize_scoring_after_llm_qc: assessment=%s left in "
+                    "submitted state (has_pending_review=True, "
+                    "llm_qc_state=%s)",
+                    rec.id, rec.llm_qc_state,
+                )
                 continue
             rec.state = "scored"
             applicant = rec.applicant_id
             if applicant:
-                passed = (
-                    (rec.final_score or 0.0) >= (rec.pass_mark_percent or 0.0)
-                )
-                applicant.sudo().status = (
+                final_score = rec.final_score or 0.0
+                pass_mark = rec.pass_mark_percent or 0.0
+                passed = final_score >= pass_mark
+                new_status = (
                     "assessment_passed" if passed
                     else "assessment_rejected"
                 )
+                applicant_sudo = applicant.sudo()
+                try:
+                    applicant_sudo.write({"status": new_status})
+                    applicant_sudo.flush_recordset(["status"])
+                    _logger.info(
+                        "_finalize_scoring_after_llm_qc: applicant=%s "
+                        "status set to %s (final_score=%.2f "
+                        "pass_mark=%.2f) assessment=%s",
+                        applicant.id, new_status, final_score,
+                        pass_mark, rec.id,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Failed to set applicant status to %s for "
+                        "applicant=%s assessment=%s "
+                        "(final_score=%.2f pass_mark=%.2f "
+                        "current status=%s)",
+                        new_status, applicant.id, rec.id,
+                        final_score, pass_mark, applicant.status,
+                    )
             if not rec.llm_qc_result_email_sent:
                 rec._send_llm_qc_result_email()
         return True
