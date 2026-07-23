@@ -1009,7 +1009,7 @@ class TestImageLabelInlineDetection(_Base):
 
     def test_source_url_draft_preview_boxed_from_dense_map_without_detect(self):
         # A source_url image whose live DOM capture is unavailable (Playwright off)
-        # falls back to the stored dense map for the ADMIN PREVIEW only — this is
+        # falls back to the stored dense map for the ADMIN PREVIEW only - this is
         # the source_url branch, unchanged by the label-position fix (which governs
         # SYNTHETIC images). Patch Playwright off so the test is deterministic and
         # never reaches the real page.
@@ -1439,7 +1439,7 @@ class TestImageLabelSourceUrlCapture(_Base):
     def test_fallback_detects_after_render_not_from_dense_map(self):
         # CORRECTED CONTRACT (label-position fix): the generator's dense map holds
         # coordinates the TEXT model guessed BEFORE the screenshot was rendered, so
-        # they never align with the image the IMAGE model actually drew — the cause
+        # they never align with the image the IMAGE model actually drew - the cause
         # of "labels at the wrong positions". When no live DOM capture is possible,
         # we now DETECT on the actual rendered pixels (research renderers/ui.py),
         # never draw the guessed boxes. So detection MUST run.
@@ -1515,8 +1515,8 @@ class TestImageLabelSourceUrlCapture(_Base):
         self.assertTrue(img.label_boxes_json)        # dense fallback map carried
         self.assertFalse(img.detections_json)        # capture-primary still runs
         # CORRECTED CONTRACT: with no live DOM capture available, the box geometry
-        # comes from DETECTION on the actual rendered pixels — not the generator's
-        # guessed dense map — so the labels land where the elements really are.
+        # comes from DETECTION on the actual rendered pixels - not the generator's
+        # guessed dense map - so the labels land where the elements really are.
         fake_dets = [
             {"box_2d": [40, 30, 90, 300], "label": "Search",
              "description": "Focuses the search field"},

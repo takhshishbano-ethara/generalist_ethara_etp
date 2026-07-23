@@ -156,7 +156,7 @@ class TestGenTypeFilterAndGate(TransactionCase):
 
     def test_non_string_item_question_type_does_not_crash_batch(self):
         # BUG 1 regression: a model item with a non-string question_type (e.g. a
-        # list) must NOT raise TypeError (unhashable) and abort the whole batch —
+        # list) must NOT raise TypeError (unhashable) and abort the whole batch  - 
         # it is dropped, the batch's other valid items still persist.
         prompt = self._prompt()
         bad = {"name": "bad", "prompt": "x", "question_type": ["mcq"]}
@@ -220,7 +220,7 @@ class TestAllowListReaderAndModel(TransactionCase):
 
     def test_vocabulary_code_is_unique(self):
         # The init() unique index on `code` makes a second row structurally
-        # impossible — a duplicate mirror of the closed enum is a bug.
+        # impossible - a duplicate mirror of the closed enum is a bug.
         from psycopg2 import IntegrityError
         QType = self.env["etp.assessment.pro.question.type"]
         with self.assertRaises(IntegrityError):
@@ -250,7 +250,7 @@ class TestCountGuardrails(TransactionCase):
                 "allowed_question_type_ids": [(6, 0, types.ids)]})
 
     def test_count_zero_with_types_is_exempt(self):
-        # 0 means "let the model decide the count" — never blocked by the floor.
+        # 0 means "let the model decide the count" - never blocked by the floor.
         types = self._qtypes(["mcq", "msq", "subjective_rubric"])
         rec = self.env["etp.assessment.pro.prompt"].create({
             "name": "zero", "sop_question_count": 0,

@@ -233,7 +233,7 @@ INTEGRITY_GATE_PATTERNS = [
     r"(?:1\.0|100|full|max(?:imum)?)",
     r"(?:score|grade)\s+(?:of\s+)?(?:1\.0|100)\b",
     # Spelled-out perfect-score coercion ("give me one hundred percent",
-    # "award a perfect score") — the numeric forms above miss the words.
+    # "award a perfect score") - the numeric forms above miss the words.
     r"(?:score|grade|marks?|credit|rating)\b.{0,40}?"
     r"(?:one\s+hundred|hundred\s+percent|perfect|full\s+marks)",
     r"(?:give|award|assign|grant)\b.{0,25}?(?:a\s+)?perfect\s+(?:score|grade|"

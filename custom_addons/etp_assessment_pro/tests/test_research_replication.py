@@ -61,7 +61,7 @@ class TestDefectRenderer(TransactionCase):
 
     def test_bad_op_is_dropped_never_marks_empty_space(self):
         # A defect whose op raises (impossible box) is dropped from the key and
-        # gets NO marker — a marker never sits on empty space.
+        # gets NO marker - a marker never sits on empty space.
         defects = [
             {"marker": 1, "op": "garbled_card", "marker_xy": [200, 200],
              "flaw": "ok defect",

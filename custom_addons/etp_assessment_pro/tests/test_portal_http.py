@@ -620,7 +620,7 @@ class TestPortalHttp(HttpCase, _Base):
         self.assertEqual(resp.status_code, 404)
 
     def test_admin_qimage_serves_to_manager_and_denies_others(self):
-        ev, _q_img, image, _login, _pwd = self._launched_image_label(
+        ev, _q_img, image, login, _pwd = self._launched_image_label(
             name="AdminImg")
         mgr = self._make_portal_manager_user("AdminImgMgr")
         # A manager may read the record, so the ACL-checked proxy serves bytes.
@@ -628,9 +628,24 @@ class TestPortalHttp(HttpCase, _Base):
             mgr, "serve_admin_question_image", image.id)
         self.assertEqual(served, "SERVED",
                          "a manager must be able to preview the question image")
+        # SECURITY (IDOR): a portal CANDIDATE must NOT reach this backend route.
+        # question.image carries a base.group_portal read grant with no record
+        # rule, so check_access("read") alone passes for ANY image_id - which
+        # would let a candidate harvest question content across assessments,
+        # bypassing the token + question_order scoping of the candidate route.
+        # The route now hard-gates on _is_internal(), so the candidate gets 404.
+        candidate = self.env["res.users"].search([("login", "=", login)], limit=1)
+        self.assertTrue(candidate, "the launched candidate portal user exists")
+        self.assertFalse(candidate._is_internal(),
+                         "the exam candidate is a portal (non-internal) user")
+        leaked = self._call_admin_proxy(
+            candidate, "serve_admin_question_image", image.id)
+        self.assertEqual(
+            leaked, "NOTFOUND",
+            "a portal candidate must be denied the admin image proxy (IDOR)")
         # A plain internal user with no module grant cannot read, so 404 (the
-        # proxy never leaks existence). Portal users legitimately CAN read
-        # (they see exam images), so the boundary is the ungranted internal user.
+        # proxy never leaks existence): the second layer, check_access, still
+        # denies an ungranted backend user.
         plain = self.env["res.users"].with_context(
             no_reset_password=True).create({
                 "name": "Nobody", "login": "nobody_%s@x.com" % uuid4().hex[:8],
@@ -649,6 +664,19 @@ class TestPortalHttp(HttpCase, _Base):
         gone = self._call_admin_proxy(
             mgr, "serve_admin_question_video", 999999)
         self.assertEqual(gone, "NOTFOUND", "a missing video must 404")
+        # SECURITY (IDOR twin of the image route): a portal candidate must be
+        # denied the admin video proxy too. question.video also carries a
+        # base.group_portal read grant with no record rule.
+        _ev, _q_img, _image, login, _pwd = self._launched_image_label(
+            name="AdminVidCand")
+        candidate = self.env["res.users"].search([("login", "=", login)], limit=1)
+        self.assertFalse(candidate._is_internal(),
+                         "the exam candidate is a portal (non-internal) user")
+        leaked = self._call_admin_proxy(
+            candidate, "serve_admin_question_video", 999999)
+        self.assertEqual(
+            leaked, "NOTFOUND",
+            "a portal candidate must be denied the admin video proxy (IDOR)")
 
     def _call_admin_proxy(self, user, method, rec_id):
         """Invoke an admin S3 proxy route as `user`; classify the outcome as

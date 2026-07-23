@@ -277,7 +277,7 @@ class EtpAssessmentDashboard(models.TransientModel):
 
     @api.model
     def _build_assessment_breakdown(self, Ev):
-        # Aggregate on the DB via grouped reads — never iterate raw evaluators.
+        # Aggregate on the DB via grouped reads - never iterate raw evaluators.
         # Each loop below walks the SMALL grouped result set (one row per
         # assessment), assembling a per-assessment dict keyed by id.
         data = {}
@@ -429,7 +429,7 @@ class EtpAssessmentDashboard(models.TransientModel):
 
     @api.model
     def _build_recent_submissions(self, Ev):
-        # One bounded search (limit=6) — not a scan over the full recordset.
+        # One bounded search (limit=6) - not a scan over the full recordset.
         recs = Ev.search(
             [("state", "=", "submitted")],
             order="submitted_at desc, id desc",

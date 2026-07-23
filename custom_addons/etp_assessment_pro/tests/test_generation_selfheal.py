@@ -376,3 +376,78 @@ class TestCoerce100Boundary(TransactionCase):
         self.assertEqual(_coerce_100(87.0), 87.0)
         self.assertEqual(_coerce_100(1.5), 1.5)  # >1.01 -> genuine 0-100 value
         self.assertEqual(_coerce_100(150), 100.0)  # clamped
+
+
+@tagged("-at_install", "post_install")
+class TestScoringTrustBoundary(TransactionCase):
+    """P2: a grader must not be able to hand the platform its own composition
+    output. composed_raw_100 short-circuits the _recompute_v10 trust gate in
+    _store_scored, so an LLM-supplied value would be honored verbatim. It (and
+    the other platform-internal composition keys) must be stripped at parse."""
+
+    def test_parse_results_strips_platform_composition_keys(self):
+        from odoo.addons.etp_assessment_pro.services.scoring import _parse_results
+        # A hostile/hallucinated grader response that tries to force a perfect
+        # composed score plus fake audit sub-objects.
+        payload = json.dumps({"results": [{
+            "item_id": "1", "score": 5,
+            "composed_raw_100": 100.0,
+            "ab_scores": {"verdict_score": 1.0},
+            "label_scores": {"coverage": 1.0},
+            "recompute_note": "totally legit",
+        }]})
+        out = _parse_results(payload)
+        self.assertEqual(len(out), 1)
+        it = out[0]
+        # The judge's real fields survive...
+        self.assertEqual(it.get("item_id"), "1")
+        self.assertEqual(it.get("score"), 5)
+        # ...but every platform-internal composition key is gone, so the trust
+        # recompute in _store_scored cannot be bypassed.
+        for key in ("composed_raw_100", "ab_scores", "label_scores",
+                    "recompute_note"):
+            self.assertNotIn(
+                key, it,
+                "%s must be stripped from untrusted grader output" % key)
+
+    def test_parse_results_keeps_legit_judge_fields(self):
+        from odoo.addons.etp_assessment_pro.services.scoring import _parse_results
+        # Fields the judge legitimately emits (ceiling triggers, verdicts) must
+        # NOT be stripped - only the composition OUTPUTS are.
+        payload = json.dumps([{
+            "item_id": "9", "score": 72,
+            "verdict_consistency": "consistent",
+            "fabrication_count": 0, "flags": ["media_unseen"],
+        }])
+        it = _parse_results(payload)[0]
+        self.assertEqual(it.get("verdict_consistency"), "consistent")
+        self.assertEqual(it.get("fabrication_count"), 0)
+        self.assertEqual(it.get("flags"), ["media_unseen"])
+
+
+@tagged("-at_install", "post_install")
+class TestExtractJsonArraySingleObject(TransactionCase):
+    """P2: a lone JSON object response must not silently yield zero items. The
+    primary parse branch returned the dict unguarded; callers iterate it with
+    `[it for it in ... if isinstance(it, dict)]`, which iterates the dict's KEYS
+    and filters everything out. A single object must become a one-item list."""
+
+    def test_bare_object_becomes_single_item_list(self):
+        from odoo.addons.etp_assessment_pro.services.vertex import (
+            _extract_json_array)
+        out = _extract_json_array('{"question_type": "mcq", "prompt": "Q?"}')
+        self.assertIsInstance(out, list)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].get("question_type"), "mcq")
+
+    def test_wrapped_list_still_unwraps(self):
+        from odoo.addons.etp_assessment_pro.services.vertex import (
+            _extract_json_array)
+        out = _extract_json_array('{"questions": [{"a": 1}, {"a": 2}]}')
+        self.assertEqual([d.get("a") for d in out], [1, 2])
+
+    def test_plain_array_untouched(self):
+        from odoo.addons.etp_assessment_pro.services.vertex import (
+            _extract_json_array)
+        out = _extract_json_array('[{"a": 1}, {"a": 2}]')
+        self.assertEqual([d.get("a") for d in out], [1, 2])

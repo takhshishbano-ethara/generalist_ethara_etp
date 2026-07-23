@@ -150,3 +150,66 @@ class TestGeneratorChatterLog(TransactionCase):
         d1.action_deny()
         self.assertEqual(len(self._notes(gen)), before,
                          "no audit note when nothing actually changed")
+
+    # --- Approve All skip-and-continue -----------------------------------
+    def _imageless_image_draft(self, generator, name="NoPic"):
+        """An image_prompt draft with no rendered image: action_approve's
+        image-ready guard rejects it, so it is a deterministic per-draft
+        failure for the skip-and-continue path (no need to fake flaw JSON)."""
+        return self.env["etp.assessment.pro.prompt.question"].create({
+            "prompt_id": generator.id,
+            "name": name,
+            "question_type": "image_prompt",
+            "question_prompt": "Rewrite the prompt to fix the artifact.",
+        })
+
+    def test_approve_all_skips_bad_draft_keeps_good(self):
+        """One bad draft must not roll back the good ones (skip-and-continue)."""
+        gen = self._generator()
+        good1 = self._mcq_draft(gen, "GoodOne")
+        good2 = self._mcq_draft(gen, "GoodTwo")
+        bad = self._imageless_image_draft(gen, "BadNoImage")
+        gen.action_approve_all_drafts()
+        self.assertEqual(good1.state, "approved")
+        self.assertEqual(good2.state, "approved")
+        self.assertTrue(good1.approved_question_id)
+        self.assertTrue(good2.approved_question_id)
+        # The bad draft stayed a draft (rolled back), never a half-approved row.
+        self.assertEqual(bad.state, "draft")
+        self.assertFalse(bad.approved_question_id)
+
+    def test_approve_all_partial_logs_approved_and_skip(self):
+        """Partial approval posts the approved rollup AND a skip note naming
+        exactly what was skipped."""
+        gen = self._generator()
+        self._mcq_draft(gen, "KeepMe")
+        self._imageless_image_draft(gen, "SkipMe")
+        before = len(self._notes(gen))
+        gen.action_approve_all_drafts()
+        bodies = " ".join(n.body for n in self._notes(gen)[:len(self._notes(gen)) - before])
+        # approved rollup names the good draft, skip note names the bad one.
+        self.assertIn("KeepMe", bodies)
+        self.assertIn("SkipMe", bodies)
+        self.assertIn("skipped", bodies)
+
+    def test_approve_all_all_bad_raises_with_reasons(self):
+        """If every draft fails, surface a UserError with the reasons rather
+        than silently approving nothing."""
+        from odoo.exceptions import UserError
+        gen = self._generator()
+        self._imageless_image_draft(gen, "OnlyBad")
+        with self.assertRaises(UserError):
+            gen.action_approve_all_drafts()
+
+    def test_approve_all_clean_set_still_one_note(self):
+        """The all-good path is unchanged: exactly one rollup note, return True."""
+        gen = self._generator()
+        self._mcq_draft(gen, "A")
+        self._mcq_draft(gen, "B")
+        before = len(self._notes(gen))
+        result = gen.action_approve_all_drafts()
+        self.assertIs(result, True)
+        notes = self._notes(gen)
+        self.assertEqual(len(notes) - before, 1,
+                         "clean Approve All still posts exactly one rollup note")
+        self.assertIn("2 draft(s)", notes[0].body)

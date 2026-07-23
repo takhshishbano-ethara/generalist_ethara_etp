@@ -330,3 +330,53 @@ if (!window.__etpImageZoomReady) {
     document.addEventListener("click", onDocumentClick);
     document.addEventListener("keydown", onDocumentKeydown);
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard progress bars: pin the "X / Y" pill to the end of the coloured fill.
+// Odoo's progressbar renders the track and its value label as flex siblings, so
+// the label floats at the track's right edge, not the fill's end. We publish
+// each bar's fill ratio (from aria-valuenow/valuemax) as an --etp-fill CSS var
+// on the .o_progressbar and let the stylesheet position the label at that
+// offset. A MutationObserver reapplies it across widget re-renders. Piggybacks
+// on this already-loaded controller so no extra asset module is needed.
+// ---------------------------------------------------------------------------
+function syncProgressFill() {
+    const bars = document.querySelectorAll(".etp-bar-row .o_progressbar");
+    for (let i = 0; i < bars.length; i++) {
+        const prog = bars[i].querySelector(".o_progress");
+        if (!prog) {
+            continue;
+        }
+        const now = parseFloat(prog.getAttribute("aria-valuenow")) || 0;
+        const max = parseFloat(prog.getAttribute("aria-valuemax")) || 0;
+        const pct = max > 0 ? Math.min(100, Math.max(0, (now / max) * 100)) : 0;
+        bars[i].style.setProperty("--etp-fill", pct + "%");
+    }
+}
+
+if (!window.__etpProgressFillReady) {
+    window.__etpProgressFillReady = true;
+    let scheduled = false;
+    const onMutate = function () {
+        if (scheduled) {
+            return;
+        }
+        scheduled = true;
+        window.requestAnimationFrame(function () {
+            scheduled = false;
+            syncProgressFill();
+        });
+    };
+    const startProgressFill = function () {
+        if (!document.body) {
+            document.addEventListener("DOMContentLoaded", startProgressFill, { once: true });
+            return;
+        }
+        new MutationObserver(onMutate).observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+        syncProgressFill();
+    };
+    startProgressFill();
+}

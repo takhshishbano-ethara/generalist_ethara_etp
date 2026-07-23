@@ -34,3 +34,4 @@ from . import test_research_replication
 from . import test_week_ui_fixes
 from . import test_generator_chatter_log
 from . import test_assessment_feature_batch
+from . import test_dashboard_aggregates

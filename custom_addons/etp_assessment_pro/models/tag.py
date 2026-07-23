@@ -174,7 +174,7 @@ class EtpAssessmentTag(models.Model):
                 vals["prefix"] = sync["prefix"]
         else:
             # Display/prefix edit. Rebuild the machine key ONLY when the human is
-            # actively (re)keying — i.e. they changed the prefix, or the row has no
+            # actively (re)keying - i.e. they changed the prefix, or the row has no
             # canonical facet:value yet. A plain display-pin update on an already
             # keyed tag (the LLM _get_or_create path) must NOT re-mint the key, or
             # the one-key-one-display invariant the ranker relies on would break.
@@ -352,7 +352,7 @@ class EtpAssessmentTag(models.Model):
                 # Pin a real readable display: set it when missing, OR upgrade a
                 # bare auto-backfill (Title-Case of the key) to the LLM's phrase.
                 # Never clobber a display that already differs from the fallback
-                # (that one was deliberately minted) — preserves the 1:1 pin.
+                # (that one was deliberately minted) - preserves the 1:1 pin.
                 tag.display = display
             result |= tag
         return result

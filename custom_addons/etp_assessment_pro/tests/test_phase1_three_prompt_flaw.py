@@ -180,7 +180,7 @@ class TestPhase1FlawPlanNormalization(TransactionCase):
 
     def test_relaxed_invariant_allows_flawed_side_to_win_other_dim(self):
         # RELAXED (Phase 2): a NEW-shape plan where a dimension names the side
-        # that carries a flaw on a DIFFERENT dimension is now ACCEPTED — the
+        # that carries a flaw on a DIFFERENT dimension is now ACCEPTED - the
         # semantic flaw->dimension mapping is deferred to the verification loop,
         # so this is no longer a structural violation. (Was rejected in Phase 1.)
         ok = _new_plan()

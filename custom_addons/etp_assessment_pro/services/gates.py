@@ -26,7 +26,7 @@ _ZERO_WIDTH_RE = re.compile(
 # Compact confusable fold: the highest-frequency Cyrillic/Greek glyphs that look
 # identical to ASCII letters, used to spell an idiom in lookalikes ("ignоre the
 # rubric" with a Cyrillic 'о'). NFKC does NOT collapse these, so we map the
-# common ones to their Latin twin before matching. Match-only — never stored.
+# common ones to their Latin twin before matching. Match-only - never stored.
 _CONFUSABLES = {
     "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y",
     "к": "k", "н": "h", "в": "b", "м": "m", "т": "t",          # Cyrillic

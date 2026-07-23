@@ -226,7 +226,7 @@ class TestScoreConsistency(TransactionCase):
         self._answer(ev1, q2, m2, o2[1])
         for ev in (ev0, ev1):
             ev.invalidate_recordset()
-        # Denominator MUST match — both took the same 2 single-point questions.
+        # Denominator MUST match - both took the same 2 single-point questions.
         self.assertEqual(
             ev0.max_possible_score, ev1.max_possible_score,
             "max score (denominator) must be identical for the same test")
