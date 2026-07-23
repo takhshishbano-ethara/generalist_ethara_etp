@@ -13,6 +13,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from odoo.addons.ethara_hrms_extension.constants import (
     PIPELINE_STATUS_KEYS,
     PIPELINE_STATUS_LABELS,
+    STATUS_TO_PIPELINE_BUCKET,
     _POST_ASSESSMENT_STATUSES,
     _IN_ASSESSMENT_STATUSES,
     RESUME_RECOMMENDATION_OUT,
@@ -858,10 +859,24 @@ def _build_progress_payload(rec):
         ),
     }
 
+    current_bucket = STATUS_TO_PIPELINE_BUCKET.get(status_val)
+    if current_bucket in PIPELINE_STATUS_KEYS:
+        bucket_idx = PIPELINE_STATUS_KEYS.index(current_bucket)
+        fallback = _iso(rec.status_updated_at or rec.write_date or rec.create_date)
+        for prev in PIPELINE_STATUS_KEYS[:bucket_idx]:
+            prev_ev = evidence.get(prev, (None, None))
+            if not prev_ev[0]:
+                evidence[prev] = (fallback, prev_ev[1])
+        cur_ev = evidence.get(current_bucket, (None, None))
+        if not cur_ev[1]:
+            evidence[current_bucket] = (cur_ev[0], status_val.replace("_", " ").title())
+
     total = len(PIPELINE_STATUS_KEYS)
 
     if is_rejected:
         current_idx = 1
+    elif current_bucket in PIPELINE_STATUS_KEYS:
+        current_idx = PIPELINE_STATUS_KEYS.index(current_bucket)
     elif not rec.job_id:
         current_idx = 0
     elif (rec.pipeline_status or "applied") == "applied" and not rec.resume_screened_at:

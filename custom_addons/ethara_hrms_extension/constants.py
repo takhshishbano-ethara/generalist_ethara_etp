@@ -42,6 +42,16 @@ _POST_ASSESSMENT_STATUSES = frozenset({
     "contract_sent", "contract_declined", "contract_signed",
     "onboard",
 })
+
+STATUS_TO_PIPELINE_BUCKET = {s: bucket for bucket, keys in {
+    "applied":     ("pending", "resume_screening_in_progress", "resume_screening_rejected"),
+    "shortlisted": ("resume_screening_passed",),
+    "assessment":  ("pending_assessment", "assessment_in_progress", "assessment_pending_review", "assessment_rejected", "assessment_passed"),
+    "evaluation":  ("pi_scheduled", "pi_completed", "pi_hold", "pi_rejected"),
+    "submission":  ("pi_selected", "documents_requested", "documents_submitted", "documents_rejected", "document_verification_done"),
+    "contract":    ("contract_sent", "contract_declined", "contract_signed"),
+    "compliance":  ("onboard",),
+}.items() for s in keys}
 _IN_ASSESSMENT_STATUSES = frozenset({
     "pending_assessment", "assessment_in_progress",
     "assessment_pending_review", "assessment_rejected",

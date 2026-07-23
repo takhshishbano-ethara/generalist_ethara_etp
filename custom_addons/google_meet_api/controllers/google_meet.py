@@ -290,6 +290,16 @@ def _fetch_resume_attachment(candidate, event):
     })
 
 
+def _get_configured_from_email():
+    server = request.env["ir.mail_server"].sudo().search(
+        [("active", "=", True)], limit=1, order="sequence, id",
+    )
+    if server and server.smtp_user:
+        return server.smtp_user
+    company = request.env.company
+    return company.email or (company.partner_id.email if company.partner_id else False)
+
+
 def _queue_invitation_emails(attendees, extra_attachment_ids=None):
     template = request.env.ref(
         "calendar.calendar_template_meeting_invitation",
@@ -297,20 +307,30 @@ def _queue_invitation_emails(attendees, extra_attachment_ids=None):
     )
     if not template:
         return
-    event_ids = attendees.mapped("event_id").ids
-    attendees.with_user(SUPERUSER_ID).with_context(
+    ta_partner = request.env.user.partner_id
+    non_ta = attendees.filtered(lambda a: a.partner_id.id != ta_partner.id)
+    if not non_ta:
+        return
+    event_ids = non_ta.mapped("event_id").ids
+    non_ta.with_user(SUPERUSER_ID).with_context(
         no_mail_to_attendees=False,
     )._notify_attendees(template, force_send=False)
-    if extra_attachment_ids and event_ids:
+    if event_ids:
         new_mails = request.env["mail.mail"].sudo().search([
             ("state", "=", "outgoing"),
             ("mail_message_id.res_id", "in", event_ids),
             ("mail_message_id.model", "=", "calendar.event"),
         ])
         if new_mails:
-            new_mails.write({
-                "attachment_ids": [(4, aid) for aid in extra_attachment_ids],
-            })
+            write_vals = {"auto_delete": False}
+            from_email = _get_configured_from_email()
+            if from_email:
+                write_vals["email_from"] = from_email
+            if ta_partner.email:
+                write_vals["email_cc"] = ta_partner.email
+            if extra_attachment_ids:
+                write_vals["attachment_ids"] = [(4, aid) for aid in extra_attachment_ids]
+            new_mails.write(write_vals)
 
 
 def _cancel_event_and_notify(event, reason, comment=None, notify=True):
@@ -321,7 +341,14 @@ def _cancel_event_and_notify(event, reason, comment=None, notify=True):
             event._delete_google_meet(event.google_event_id)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("Google Meet delete failed on cancel: %s", exc)
-    event.active = False
+    event.with_context(dont_notify=True).write({
+        "active": False,
+        "google_meet_url": False,
+        "google_meet_code": False,
+        "google_event_id": False,
+        "videocall_location": False,
+        "need_sync": False,
+    })
 
 
 def _queue_cancellation_emails(event, reason, comment=None):
@@ -368,10 +395,13 @@ def _queue_cancellation_emails(event, reason, comment=None):
         if event.user_id and event.user_id.partner_id
         else request.env.user.partner_id.id
     )
+    ta_partner = request.env.user.partner_id
+    from_email = _get_configured_from_email()
+    cc_email = ta_partner.email or False
     for attendee in event.attendee_ids:
-        if not attendee.partner_id:
+        if not attendee.partner_id or attendee.partner_id.id == ta_partner.id:
             continue
-        event.with_user(SUPERUSER_ID).with_context(no_document=True).message_notify(
+        msg = event.with_user(SUPERUSER_ID).with_context(no_document=True).message_notify(
             partner_ids=attendee.partner_id.ids,
             subject=subject,
             body=body,
@@ -379,7 +409,21 @@ def _queue_cancellation_emails(event, reason, comment=None):
             email_layout_xmlid="mail.mail_notification_light",
             author_id=author_partner_id,
             force_send=False,
+            mail_auto_delete=False,
         )
+        if msg:
+            mails = request.env["mail.mail"].sudo().search([
+                ("mail_message_id", "=", msg.id),
+                ("state", "=", "outgoing"),
+            ])
+            if mails:
+                write_vals = {}
+                if from_email:
+                    write_vals["email_from"] = from_email
+                if cc_email:
+                    write_vals["email_cc"] = cc_email
+                if write_vals:
+                    mails.write(write_vals)
 
 
 def _active_upcoming_event_for(candidate_id):
