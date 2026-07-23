@@ -93,6 +93,68 @@
         </t>
     </template>
 
+    <template id="portal_not_yet_open" name="Applicant Assessment Not Yet Open">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Assessment Not Yet Open</t>
+            <div class="eaa-card eaa-card--info">
+                <div class="eaa-status-icon eaa-status-icon--warn">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <h2>This Assessment Is Not Yet Open</h2>
+                <p>
+                    The link becomes active on
+                    <strong><span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/></strong>.
+                    Please come back at that time to start.
+                </p>
+                <div class="eaa-facts">
+                    <div class="eaa-fact">
+                        <span class="eaa-fact__label">Active From</span>
+                        <span class="eaa-fact__value">
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/>
+                        </span>
+                    </div>
+                    <div class="eaa-fact" t-if="assessment.valid_until">
+                        <span class="eaa-fact__label">Active Until</span>
+                        <span class="eaa-fact__value">
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_link_expired" name="Applicant Assessment Link Expired">
+        <t t-call="etp_applicant_assessment.portal_layout">
+            <t t-set="page_title">Assessment Link Expired</t>
+            <div class="eaa-card eaa-card--error">
+                <div class="eaa-status-icon eaa-status-icon--error">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                </div>
+                <h2>This Assessment Link Has Expired</h2>
+                <p>
+                    The link was valid until
+                    <strong><span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/></strong>
+                    and can no longer be used. Please contact the recruiter if you need a new link.
+                </p>
+                <div class="eaa-facts">
+                    <div class="eaa-fact" t-if="assessment.valid_from">
+                        <span class="eaa-fact__label">Active From</span>
+                        <span class="eaa-fact__value">
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/>
+                        </span>
+                    </div>
+                    <div class="eaa-fact">
+                        <span class="eaa-fact__label">Active Until</span>
+                        <span class="eaa-fact__value">
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
     <template id="portal_instructions" name="Applicant Assessment Instructions">
         <t t-call="etp_applicant_assessment.portal_layout">
             <t t-set="page_title">Instructions</t>
@@ -124,6 +186,31 @@
                             <t t-esc="int(assessment.pass_mark_percent)"/>%
                         </span>
                     </div>
+                    <div class="eaa-fact" t-if="assessment.valid_from">
+                        <span class="eaa-fact__label">Active From</span>
+                        <span class="eaa-fact__value">
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/>
+                        </span>
+                    </div>
+                    <div class="eaa-fact" t-if="assessment.valid_until">
+                        <span class="eaa-fact__label">Active Until</span>
+                        <span class="eaa-fact__value">
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/>
+                        </span>
+                    </div>
+                </div>
+
+                <div t-if="assessment.valid_from or assessment.valid_until" class="eaa-instructions">
+                    <p>
+                        <strong>Active window:</strong>
+                        <t t-if="assessment.valid_from">
+                            from <span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/>
+                        </t>
+                        <t t-if="assessment.valid_until">
+                            until <span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/>
+                        </t>.
+                        The link is only accessible during this window.
+                    </p>
                 </div>
 
                 <div t-if="assessment.template_id.description" class="eaa-instructions">

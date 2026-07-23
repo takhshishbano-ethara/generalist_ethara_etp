@@ -64,10 +64,22 @@ class ApplicantAssessmentPortal(http.Controller):
                 {"assessment": assessment},
             )
         if state == "sent":
+            window = assessment._check_link_window()
+            if window["status"] == "not_yet":
+                return request.render(
+                    "etp_applicant_assessment.portal_not_yet_open",
+                    {"assessment": assessment, "window": window},
+                )
+            if window["status"] == "expired":
+                return request.render(
+                    "etp_applicant_assessment.portal_link_expired",
+                    {"assessment": assessment, "window": window},
+                )
             return request.render(
                 "etp_applicant_assessment.portal_instructions",
                 {
                     "assessment": assessment,
+                    "window": window,
                     "user_lang": request.env.lang or "en_US",
                 },
             )
@@ -99,6 +111,11 @@ class ApplicantAssessmentPortal(http.Controller):
     def begin(self, token, **kw):
         assessment = self._get_assessment(token)
         if not assessment or assessment.state not in ("sent", "in_progress"):
+            return request.redirect(f"/applicant-assessment/{token}")
+        if (
+            assessment.state == "sent"
+            and assessment._check_link_window()["status"] != "ok"
+        ):
             return request.redirect(f"/applicant-assessment/{token}")
         assessment.action_begin()
         return request.redirect(f"/applicant-assessment/{token}")

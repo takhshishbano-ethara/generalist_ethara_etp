@@ -78,6 +78,10 @@
                             <field name="portal_url" widget="url"/>
                         </group>
                         <group name="timings">
+                            <field name="valid_from"
+                                   readonly="state not in ('draft', 'sent')"/>
+                            <field name="valid_until"
+                                   readonly="state not in ('draft', 'sent')"/>
                             <field name="started_at"/>
                             <field name="deadline_at"/>
                             <field name="submitted_at"/>
