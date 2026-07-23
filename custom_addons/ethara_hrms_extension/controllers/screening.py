@@ -270,6 +270,9 @@ class EtharaScreeningApi(http.Controller):
         }
         if internal == "reject":
             write_vals["pipeline_status"] = "rejected"
+            write_vals["status"] = "resume_screening_rejected"
+        elif internal == "shortlist":
+            write_vals["status"] = "resume_screening_passed"
         rec.write(write_vals)
         try:
             rec._advance_stage_after_screening(allow_regress=True)

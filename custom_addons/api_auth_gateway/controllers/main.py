@@ -9,6 +9,22 @@ import re
 IST_OFFSET = timedelta(hours=5, minutes=30)
 _logger = logging.getLogger(__name__)
 
+
+def _resolve_join_date(user):
+    joining = safe_get_value(user, 'employee_id.joining_date', 'str')
+    if joining:
+        return joining
+    applicant = request.env['hr.applicant'].sudo().search(
+        [('candidate_user_id', '=', user.id)],
+        order='create_date asc', limit=1,
+    )
+    if applicant and applicant.create_date:
+        return applicant.create_date.strftime('%Y-%m-%d')
+    if user.create_date:
+        return user.create_date.strftime('%Y-%m-%d')
+    return ''
+
+
 class ApiAuthController(http.Controller):
 
     def get_the_menuitem_list(self, domain=[]):
@@ -417,6 +433,18 @@ class ApiAuthController(http.Controller):
                 user_id.sudo().write(user_dict)
             if partner_dict:
                 user_id.partner_id.sudo().write(partner_dict)
+            # ponytail: mirror phone/email onto the candidate's hr.applicant rows so
+            # the candidate portal (/candidates/me) sees the same values as
+            # /get_logged_user_details. Skips silently for non-candidate users.
+            applicant_sync = {}
+            if 'phone' in user_dict:
+                applicant_sync['partner_phone'] = user_dict['phone']
+            if 'email' in user_dict:
+                applicant_sync['email_from'] = user_dict['email']
+            if applicant_sync:
+                request.env['hr.applicant'].sudo().search(
+                    [('candidate_user_id', '=', user_id.id)]
+                ).write(applicant_sync)
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Profile Updated Successfully", status=200)
@@ -738,7 +766,7 @@ class ApiAuthController(http.Controller):
                 'in_app_notification': safe_get_value(user_id, 'employee_id.in_app_notification', 'bool'),
                 'email_notification': safe_get_value(user_id, 'employee_id.email_notification', 'bool'),
                 'push_notification': safe_get_value(user_id, 'employee_id.push_notification', 'bool'),
-                'join_date': safe_get_value(user_id, 'employee_id.joining_date', 'str'),
+                'join_date': _resolve_join_date(user_id),
                 'project_count': len(projects),
                 'team_size': 0,
                 'blocked_resolved': 0,

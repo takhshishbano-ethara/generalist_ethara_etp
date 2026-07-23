@@ -102,6 +102,7 @@ class HrApplicant(models.Model):
     ], string='Source Type', default='direct_application')
     source_reference_id = fields.Char(string='Source Reference')
     current_company = fields.Char(string='Current Company')
+    current_role = fields.Char(string='Current Role')
     current_ctc = fields.Float(string='Current CTC (LPA)', digits=(10, 2))
     expected_ctc = fields.Float(string='Expected CTC (LPA)', digits=(10, 2))
     ctc_budget_exceeded = fields.Boolean(
