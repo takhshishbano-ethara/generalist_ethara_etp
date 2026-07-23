@@ -1139,7 +1139,8 @@ class EtpAssessmentEvaluator(models.Model):
     @api.depends("total_score", "max_possible_score", "llm_total_score",
                  "llm_max_score", "subjective_pending", "state",
                  "total_questions", "answered_count",
-                 "response_ids.llm_state")
+                 "response_ids.llm_state",
+                 "assessment_id.subjective_threshold")
     def _compute_result(self):
         for rec in self:
             raw_t = rec.assessment_id.subjective_threshold
@@ -1580,6 +1581,26 @@ class EtpAssessmentResponse(models.Model):
         string="Key Closeness (0-100)", readonly=True, copy=False,
         help="v10: how close the worker answer is to the golden answer, judged "
              "claim by claim. Weight 0.60 of the score.")
+    # Project-aware (drop 2) scoring outputs — queryable, surfaced in Review
+    # Answers so the candidate sees WHY, itemized, not a raw JSON blob.
+    llm_profile = fields.Char(
+        string="Scoring Profile", readonly=True, copy=False,
+        help="The project profile the platform detected for this item and graded "
+             "it under (P1 Image A/B, P2 Defect Annotation, P3 UI Labelling, P4 "
+             "Image Prompt, P5 Video Prompt, P6 Multiple Choice, or General).")
+    llm_verdict = fields.Char(
+        string="Scoring Verdict", readonly=True, copy=False,
+        help="The judge's one-line overall judgement for this answer.")
+    llm_deductions_json = fields.Text(
+        string="Deductions (JSON)", readonly=True, copy=False,
+        help="Project-aware score accounting: each lost-point line "
+             "{points, reason, evidence}. The item score = 100 + sum(points); the "
+             "platform re-derives it as a provable cross-check. Surfaced as a "
+             "clean itemized list in Review Answers.")
+    llm_credit_json = fields.Text(
+        string="Credit (JSON)", readonly=True, copy=False,
+        help="Project-aware score accounting: what the worker got RIGHT, each "
+             "{reason, evidence} with the worker's own words.")
     llm_sop_coverage = fields.Float(
         string="SOP Coverage (0-100)", readonly=True, copy=False,
         help="v10: how many of the question's required elements the answer "
@@ -1794,7 +1815,8 @@ class EtpAssessmentResponse(models.Model):
                 rec.ab_final_pct = float(math.ceil(mcq))
 
     @api.depends("llm_raw_100", "llm_state", "needs_llm", "ab_final_pct",
-                 "question_id.question_type")
+                 "question_id.question_type",
+                 "assessment_id.subjective_threshold")
     def _compute_subjective_marks(self):
         for rec in self:
             raw_t = rec.assessment_id.subjective_threshold

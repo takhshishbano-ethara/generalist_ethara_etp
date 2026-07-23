@@ -106,12 +106,6 @@ class EtpAssessmentQuestionImage(models.Model):
     capture_config_json = fields.Text(
         string="Capture Config (JSON)", copy=False,
         help='image_label DOM-capture directives {"viewport":{"width","height"},'
-             '"wait_ms":int,"dismiss":[selectors]} threaded into '
-             "capture_and_annotate so cookie/consent overlays are dismissed and "
-             "the right viewport is used before the live DOM is enumerated.")
-    capture_config_json = fields.Text(
-        string="Capture Config (JSON)", copy=False,
-        help='image_label DOM-capture directives {"viewport":{"width","height"},'
              '"wait_ms":int,"dismiss":["<accept selector>"]} threaded into the '
              "live capture so the settle delay and cookie/consent dismissal run "
              "before the DOM is enumerated.")

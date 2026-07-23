@@ -166,7 +166,11 @@ class TestBehaviouralRubric(_Base):
         self.assertEqual(audit["label_scores"]["attempted_boxes"], 2)
         self.assertEqual(audit["label_scores"]["total_boxes"], 2)
 
-    def test_low_coverage_caps_raw_at_40(self):
+    def test_low_coverage_flags_review_keeps_parity_score(self):
+        # PARITY (research trusts the judge): no more coverage cap-40 double-penalty
+        # (research scores image_label via its own 100*correct/total deductions).
+        # A lenient judge score (95 on 1/4 boxes) is KEPT as the mark, and the
+        # coverage mismatch is FLAGGED needs_review for an admin.
         four = _BKEY + [
             {"number": 3, "element": "Espanol",
              "functionality": "Opens the Spanish Wikipedia"},
@@ -179,11 +183,13 @@ class TestBehaviouralRubric(_Base):
             scoring._score_image_label_items(self.env, resp)
         resp.invalidate_recordset()
         self.assertEqual(resp.llm_state, "scored")
-        self.assertEqual(resp.llm_raw_100, 40.0)
+        self.assertEqual(resp.llm_raw_100, 95.0)          # parity: not clamped
+        flags = json.loads(resp.llm_flags_json or "[]")
+        self.assertIn("needs_review", flags)              # but flagged for review
         audit = json.loads(resp.llm_result_json)
         self.assertEqual(audit["label_scores"]["attempted_boxes"], 1)
         self.assertEqual(audit["label_scores"]["total_boxes"], 4)
-        self.assertTrue(audit["label_scores"]["coverage_cap_applied"])
+        self.assertEqual(audit["label_scores"]["coverage_ceiling"], 25.0)
 
     def test_fallback_to_detections_rubric_without_behavioural_key(self):
         q = self._label_q(detections=_DETECTIONS)

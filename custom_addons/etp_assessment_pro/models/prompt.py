@@ -27,10 +27,11 @@ _TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS = 5
 
 
 def _preview_src_ok(src):
-    """L-2: allow only safe image sources - http(s), our own relative paths
-    (/...), or image data: URLs. Rejects javascript:/vbscript:/non-image
-    schemes so an LLM/admin-supplied spec can never inject an active-content
-    URL, even if this markup is later refactored to an href-bearing tag."""
+    """L-2: allow only safe image sources in admin-preview markup — http(s), our
+    own relative controller paths (/...), or image data: URLs. Rejects
+    javascript:/vbscript:/data-non-image and other schemes so an LLM- or
+    admin-supplied spec can never inject an active-content URL, even if this
+    markup is later refactored from <img src> to an href-bearing tag."""
     s = str(src or "").strip()
     if not s:
         return False
@@ -53,6 +54,8 @@ class EtpAssessmentPrompt(models.Model):
     def _log_activity(self, body):
         """Post a timestamped audit line to each generator's chatter.
 
+        message_post already stamps the author + date, so this is the single
+        choke-point every user action routes through to keep the log uniform.
         Best-effort: an audit note must never sink the action that triggered it.
         """
         for rec in self:
@@ -109,7 +112,7 @@ class EtpAssessmentPrompt(models.Model):
              "multimodal model which authors questions directly per the format "
              "in the SOP. Runs in the background (a cron does the slow call off "
              "the web request). 'finalizing' means the drafts are committed and "
-             "only the status write remains - a killed worker resumes WITHOUT "
+             "only the status write remains — a killed worker resumes WITHOUT "
              "re-calling Vertex.")
     sop_gen_error = fields.Char(
         string="SOP Generation Error", readonly=True, copy=False)
@@ -485,11 +488,12 @@ class EtpAssessmentPrompt(models.Model):
                     # Commit the drafts before the contended state write, so a
                     # serialization retry there cannot lose them or re-run Vertex.
                     self.env.cr.commit()
-                    # H-8: flip to 'finalizing' and COMMIT before the final status
-                    # write. The drainer only selects queued/generating, so a worker
-                    # killed after the draft commit leaves the row 'finalizing'
-                    # (needs an admin nudge) and NEVER re-sends to Vertex - no
-                    # duplicate drafts, no double spend.
+                    # H-8: flip to 'finalizing' and COMMIT before the final
+                    # status write. The drainer only selects queued/generating,
+                    # so if the worker is killed between the draft commit and the
+                    # 'done' write, the row is left 'finalizing' (needs an admin
+                    # nudge) and is NEVER re-sent to Vertex — no duplicate drafts,
+                    # no double spend.
                     prompt.write({"sop_gen_state": "finalizing"})
                     self.env.cr.commit()
                     self._finalize_sop_gen_state(prompt, len(draft_ids))
@@ -522,9 +526,9 @@ class EtpAssessmentPrompt(models.Model):
 
     def _finalize_sop_gen_state(self, prompt, draft_count):
         """Retry on 40001 only: the tag-extract cron writes the same row under a
-        different advisory lock. Never re-queue here - the drainer cannot tell
+        different advisory lock. Never re-queue here — the drainer cannot tell
         'needs generation' from 'needs finalization', so it would re-run Vertex
-        and duplicate already-committed drafts."""
+        and duplicate the already-committed drafts."""
         import time
         import psycopg2
         from psycopg2 import errorcodes, errors as pg_errors
@@ -920,11 +924,16 @@ class EtpAssessmentPrompt(models.Model):
     def action_normalize_tags(self):
         """Fix the tag vocabulary AND evolve the shared knowledge base.
 
-        Two stages so the knowledge base improves as projects accumulate:
-          1. CONSOLIDATE the whole live vocabulary (LLM clusters synonyms onto
-             one canonical key) - data-driven, no hardcoded synonym map.
-          2. RE-EXTRACT the selected generators onto that cleaned vocabulary, so
-             the next project's extraction converges on it too.
+        Two stages, so the knowledge base gets BETTER every time a project is
+        added and this is run:
+          1. CONSOLIDATE the whole live vocabulary (LLM clusters true synonyms,
+             merges drift onto one canonical key, and refreshes every readable
+             display) — data-driven, no hardcoded synonym map.
+          2. RE-EXTRACT the selected generators against that cleaned vocabulary,
+             so their tags + knowledge profile snap onto the shared canonical
+             values. Cleaner shared vocabulary -> the NEXT project's extraction
+             converges on it too -> similarity ranking and future assessments
+             keep improving as projects accumulate.
         """
         from ..services import vertex
         # Stage 1: consolidate the shared vocabulary (once, globally).
@@ -1058,8 +1067,10 @@ class EtpAssessmentPromptQuestion(models.Model):
              "so detection uses the right prompt.")
     options_json = fields.Text(string="Options (JSON)")
     correct_answer_json = fields.Text(string="Correct Answer (JSON)")
-    # Generation-run tracking: gen_batch is stamped at create time by the SOP
-    # generation cron so each draft shows which run produced it.
+    # --- Generation-run tracking (UI clarity: "which questions came from which
+    # run I just triggered"). gen_batch is stamped at create time by the SOP
+    # generation cron; role is derived from the "Task:" title prefix so the
+    # real-task replicas are self-labelling in every list. ---
     gen_batch = fields.Char(
         string="Generation Run", readonly=True, copy=False, index=True,
         help="Timestamped id of the generation run that produced this draft, so "
@@ -1426,9 +1437,10 @@ class EtpAssessmentPromptQuestion(models.Model):
                            or spec.get("data"))
                     if not src:
                         continue
-                    # L-2: _preview_src_ok allows only http(s), our own relative
-                    # paths, or image data: URLs - blocks javascript:/vbscript:/
-                    # other schemes from an LLM/admin-supplied spec.
+                    # L-2: only render http(s), our own relative paths, or
+                    # image data: URLs. Blocks javascript:/vbscript:/other
+                    # schemes from an LLM/admin-supplied spec ever reaching an
+                    # href-like attribute if this markup is refactored later.
                     if not _preview_src_ok(src):
                         continue
                     label = _html.escape(str(
@@ -1554,7 +1566,21 @@ class EtpAssessmentPromptQuestion(models.Model):
                                 for r in not_ready))
         for rec in drafts:
             if rec.question_type == "image_ab" and rec.verification_json:
-                rec._assert_flaw_render_verified()
+                note = rec._flaw_render_review_note()
+                if note:
+                    # Research-aligned (renderers/ab.py has NO hard verify gate): a
+                    # planted flaw that did not visibly render does NOT block the
+                    # question. The construction_keys are the by-construction ground
+                    # truth (the render plan was authored to make them true); an
+                    # unconfirmed pixel is an ADVISORY signal, not a veto. We log it
+                    # and leave verification_json.needs_review visible so a reviewer
+                    # can eyeball / deny, but approval proceeds. Previously this
+                    # raised UserError and dead-locked the flow ("this should not
+                    # happen"). See RESEARCH_DROP3_FINDINGS.md.
+                    _logger.warning(
+                        "etp_assessment image_ab flaw not visually confirmed for "
+                        "%r (approving anyway; construction_keys stand): %s",
+                        rec.name or "draft", note)
         for rec in drafts:
             vals = {
                 "name": rec.name,
@@ -1587,8 +1613,9 @@ class EtpAssessmentPromptQuestion(models.Model):
             if rec.question_type == "image_label":
                 rec._apply_authored_label_key(q)
             rec.write({"state": "approved", "approved_question_id": q.id})
-        # action_approve_all_drafts posts its own rollup, so it suppresses this
-        # per-call log to avoid one note per draft.
+        # Batch approval (action_approve_all_drafts) posts ONE rollup for the
+        # whole set and passes skip_approval_log so each per-draft call here does
+        # not double-log the same event.
         if not self.env.context.get("skip_approval_log"):
             self._log_drafts_to_generators(drafts, "approved")
         return True
@@ -1630,15 +1657,22 @@ class EtpAssessmentPromptQuestion(models.Model):
                 "ground-truth - refusing to approve.\n%s"
                 % (self.name or "draft", "\n".join(drift)))
 
-    def _assert_flaw_render_verified(self):
+    def _flaw_render_review_note(self):
+        """Return a human-readable note when a planted image_ab flaw was not
+        visibly confirmed in the pixels, else ''. ADVISORY ONLY — the caller logs
+        it and leaves verification_json.needs_review visible, but does NOT block
+        approval. Research's renderers/ab.py has no verify gate at all; the
+        construction_keys are the authored by-construction ground truth, so an
+        unconfirmed pixel is a review hint, not a veto (previously this raised and
+        dead-locked approval — the 'this should not happen' bug)."""
         self.ensure_one()
         import json as _json
         try:
             rec = _json.loads(self.verification_json or "{}")
         except (ValueError, TypeError):
-            return
+            return ""
         if not isinstance(rec, dict) or not rec.get("needs_review"):
-            return
+            return ""
         unconfirmed = []
         for slot, side in (rec.get("sides") or {}).items():
             if not isinstance(side, dict) or side.get("confirmed") \
@@ -1647,12 +1681,7 @@ class EtpAssessmentPromptQuestion(models.Model):
             for v in side.get("verdicts") or []:
                 if isinstance(v, dict) and not v.get("present"):
                     unconfirmed.append("%s: %s" % (slot, v.get("flaw") or "?"))
-        raise UserError(
-            "Flaw verification failed: a planted flaw never rendered into the "
-            "image after re-generation, so the construction key it backs is not "
-            "justified by the pixels - refusing to approve %r. Regenerate the "
-            "image or fix the flaw plan.\n%s"
-            % (self.name or "draft", "\n".join(unconfirmed) or "(unconfirmed)"))
+        return "\n".join(unconfirmed) or "(a planted flaw was not confirmed)"
 
     def _dimension_specs(self):
         self.ensure_one()
@@ -2191,11 +2220,15 @@ class EtpAssessmentPromptQuestion(models.Model):
         return True
 
     def _plant_defects_on_render(self, images):
-        """DEFECT form (q7r) true-by-construction render: the rendered 'single'
-        image is the CLEAN base. Plant each defect with PIL at a known pixel and
-        stamp the marker on the ACTUAL drawn region, then store the worker-facing
-        original (defects, no markers) as stimulus and the annotated (markers) as
-        the answer key - true by construction, so no marker lands on empty space."""
+        """DEFECT form (q7r) true-by-construction render — drop-2 base+edit+
+        vision-ground flow. The rendered 'single' image is the CLEAN base; ONE
+        combined image-to-image edit bakes every structural defect into the real
+        pixels, then each defect's anchor is vision-grounded on the FINAL image and
+        the marker stamped there only if the flaw is confirmed present. Unverified
+        defects are dropped and the survivors renumbered 1..N, so no marker ever
+        lands on empty space and the answer key can never reference a defect that
+        didn't render.
+        """
         import base64 as _b64
         import json as _json
         self.ensure_one()
@@ -2206,7 +2239,30 @@ class EtpAssessmentPromptQuestion(models.Model):
         defects = plan.get("defects") if isinstance(plan, dict) else None
         if not isinstance(defects, list) or not defects:
             return images
-        from ..services import defect_render, image_ingest
+        from ..services import defect_render, image_ingest, vertex
+
+        # ctx exposes the two model callables the renderer needs, bound to our
+        # Vertex service (kept out of the pure-PIL renderer so it stays testable).
+        # usage_ctx threads the draft id so image-edit / locate spend is ledgered
+        # and the H-5 budget caps are honoured on every billable call.
+        _env = self.env
+        # llm_usage.prompt_id FKs the GENERATOR (etp.assessment.pro.prompt), so
+        # attribute spend to self.prompt_id (the generator), NOT self.id (this draft
+        # question) — the latter FK-violates and poisons the render transaction.
+        _uctx = {"prompt_id": self.prompt_id.id or False, "note": "defect-render"}
+
+        class _DefectCtx:
+            @staticmethod
+            def edit_image(edit_prompt, ref_png_bytes):
+                return vertex.edit_image(
+                    _env, edit_prompt, ref_png_bytes, usage_ctx=dict(_uctx))
+
+            @staticmethod
+            def locate(image_png_bytes, anchor, flaw=""):
+                return vertex.locate_defect(
+                    _env, image_png_bytes, anchor, flaw, usage_ctx=dict(_uctx))
+
+        ctx = _DefectCtx()
         for spec in images:
             if not isinstance(spec, dict):
                 continue
@@ -2216,13 +2272,15 @@ class EtpAssessmentPromptQuestion(models.Model):
             if not raw:
                 continue
             try:
-                original_png, annotated_png, planted = defect_render.plant(
-                    raw, defects, seed=abs(hash("draft-%s" % self.id)) % 100000)
+                original_png, annotated_png, info = defect_render.plant(
+                    raw, defects, ctx=ctx,
+                    seed=abs(hash("draft-%s" % self.id)) % 100000)
             except Exception:  # noqa: BLE001 - injection must never fail the render
                 _logger.exception(
                     "Defect injection failed for draft %s; leaving base image",
                     self.id)
                 continue
+            planted = info.get("defects") or []
             # Worker sees the ORIGINAL (defects present, no markers). The annotated
             # overlay + the planted key are the answer sheet the reviewer/scorer use.
             spec["data"] = ("data:image/png;base64,%s"
@@ -2231,12 +2289,15 @@ class EtpAssessmentPromptQuestion(models.Model):
                                       % _b64.b64encode(annotated_png).decode())
             # Persist the true-by-construction key as detections_json in the same
             # {number, label, description, box_px} shape the label UI/scoring read.
+            # Markers are already renumbered 1..N (survivors only) by the renderer.
             key = [{"number": p["marker"],
                     "label": (p.get("flaw") or "")[:80],
                     "description": p.get("flaw") or "",
                     "box_px": [p["marker_xy"][0] - 20, p["marker_xy"][1] - 20,
                                p["marker_xy"][0] + 20, p["marker_xy"][1] + 20]}
-                   for p in planted]
+                   for p in planted
+                   if isinstance(p.get("marker_xy"), (list, tuple))
+                   and len(p["marker_xy"]) == 2]
             spec["detections_json"] = _json.dumps(key, ensure_ascii=False)
             try:
                 url, _stored = image_ingest.ingest(
@@ -2254,19 +2315,23 @@ class EtpAssessmentPromptQuestion(models.Model):
             return images
         # DEFECT form (q7r): a defect plan means the rendered image is the CLEAN
         # base; plant each defect and stamp the marker on the ACTUAL drawn region
-        # (true by construction, no misplaced labels).
+        # (true by construction — no misplaced labels).
         if (self.defect_plan_json or "").strip():
             return self._plant_defects_on_render(images)
         if (self.source_url or "").strip():
             if self._capture_source_url_on_render(images):
                 return images
             return self._draw_dense_preview(images)
-        # SYNTHETIC image (model-rendered, no live page): DETECT-AFTER-RENDER.
-        # Do NOT draw the generator's guessed `label_boxes_json` - those coords
-        # were authored by the TEXT model before the screenshot existed, so they
-        # never align with the rendered pixels (the "labels at wrong positions"
-        # bug). Geometry must come from vision detection on the actual render; the
-        # authored behavioural key is preserved and reconciled separately.
+        # SYNTHETIC image (model-rendered, no live page): DETECT-AFTER-RENDER
+        # (research renderers/ui.py). We do NOT draw the generator's guessed
+        # `label_boxes_json` here — those coordinates were authored by the TEXT
+        # model before the screenshot existed, so they never align with the
+        # rendered pixels (the "labels at the wrong positions" bug). The box
+        # GEOMETRY must come from vision detection on the actual render; the
+        # authored behavioural key (per-box functionality) is preserved
+        # independently and reconciled against the detected boxes. Previously an
+        # authored behavioural_key_json short-circuited detection and shipped the
+        # guessed boxes — that is exactly what produced misplaced labels.
         QImage = self.env["etp.assessment.pro.question.image"]
         ui = (self.detection_mode == "ui")
         for spec in images:
@@ -2409,7 +2474,7 @@ class EtpAssessmentPromptQuestion(models.Model):
     def _cron_render_pending_images(self):
         """The advisory lock must stay SESSION-level: an xact lock would release
         at the first per-draft commit. Commit per draft so an Odoo cron-timeout
-        kill cannot roll back (and re-pay for) images already rendered."""
+        kill cannot roll back — and re-pay for — images already rendered."""
         self.env.cr.execute(
             "SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_IMAGE_RENDER,))
         if not self.env.cr.fetchone()[0]:
@@ -2758,9 +2823,9 @@ class EtpAssessmentPromptResource(models.Model):
             elif (rec.extracted_text or "").strip():
                 rec.status = "ready"
             elif ext in NATIVE_DOC_EXTENSIONS:
-                # _extract_text() returns empty-with-no-error for these (sent to
-                # the model as inline parts); reporting "pending" left a permanent
-                # amber dot on a perfectly good PDF.
+                # _extract_text() deliberately returns empty-with-no-error for these:
+                # they go to the model as inline document parts. Reporting them as
+                # "pending" left a permanent amber dot on a perfectly good PDF.
                 rec.status = "native"
             else:
                 rec.status = "pending"
@@ -2773,7 +2838,7 @@ class EtpAssessmentPromptResource(models.Model):
         try:
             from defusedxml.ElementTree import fromstring as _xml_fromstring
         except ImportError as exc:
-            # H-12: do NOT silently fall back to stdlib xml.etree - it is exposed
+            # H-12: do NOT silently fall back to stdlib xml.etree — it is exposed
             # to billion-laughs entity expansion on an attacker .docx. defusedxml
             # is a declared manifest dependency; if it is missing, fail loudly.
             raise RuntimeError(

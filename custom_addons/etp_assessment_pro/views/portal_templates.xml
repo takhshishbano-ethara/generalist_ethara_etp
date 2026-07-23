@@ -364,6 +364,33 @@
                                         <div style="white-space:pre-wrap;font-size:.9rem" t-out="row['feedback']"/>
                                     </div>
                                 </t>
+                                <t t-if="row.get('deductions') or row.get('credit')">
+                                    <div class="etp-accounting mt-3">
+                                        <div class="fw-semibold small text-uppercase text-muted mb-2"><i class="fa fa-list-ol me-1"/>Score breakdown</div>
+                                        <t t-if="row.get('credit')">
+                                            <ul class="etp-credit list-unstyled mb-2">
+                                                <li t-foreach="row['credit']" t-as="c" class="d-flex gap-2 mb-1">
+                                                    <span class="text-success fw-semibold"><i class="fa fa-check"/></span>
+                                                    <span style="font-size:.9rem">
+                                                        <t t-out="c['reason']"/>
+                                                        <t t-if="c.get('evidence')"><span class="text-muted fst-italic"> — “<t t-out="c['evidence']"/>”</span></t>
+                                                    </span>
+                                                </li>
+                                            </ul>
+                                        </t>
+                                        <t t-if="row.get('deductions')">
+                                            <ul class="etp-deductions list-unstyled mb-0">
+                                                <li t-foreach="row['deductions']" t-as="d" class="d-flex gap-2 mb-1">
+                                                    <span class="text-danger fw-semibold" style="min-width:2.6rem" t-esc="(d.get('points') is not None) and ('%d' % d['points']) or '−'"/>
+                                                    <span style="font-size:.9rem">
+                                                        <t t-out="d['reason']"/>
+                                                        <t t-if="d.get('evidence')"><span class="text-muted fst-italic"> — “<t t-out="d['evidence']"/>”</span></t>
+                                                    </span>
+                                                </li>
+                                            </ul>
+                                        </t>
+                                    </div>
+                                </t>
                             </div>
                         </t>
                         <div class="d-flex gap-2 mt-4">

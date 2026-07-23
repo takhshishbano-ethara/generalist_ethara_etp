@@ -1,36 +1,48 @@
 # -*- coding: utf-8 -*-
 """True-by-construction defect renderer for single-image `image_label` defect
-annotation (the q7r task family), ported from the research harness
-`renderers/defects.py` and hardened for our pipeline.
+annotation (the q7r task family), ported 1:1 from the research harness
+`renderers/defects.py` (drop 2 — the base+edit+vision-ground rework).
 
 WHY THIS EXISTS
 ---------------
-An assessment answer key must be PROVABLE: the defect at a *known* pixel. A model
-that "adds a defect somewhere" gives an unknown location, so the key becomes a
-guess and the numbered marker lands on empty space (exactly the bad q7r labels).
-So the model decides *what/where* (the spec); this code *places* the defect
-deterministically with PIL, and stamps the numbered marker on it.
+An assessment answer key must be PROVABLE: the numbered marker must sit on a real,
+nameable defect, and the key must never reference a defect that didn't render.
 
-IMPROVEMENT OVER THE RESEARCH RENDERER
---------------------------------------
-Research stamps the marker at the model-authored ``marker_xy`` and lets
-region-modifying ops (float_copy / smear / shadow / warp / smooth) act on a blind
-pixel box the model guessed without seeing the rendered base — so the modification
-and its marker can both land on empty table (the misplaced-label bug we saw on
-q7r). Here every op RETURNS THE ACTUAL BOUNDING BOX IT DREW INTO, and the marker
-is stamped at that box's true center. If an op cannot run (bad/way-off box), it is
-dropped from the answer key rather than shipping a marker over nothing. The marker
-always sits on a real, planted defect.
+THE FLOW (drop 2)
+-----------------
+1. Render a CLEAN base image from the model's base_prompt (done by the caller).
+2. ONE combined image-to-image EDIT bakes every structural defect (fused/extra
+   fingers, garbled inline text on the scene's own surfaces, impossible joints,
+   objects merging with no clean boundary) into the real pixels — things PIL cannot
+   synthesize. The edit re-renders the whole scene, so a pre-guessed pixel is
+   worthless.
+3. Deterministic PIL is kept ONLY for a genuine clone/duplication artifact
+   (`float_copy`) where copying pixels is more reliable than an edit.
+4. VISION-GROUND each edit defect's `anchor` (the visible object it sits on) in the
+   FINAL image and ask the same call whether the flaw is actually present. The
+   marker is stamped at the located box center; a defect the vision call cannot
+   confirm present is DROPPED (never shipped as a phantom marker).
+5. RENUMBER the surviving markers 1..N (continuous, no gaps) and return a
+   `marker_map` so the caller can remap the answer key to match.
 
-Everything here is deterministic PIL — no model calls. Coordinates are in a fixed
-1280x720 canvas; the base image is resized to it first.
+The model decides WHAT defect and WHERE (the anchor); vision on the final pixels
+decides the exact marker position and whether it made it in. The PIL ops below are
+the fallback lane; the vision grounding is the primary path.
 
-    plant(base_png_bytes, defects) -> (original_png, annotated_png, planted[])
+    plant(base_png_bytes, defects, ctx) -> (original_png, annotated_png, info)
+
+``ctx`` supplies ``edit_image(prompt, ref_bytes)`` and
+``locate(image_bytes, anchor, flaw)`` so this module stays model-agnostic. In our
+Odoo wiring those are thin wrappers over services/vertex.py `edit_image` /
+`locate_defect`. Coordinates are in a fixed 1280x720 canvas.
 """
 import io
 import math
 import os
 import random
+import logging
+
+_logger = logging.getLogger(__name__)
 
 _CANVAS = (1280, 720)
 _RED = (225, 30, 35, 255)
@@ -297,66 +309,201 @@ def _clamp_center(box, w, h):
     return cx, cy
 
 
-def plant(base_png_bytes, defects, seed=7):
-    """Resize the base image to the canvas, plant every defect deterministically,
-    and return (original_png_bytes, annotated_png_bytes, planted).
+def _region_center(region):
+    if isinstance(region, (list, tuple)) and len(region) == 4:
+        x0, y0, x1, y1 = region
+        return int((x0 + x1) / 2), int((y0 + y1) / 2)
+    return _CANVAS[0] // 2, _CANVAS[1] // 2
 
-    ``planted`` is the answer key the marker is TRUE for:
-      [{"marker": n, "op": ..., "marker_xy": [cx, cy], "flaw": "..."}]
-    A defect whose op could not run (bad box) is dropped from the key AND gets no
-    marker — the marker never sits on empty space.
+
+def _box_center_px(box_2d):
+    """[ymin,xmin,ymax,xmax] on a 0-1000 grid -> (x,y) clamped to the canvas."""
+    ymin, xmin, ymax, xmax = box_2d
+    cx = int((xmin + xmax) / 2 / 1000 * _CANVAS[0])
+    cy = int((ymin + ymax) / 2 / 1000 * _CANVAS[1])
+    return max(0, min(_CANVAS[0] - 1, cx)), max(0, min(_CANVAS[1] - 1, cy))
+
+
+def _combined_brief(edit_defects):
+    """One edit call for every structural defect, so the scene re-renders ONCE
+    (less drift, fewer unplanted artifacts) instead of once per defect. Ported 1:1
+    from the research harness `_combined_brief`."""
+    lines = []
+    for i, d in enumerate(edit_defects, 1):
+        instr = (d.get("edit_instruction") or d.get("flaw") or "").strip()
+        lines.append("%d. %s" % (i, instr))
+    return ("Edit this photograph to introduce EXACTLY these localized flaws, and "
+            "nothing else:\n" + "\n".join(lines) +
+            "\nApply every change. Keep the rest of the scene as close to the "
+            "original as possible: same composition, same subject and pose, same "
+            "lighting and colors. Do not add any other defects or text. Return the "
+            "edited photograph.")
+
+
+def _is_edit(d):
+    """A defect is applied by generative EDIT (vs deterministic PIL) unless it
+    explicitly names a PIL op with no edit instruction. Mirrors research `_is_edit`."""
+    method = d.get("method") or (
+        "pil" if (d.get("op") in _OPS and not d.get("edit_instruction")) else "edit")
+    return method == "edit" and bool(d.get("edit_instruction") or d.get("flaw"))
+
+
+def _apply_pil(work, d, rng):
+    """Deterministic clone/duplication op on the (already edited) image. Returns
+    (image, result_record); marker comes from the spec since PIL plants at a known
+    pixel. Mirrors research `_apply_pil` (kept ONLY for genuine clone/duplication)."""
+    import numpy as np
+    rec = {"marker": d.get("marker"), "method": "pil", "op": d.get("op"),
+           "kind": d.get("kind"), "flaw": d.get("flaw")}
+    before = np.asarray(work.convert("RGB"))
+    try:
+        spec = dict(d.get("spec", {}) or {})
+        spec.setdefault("marker_xy", d.get("marker_xy"))
+        fn = _OPS.get(d.get("op"))
+        drawn_box = fn(work, spec, rng) if fn else None
+        after = np.asarray(work.convert("RGB"))
+        cs = float(np.abs(after.astype(np.int16) - before.astype(np.int16)).mean())
+        mxy = d.get("marker_xy") or spec.get("marker_xy")
+        if (not mxy) and isinstance(drawn_box, (list, tuple)) and len(drawn_box) == 4:
+            mxy = list(_clamp_center(drawn_box, work.width, work.height))
+        rec.update(marker_xy=mxy, verified=cs > 0.5, change_score=round(cs, 2))
+        return work, rec
+    except Exception as e:  # noqa: BLE001
+        _logger.warning("defect_render pil marker %s op %s failed: %s",
+                        d.get("marker"), d.get("op"), e)
+        rec.update(marker_xy=d.get("marker_xy"), verified=False, change_score=0.0)
+        return work, rec
+
+
+def plant(base_png_bytes, defects, ctx=None, seed=7):
+    """BASE + EDIT + VISION-GROUND defect renderer — ported 1:1 from the research
+    harness `renderers/defects.py::render` (drop 2).
+
+    Flow: resize base to canvas -> ONE combined image-to-image edit bakes every
+    structural defect into the real pixels -> deterministic PIL for any
+    clone/duplication -> vision-ground each edit defect's `anchor` on the FINAL
+    image and verify the flaw is present -> stamp markers ONLY on verified defects
+    -> renumber survivors 1..N (continuous, no gaps) and return a marker_map so the
+    answer key can be remapped to match.
+
+    ``ctx`` supplies the two model callables (kept out of this pure-PIL module so it
+    stays model-agnostic and unit-testable):
+        ctx.edit_image(edit_prompt, ref_png_bytes) -> edited_png_bytes
+        ctx.locate(image_png_bytes, anchor, flaw)  -> {found, box_2d, defect_present}
+    When ``ctx`` is None (or lacks a callable) the flow degrades: edit defects fall
+    back to the region center unverified, PIL defects still plant deterministically.
+
+    Returns (original_png_bytes, annotated_png_bytes, info) where info carries
+    planted_markers (1..N), marker_map (model marker -> new sequential), labels,
+    assets_verified, and the per-defect result records.
     """
     from PIL import Image
-    img = Image.open(io.BytesIO(base_png_bytes)).convert("RGBA").resize(
+    work = Image.open(io.BytesIO(base_png_bytes)).convert("RGB").resize(
         _CANVAS, Image.LANCZOS)
-    w, h = img.size
     rng = random.Random(seed)
+    can_edit = callable(getattr(ctx, "edit_image", None))
+    can_locate = callable(getattr(ctx, "locate", None))
 
-    planted = []
-    for de in (defects or []):
-        if not isinstance(de, dict):
-            continue
-        op = de.get("op")
-        fn = _OPS.get(op)
-        if fn is None:
-            continue
-        spec = dict(de.get("spec") or {})
-        spec.setdefault("marker_xy", de.get("marker_xy"))
+    defects = [d for d in (defects or []) if isinstance(d, dict)]
+    edit_defs = [d for d in defects if _is_edit(d)]
+    pil_defs = [d for d in defects if not _is_edit(d)]
+
+    # 1) one combined edit bakes every structural defect into the pixels at once
+    if edit_defs and can_edit:
         try:
-            drawn_box = fn(img, spec, rng)
-        except Exception:  # noqa: BLE001 - a bad box drops the defect, never crashes
-            drawn_box = None
-        if not (isinstance(drawn_box, (list, tuple)) and len(drawn_box) == 4):
-            continue
-        bx0, by0, bx1, by1 = drawn_box
-        # A degenerate or off-canvas box means the op effectively drew nothing
-        # (PIL clamps/returns empty regions instead of raising) - drop it so a
-        # marker never lands on empty space, and require a real overlap with the
-        # canvas so out-of-bounds specs cannot produce a phantom marker.
-        if (bx1 - bx0) < 4 or (by1 - by0) < 4:
-            continue
-        if bx1 <= 0 or by1 <= 0 or bx0 >= w or by0 >= h:
-            continue
-        # Marker center = the TRUE center of what the op actually drew. This is the
-        # fix for research's misplaced q7r markers (which trusted a blind marker_xy).
-        cx, cy = _clamp_center(drawn_box, w, h)
-        planted.append({
-            "marker": de.get("marker"),
-            "op": op,
-            "marker_xy": [cx, cy],
-            "flaw": de.get("flaw"),
-        })
+            brief = _combined_brief(edit_defs)
+            edited = ctx.edit_image(brief, _png_bytes(work))
+            work = Image.open(io.BytesIO(edited)).convert("RGB").resize(
+                _CANVAS, Image.LANCZOS)
+        except Exception as e:  # noqa: BLE001 — a failed edit degrades, never crashes
+            _logger.warning("defect_render combined edit failed: %s", e)
 
-    original = img.convert("RGB")
-    ann = img.copy()
-    for i, p in enumerate(planted, 1):
-        # renumber 1..N in plant order so the key and the overlay always agree,
-        # even when some defects were dropped.
-        p["marker"] = i
-        _draw_marker(ann, i, p["marker_xy"][0], p["marker_xy"][1])
+    # 2) deterministic PIL clone/duplication ops, applied on the edited image
+    work = work.convert("RGBA")
+    results = []
+    for d in pil_defs:
+        work, rec = _apply_pil(work, d, rng)
+        results.append(rec)
+
+    # 3) vision-ground each edit defect ON the worker-facing image
+    original_rgb = work.convert("RGB")
+    original_png = _png_bytes(original_rgb)
+    for d in edit_defs:
+        anchor = d.get("anchor") or d.get("flaw") or ""
+        rec = {"marker": d.get("marker"), "method": "edit", "op": "edit",
+               "kind": d.get("kind"), "flaw": d.get("flaw"), "anchor": anchor}
+        loc = None
+        if can_locate and anchor:
+            try:
+                loc = ctx.locate(original_png, anchor, d.get("flaw") or "")
+            except Exception as e:  # noqa: BLE001
+                _logger.warning("defect_render locate marker %s failed: %s",
+                                d.get("marker"), e)
+        if loc and loc.get("found") and loc.get("box_2d"):
+            present = bool(loc.get("defect_present", True))
+            rec.update(marker_xy=list(_box_center_px(loc["box_2d"])), located=True,
+                       defect_present=present, verified=present,
+                       region_fallback=not present)
+        else:
+            rec.update(marker_xy=list(_region_center(d.get("region"))),
+                       located=False, defect_present=False, verified=False,
+                       region_fallback=True)
+        results.append(rec)
+
+    results.sort(key=lambda r: r.get("marker")
+                 if isinstance(r.get("marker"), int) else 999)
+
+    # 4) stamp markers ONLY for defects actually IN the image (verified +
+    #    positioned). RENUMBER the survivors 1..N in order so the annotation
+    #    sequence is CONTINUOUS — however many made it in. The count is NOT fixed.
+    drawn = [r for r in results if r.get("verified")
+             and isinstance(r.get("marker_xy"), (list, tuple))
+             and len(r["marker_xy"]) == 2]
+    marker_map = {}
+    ann = work.copy()
+    placed = []                          # keep every marker visually distinct: markers
+    _MINSEP = 46                         # are r=20, so centers must be >~46px apart or the
+    for i, r in enumerate(drawn, 1):     # circles overlap (harness-3 renderers/defects.py).
+        if isinstance(r.get("marker"), int):
+            marker_map[r["marker"]] = i
+        r["marker"] = i
+        x, y = int(r["marker_xy"][0]), int(r["marker_xy"][1])
+        for _ in range(16):              # nudge away from any too-close neighbour
+            near = [(px, py) for px, py in placed
+                    if (px - x) ** 2 + (py - y) ** 2 < _MINSEP * _MINSEP]
+            if not near:
+                break
+            ax = sum(p[0] for p in near) / len(near)
+            ay = sum(p[1] for p in near) / len(near)
+            dx, dy = x - ax, y - ay
+            dist = math.hypot(dx, dy)
+            if dist < 1:                 # exactly coincident -> pick a fanned angle
+                dx, dy, dist = math.cos(i * 1.7), math.sin(i * 1.7), 1.0
+            x = int(x + dx / dist * _MINSEP)
+            y = int(y + dy / dist * _MINSEP)
+            x = max(26, min(_CANVAS[0] - 26, x))
+            y = max(26, min(_CANVAS[1] - 26, y))
+        placed.append((x, y))
+        r["marker_xy"] = [x, y]          # keep the manifest in sync with the pixel drawn
+        _draw_marker(ann, i, x, y)
+
+    original = original_rgb
     annotated = ann.convert("RGB")
-
     obuf, abuf = io.BytesIO(), io.BytesIO()
     original.save(obuf, format="PNG")
     annotated.save(abuf, format="PNG")
-    return obuf.getvalue(), abuf.getvalue(), planted
+
+    info = {
+        "planted_markers": [r["marker"] for r in drawn],
+        "marker_map": marker_map,
+        "labels": {str(r["marker"]): r.get("flaw") for r in drawn},
+        "assets_verified": len(drawn) == len(results),
+        "defects": drawn,
+    }
+    return obuf.getvalue(), abuf.getvalue(), info
+
+
+def _png_bytes(pil_img):
+    buf = io.BytesIO()
+    pil_img.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
