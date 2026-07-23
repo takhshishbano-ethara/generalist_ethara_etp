@@ -1,6 +1,7 @@
 import base64
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -174,12 +175,9 @@ class NonStemRun(models.Model):
                     "output",
                     f"run_{self.id}",
                 )
-                os.makedirs(persistent_dir, exist_ok=True)
-                for fname in os.listdir(out_dir):
-                    src = os.path.join(out_dir, fname)
-                    dst = os.path.join(persistent_dir, fname)
-                    with open(src, "rb") as sf, open(dst, "wb") as df:
-                        df.write(sf.read())
+                if os.path.exists(persistent_dir):
+                    shutil.rmtree(persistent_dir)
+                shutil.copytree(out_dir, persistent_dir)
 
                 self.write({
                     "state": "done",
