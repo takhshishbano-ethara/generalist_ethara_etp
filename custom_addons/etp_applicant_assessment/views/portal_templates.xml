@@ -17,9 +17,9 @@
                 <!-- ?v= busts the 7-day browser cache on static files; bump it
                      whenever portal.css / portal.js change. -->
                 <link rel="stylesheet" type="text/css"
-                      href="/etp_applicant_assessment/static/src/portal/portal.css?v=20260721-perm-fix"/>
+                      href="/etp_applicant_assessment/static/src/portal/portal.css?v=20260723-fact-fit"/>
                 <script type="module"
-                        src="/etp_applicant_assessment/static/src/portal/portal.js?v=20260721-perm-fix"/>
+                        src="/etp_applicant_assessment/static/src/portal/portal.js?v=20260723-fact-fit"/>
             </head>
             <body class="eaa-body">
                 <div class="eaa-shell">
@@ -109,14 +109,16 @@
                 <div class="eaa-facts">
                     <div class="eaa-fact">
                         <span class="eaa-fact__label">Active From</span>
-                        <span class="eaa-fact__value">
-                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/>
+                        <span class="eaa-fact__value eaa-fact__value--datetime">
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime', 'date_only': True}"/>
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime', 'time_only': True, 'hide_seconds': True}"/>
                         </span>
                     </div>
                     <div class="eaa-fact" t-if="assessment.valid_until">
                         <span class="eaa-fact__label">Active Until</span>
-                        <span class="eaa-fact__value">
-                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/>
+                        <span class="eaa-fact__value eaa-fact__value--datetime">
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime', 'date_only': True}"/>
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime', 'time_only': True, 'hide_seconds': True}"/>
                         </span>
                     </div>
                 </div>
@@ -140,14 +142,16 @@
                 <div class="eaa-facts">
                     <div class="eaa-fact" t-if="assessment.valid_from">
                         <span class="eaa-fact__label">Active From</span>
-                        <span class="eaa-fact__value">
-                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/>
+                        <span class="eaa-fact__value eaa-fact__value--datetime">
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime', 'date_only': True}"/>
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime', 'time_only': True, 'hide_seconds': True}"/>
                         </span>
                     </div>
                     <div class="eaa-fact">
                         <span class="eaa-fact__label">Active Until</span>
-                        <span class="eaa-fact__value">
-                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/>
+                        <span class="eaa-fact__value eaa-fact__value--datetime">
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime', 'date_only': True}"/>
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime', 'time_only': True, 'hide_seconds': True}"/>
                         </span>
                     </div>
                 </div>
@@ -188,14 +192,16 @@
                     </div>
                     <div class="eaa-fact" t-if="assessment.valid_from">
                         <span class="eaa-fact__label">Active From</span>
-                        <span class="eaa-fact__value">
-                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime'}"/>
+                        <span class="eaa-fact__value eaa-fact__value--datetime">
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime', 'date_only': True}"/>
+                            <span t-field="assessment.valid_from" t-options="{'widget': 'datetime', 'time_only': True, 'hide_seconds': True}"/>
                         </span>
                     </div>
                     <div class="eaa-fact" t-if="assessment.valid_until">
                         <span class="eaa-fact__label">Active Until</span>
-                        <span class="eaa-fact__value">
-                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime'}"/>
+                        <span class="eaa-fact__value eaa-fact__value--datetime">
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime', 'date_only': True}"/>
+                            <span t-field="assessment.valid_until" t-options="{'widget': 'datetime', 'time_only': True, 'hide_seconds': True}"/>
                         </span>
                     </div>
                 </div>
