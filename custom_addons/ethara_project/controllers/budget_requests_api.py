@@ -1140,10 +1140,12 @@ class EtharaBudgetRequestController(http.Controller):
             state_aliases = {
                 'pending': ['draft', 'cto_review', 'cfo_review'],
                 'approved': ['approved', 'partially_approved'],
-                # A CTO send-back / CFO return writes state=changes_required; a
-                # terminal CFO reject writes state=rejected. Both read as
-                # "rejected" in the queue's Rejected filter.
-                'rejected': ['changes_required', 'rejected'],
+                # A CTO/CFO *return* writes state=changes_required (editable,
+                # surfaced under the "Returned" filter); a terminal CTO/CFO
+                # *reject* writes state=rejected. Keep them separate so Rejected
+                # shows only closed requests. ('changes_required' is queryable
+                # directly as a raw state for the Returned filter.)
+                'rejected': ['rejected'],
                 'withdrawn': ['withdrawn'],
             }
             valid_states = [v for v, _l in Request._fields['state'].selection]
@@ -1786,18 +1788,36 @@ class EtharaBudgetRequestController(http.Controller):
                         ),
                     })
                 # Per-line override mode: the CFO edited individual model /
-                # subscription line amounts (infra stays locked). When those
-                # arrays are present the per-line `approved_amount` figures are
-                # authoritative — `action_cfo_approve` recomputes the total from
-                # the lines and skips auto-redistribution.
-                cfo_line_override = (
+                # subscription line amounts. When those arrays are present the
+                # per-line `approved_amount` figures are authoritative —
+                # `action_cfo_approve` recomputes the total from the lines and
+                # skips auto-redistribution.
+                #
+                # An EXPLICIT `cfo_line_override` (when the client sends it) wins
+                # over the array-presence inference. This lets R&D send its
+                # infra/subscription reductions (real per-line edits) while still
+                # staying on the AGGREGATE path — the R&D model is a lump with no
+                # per-line override, so override mode would keep the full model
+                # and drop the trim. In that case we flag `cfo_lines_applied` so
+                # the aggregate split trusts the reduced infra/sub amounts that
+                # `_apply_line_overrides` just wrote (instead of refunding them
+                # back up to the requested figures).
+                lines_present = (
                     'model_lines' in jdata
                     or 'subscription_lines' in jdata
                     or 'infra_lines' in jdata
                 )
+                if 'cfo_line_override' in jdata:
+                    cfo_line_override = _coerce_bool(
+                        jdata.get('cfo_line_override')
+                    )
+                else:
+                    cfo_line_override = lines_present
                 ctx = {}
                 if cfo_line_override:
                     ctx['cfo_line_override'] = True
+                elif lines_present:
+                    ctx['cfo_lines_applied'] = True
                 # Explicit Approve (full) vs Partial decision from the CFO. When
                 # `is_partial` is absent, the model infers it from the amounts.
                 if 'is_partial' in jdata:
@@ -1867,7 +1887,14 @@ class EtharaBudgetRequestController(http.Controller):
                         message=f'Cannot CTO-reject in state \'{req.state}\'.',
                         status=400, data={},
                     )
-                req._do_cto_reject(note)
+                # `mode='reject'` closes the request terminally (state
+                # `rejected`, no longer editable); the default `changes` sends it
+                # back to the PL for revision (state `changes_required`).
+                mode = (jdata.get('mode') or 'changes').strip().lower()
+                if mode == 'reject':
+                    req._do_cto_reject_terminal(note)
+                else:
+                    req._do_cto_reject(note)
             else:
                 if req.state != 'cfo_review':
                     return return_Response(
@@ -1894,9 +1921,10 @@ class EtharaBudgetRequestController(http.Controller):
                 data={'errors': [str(e)]},
             )
 
+        _mode = (jdata.get('mode') or 'changes').strip().lower()
         if step == 'cto':
-            verb = 'CTO send-back'
-        elif (jdata.get('mode') or 'changes').strip().lower() == 'reject':
+            verb = 'CTO rejection' if _mode == 'reject' else 'CTO send-back'
+        elif _mode == 'reject':
             verb = 'CFO rejection'
         else:
             verb = 'CFO change request'
