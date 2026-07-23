@@ -304,6 +304,9 @@
     border-radius: 8px;
     padding: 12px;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 .eaa-fact__label {
     display: block;
@@ -320,6 +323,15 @@
     font-weight: 500;
     color: var(--eaa-text);
     margin-top: 4px;
+}
+/* Date/time facts: too long for the 20px stat font — stack date over time */
+.eaa-fact__value--datetime {
+    font-size: 13px;
+    line-height: 1.5;
+}
+.eaa-fact__value--datetime > span {
+    display: block;
+    white-space: nowrap;
 }
 
 .eaa-instructions {
