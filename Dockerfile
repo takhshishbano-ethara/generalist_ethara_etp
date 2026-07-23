@@ -99,7 +99,6 @@ EXPOSE 8071
 # Edit this line when adding a module.
 ENV ODOO_MODULES="erza,erza_dashboard,aurora_dashboard,milobench_dashboard"
 
-# Gate: set to "true" ONLY for builds that need the module install/upgrade to run
 # so normal deploys don't re-run the upgrade.
 ENV ODOO_RUN_UPGRADE="false"
 
