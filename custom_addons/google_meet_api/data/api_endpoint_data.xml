@@ -81,6 +81,10 @@
             <field name="url_pattern">/api/v1/candidates/&lt;int:cid&gt;/pi-bypass</field>
             <field name="note">HRMS-clone: bypass PI by candidate id (creates evaluation if missing)</field>
         </record>
+        <record id="endpoint_candidates_performance" model="api.endpoint">
+            <field name="url_pattern">/api/v1/candidates/&lt;int:cid&gt;/performance</field>
+            <field name="note">Performance tab: assessment + PI KPIs, final verdict, all assessments and PI rounds for a candidate</field>
+        </record>
         <record id="endpoint_audit_logs" model="api.endpoint">
             <field name="url_pattern">/api/v1/audit-logs</field>
             <field name="note">HRMS-clone: audit trail of evaluation actions</field>

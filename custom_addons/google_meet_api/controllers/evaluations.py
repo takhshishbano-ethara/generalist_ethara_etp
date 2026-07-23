@@ -12,6 +12,8 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
+from .google_meet import _event_dict
+
 _logger = logging.getLogger(__name__)
 
 EVAL_BASE = "/api/v1/evaluations"
@@ -158,6 +160,46 @@ def _eval_dict(rec):
         "rounds_completed": rec.rounds_completed or 0,
         "create_date": _iso(rec.create_date),
         "write_date": _iso(rec.write_date),
+    }
+
+
+VERDICT_LABELS = {
+    "hire": "Hire",
+    "reject": "Reject",
+    "hold": "On Hold",
+    "next_round": "Next Round",
+}
+
+# States meaning the candidate actually sat the test (vs. merely invited).
+ASSESSMENT_ATTEMPT_STATES = ("in_progress", "submitted", "scored")
+
+
+def _assessment_dict(rec):
+    template = rec.template_id
+    job = rec.job_id
+    return {
+        "id": rec.id,
+        "state": rec.state,
+        "result": rec.result,
+        "template": (
+            {"id": template.id, "name": template.name} if template else None
+        ),
+        "job": ({"id": job.id, "name": job.name} if job else None),
+        "max_score": rec.max_score,
+        "pass_mark_percent": rec.pass_mark_percent,
+        "objective_score": rec.objective_score,
+        "warning_penalty": rec.warning_penalty,
+        "final_score": rec.final_score,
+        "has_pending_review": rec.has_pending_review,
+        "question_count": rec.question_count,
+        "answered_count": rec.answered_count,
+        "warning_count": rec.warning_count,
+        "duration_minutes": rec.duration_minutes,
+        "sent_at": _iso(rec.create_date),
+        "started_at": _iso(rec.started_at),
+        "submitted_at": _iso(rec.submitted_at),
+        "deadline_at": _iso(rec.deadline_at),
+        "test_link": getattr(rec, "portal_url", None) or None,
     }
 
 
@@ -385,6 +427,103 @@ class EvaluationsApi(http.Controller):
         if not rec:
             rec = Eval.create({"candidate_id": cid, "status": "draft"})
         return self._do_pi_bypass(rec)
+
+    @http.route(CAND_BASE + "/<int:cid>/performance", type="http", auth="none", methods=["GET"], csrf=False, cors="*")
+    @validate_token
+    @_handle_errors
+    def candidate_performance(self, cid, **kwargs):
+        candidate = request.env["hr.applicant"].sudo().browse(cid).exists()
+        if not candidate:
+            return return_Response(message=f"Candidate id={cid} not found.", status=404)
+
+        # -- Assessments (etp_applicant_assessment is a soft dependency) --
+        assessments = []
+        if "etp.applicant.assessment" in request.env:
+            assessments = request.env["etp.applicant.assessment"].sudo().search(
+                [("applicant_id", "=", cid)],
+                order="create_date desc, id desc",
+            )
+        scored = [a for a in assessments if a.state == "scored"]
+        latest_scored = scored[0] if scored else None
+        assessment_kpi = {
+            "score": latest_scored.final_score if latest_scored else None,
+            "result": latest_scored.result if latest_scored else None,
+            "scored_at": _iso(latest_scored.submitted_at) if latest_scored else None,
+            "state": assessments[0].state if assessments else None,
+            "has_attempt": any(a.state in ASSESSMENT_ATTEMPT_STATES for a in assessments),
+            "assigned_count": len(assessments),
+            "pending_review": any(a.has_pending_review for a in assessments),
+        }
+
+        # -- PI rounds (includes cancelled ones for the journey view) --
+        events = request.env["calendar.event"].sudo().with_context(active_test=False).search(
+            [("candidate_id", "=", cid)],
+            order="start asc",
+        )
+        completed = [ev for ev in events if ev.evaluation_submitted]
+        latest_completed = completed[-1] if completed else None
+
+        evaluation = request.env["hr.applicant.evaluation"].sudo().search(
+            [("candidate_id", "=", cid)], limit=1,
+        )
+        if not completed:
+            average_pi = None
+        elif evaluation:
+            average_pi = evaluation.pi_score or 0.0
+        else:
+            average_pi = round(
+                sum(ev.overall_score or 0.0 for ev in completed) / len(completed) * 10, 2,
+            )
+
+        # Scores are exposed on the same 0-100 scale as evaluation.pi_score.
+        pi_kpi = {
+            "score": (
+                round((latest_completed.overall_score or 0.0) * 10, 2)
+                if latest_completed else None
+            ),
+            "latest_round": latest_completed.interview_round if latest_completed else None,
+            "average_score": average_pi,
+            "rounds_total": len(events),
+            "rounds_completed": len(completed),
+            "rounds_cancelled": len([ev for ev in events if not ev.active]),
+            "max_rounds": 5,
+            "rounds_remaining": max(0, 5 - len(events)),
+        }
+
+        verdict = evaluation.final_verdict if evaluation else None
+        verdict_kpi = {
+            "verdict": verdict or None,
+            "label": VERDICT_LABELS.get(verdict, "Pending"),
+            "evaluation_status": evaluation.status if evaluation else None,
+            "recommendation": (evaluation.recommendation or None) if evaluation else None,
+        }
+
+        return return_Response(
+            message="OK", status=200,
+            data={
+                "candidate": {
+                    "id": candidate.id,
+                    "name": candidate.partner_name or candidate.name,
+                    "email": candidate.email_from or None,
+                    "phone": candidate.partner_phone or None,
+                    "candidate_code": getattr(candidate, "candidate_code", None) or None,
+                    "status": candidate.status if "status" in candidate._fields else None,
+                    "source_type": getattr(candidate, "source_type", None) or None,
+                    "job": (
+                        {"id": candidate.job_id.id, "name": candidate.job_id.name}
+                        if candidate.job_id else None
+                    ),
+                },
+                "kpis": {
+                    "assessment": assessment_kpi,
+                    "pi": pi_kpi,
+                    "final_verdict": verdict_kpi,
+                },
+                "assessments": [_assessment_dict(a) for a in assessments],
+                "pi_rounds": [_event_dict(ev) for ev in events],
+                "evaluation": _eval_dict(evaluation) if evaluation else None,
+            },
+        )
 
     def _do_pi_bypass(self, rec):
         data, err = _read_body()
