@@ -377,12 +377,30 @@ class EtharaProjectPhaseRequest(models.Model):
         self.ensure_one()
         approved_total = self.approved_total or 0.0
 
+        # When the CFO has trimmed infra / subscription lines directly (their
+        # reduced figures were just written by `_apply_line_overrides`), the
+        # CFO endpoint sets `cfo_lines_applied`. In that case the waterfall must
+        # fund those lines to their REDUCED (approved) amount — not refund them
+        # back up to the raiser's requested figure — so the split matches what
+        # the CFO set on screen. Models always distribute against requested (the
+        # reduced model lump arrives as the leftover after infra/subs).
+        reduced = bool(self.env.context.get('cfo_lines_applied'))
+
         sub_targets = {
-            line.id: (line.requested_amount or line.final_amount or 0.0)
+            line.id: (
+                (line.approved_amount or line.requested_amount
+                 or line.final_amount or 0.0)
+                if reduced
+                else (line.requested_amount or line.final_amount or 0.0)
+            )
             for line in self.subscription_line_ids
         }
         infra_targets = {
-            line.id: (line.requested_amount or 0.0)
+            line.id: (
+                (line.approved_amount or line.requested_amount or 0.0)
+                if reduced
+                else (line.requested_amount or 0.0)
+            )
             for line in self.infra_line_ids
         }
         model_targets = {
@@ -444,31 +462,6 @@ class EtharaProjectPhaseRequest(models.Model):
     def action_auto_distribute_approved(self):
         for rec in self:
             rec._distribute_approved_amount()
-
-    def _fixed_cost_floor(self):
-        self.ensure_one()
-        infra_req = sum(
-            (line.requested_amount or 0.0) for line in self.infra_line_ids
-        )
-        sub_req = sum(
-            (line.requested_amount or line.final_amount or 0.0)
-            for line in self.subscription_line_ids
-        )
-        return infra_req + sub_req
-
-    def _check_fixed_cost_floor(self):
-        self.ensure_one()
-        floor = self._fixed_cost_floor()
-        if floor <= 0.0:
-            return
-        approved_total = self.approved_total or 0.0
-        if approved_total + 1e-6 < floor:
-            raise UserError(_(
-                "Approved amount (USD %(approved).2f) must be at least the "
-                "infrastructure + subscription cost (USD %(floor).2f). "
-                "Either raise the approved amount to cover fixed costs or "
-                "approve the full requested total."
-            ) % {'approved': approved_total, 'floor': floor})
 
     def _check_infra_cost_floor(self):
         """Infrastructure floor. Used when the CFO edits line amounts directly
@@ -874,7 +867,10 @@ class EtharaProjectPhaseRequest(models.Model):
                 # Trust the CFO's per-line figures — infra is the only floor.
                 rec._check_infra_cost_floor()
             else:
-                rec._check_fixed_cost_floor()
+                # No fixed-cost floor: the CFO may trim any line (model, infra,
+                # subscription) freely. `_distribute_approved_amount` honours the
+                # reduced infra/sub figures when `cfo_lines_applied` is set (see
+                # the CFO endpoint), so the split matches what the CFO set.
                 rec._distribute_approved_amount()
             # Persist the buffer reserve, derived from the base approved total.
             # It is stored apart and NOT added into approved_total.
@@ -948,6 +944,30 @@ class EtharaProjectPhaseRequest(models.Model):
         self._check_can_cto_review()
         self.write({
             'state': 'changes_required',
+            'cto_reviewer_id': self.env.user.id,
+            'cto_review_date': fields.Datetime.now(),
+            'cto_review_note': note,
+            'rejection_reason': note,
+            'rejected_by': self.env.user.id,
+        })
+        self._send_thread_mail(
+            TEMPLATE_CTO_REJECTED,
+            self._requester_partner_ids(),
+        )
+
+    def _do_cto_reject_terminal(self, note):
+        """Terminal CTO rejection. Unlike `_do_cto_reject` (which sends the
+        request back to the PL as `changes_required` for revision), this closes
+        the request as `rejected`: it can no longer be edited or resubmitted and
+        nothing is propagated to the phase/budget."""
+        self.ensure_one()
+        if self.state != 'cto_review':
+            raise UserError(_(
+                'Only requests in CTO Review can be rejected by the CTO.'
+            ))
+        self._check_can_cto_review()
+        self.write({
+            'state': 'rejected',
             'cto_reviewer_id': self.env.user.id,
             'cto_review_date': fields.Datetime.now(),
             'cto_review_note': note,

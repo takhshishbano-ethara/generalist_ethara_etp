@@ -533,10 +533,16 @@ class EtharaProjectPhase(models.Model):
                     rec.budget_id.batch_budget_remain = (
                         rec.budget_id.batch_budget_remain or 0.0
                     ) + remaining
-            rec._post_project_thread(_(
-                '<p><strong>Phase delivered:</strong> %s '
-                '(Returned: %.2f USD)</p>'
-            ) % (rec.name or '', remaining))
+            if not self.env.context.get('ethara_skip_notify'):
+                project = rec.ethara_project_id
+                if project:
+                    partner_ids = project._ethara_thread_partner_ids()
+                    if partner_ids:
+                        project.sudo()._ethara_post_thread_message(
+                            'ethara_project.mail_template_ethara_phase_delivered',
+                            rec,
+                            partner_ids,
+                        )
 
     def action_close(self):
         for rec in self:

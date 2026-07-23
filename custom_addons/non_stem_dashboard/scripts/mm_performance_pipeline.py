@@ -99,6 +99,52 @@ assert abs(W_HOURS + W_SUBS + W_AHT - 1.0) < 1e-9, "Scorecard weights must sum t
 assert MIN_SCOREABLE_TASKERS >= 2, "MIN_SCOREABLE_TASKERS must be >= 2"
 
 # ──────────────────────────────────────────────────
+# WINDOW PRESETS
+# ──────────────────────────────────────────────────
+# Every preset is scored independently by the full pipeline (not filtered after the fact) —
+# Quadrant and Output Score are computed relative to whoever is in the window (team medians,
+# cohort percentiles), so a different date range genuinely produces different score values,
+# not just a different slice of the same numbers.
+#
+# All ranges anchor on the latest date present in the ingested data, never real-world "today" —
+# this keeps a given run's output reproducible no matter when it's opened. "Last N days/weeks"
+# are trailing CALENDAR days (weekends/gaps included), matching how MTD/YTD already behave.
+
+def _window_all(all_dates):
+    return all_dates[0], all_dates[-1]
+
+def _window_mtd(all_dates):
+    last = all_dates[-1]
+    return f"{last[:7]}-01", last
+
+def _window_ytd(all_dates):
+    last = all_dates[-1]
+    return f"{last[:4]}-01-01", last
+
+def _window_last_n_days(n):
+    def _fn(all_dates):
+        last = datetime.date.fromisoformat(all_dates[-1])
+        first = last - datetime.timedelta(days=n - 1)
+        return first.isoformat(), last.isoformat()
+    return _fn
+
+WINDOW_PRESETS = [
+    {"key": "all",     "label": "All Time",      "range_fn": _window_all},
+    {"key": "mtd",     "label": "Month to Date",  "range_fn": _window_mtd},
+    {"key": "ytd",     "label": "Year to Date",   "range_fn": _window_ytd},
+    {"key": "last_3d", "label": "Last 3 Days",    "range_fn": _window_last_n_days(3)},
+    {"key": "last_1w", "label": "Last 1 Week",    "range_fn": _window_last_n_days(7)},
+    {"key": "last_2w", "label": "Last 2 Weeks",   "range_fn": _window_last_n_days(14)},
+    {"key": "last_3w", "label": "Last 3 Weeks",   "range_fn": _window_last_n_days(21)},
+]
+
+# Window-level "not enough data to trust this" signal — separate from MIN_SCOREABLE_TASKERS
+# (which gates individual (date,task) cohorts) and SPOTLIGHT_MIN_POOL (which gates the daily
+# spotlight only). This gates an entire preset window's dashboard.
+WINDOW_MIN_SCORED_TASKERS = 10     # hard floor: fewer scored taskers → "insufficient data" banner
+WINDOW_THIN_DAY_PCT       = 0.50   # < 50% of the window's calendar days scoreable → "thin" banner
+
+# ──────────────────────────────────────────────────
 # HELPERS
 # ──────────────────────────────────────────────────
 
@@ -108,6 +154,24 @@ def _peek_dates(filepath):
 
 def percentile_ranks(arr):
     return np.array([stats.percentileofscore(arr, v, kind='rank') for v in arr])
+
+def _filter_by_date_range(d, date_from, date_to):
+    """d: dict keyed by a tuple whose first element is an ISO 'YYYY-MM-DD' date string
+    (raw_task: (date,email,task); raw_day: (date,email)). ISO date strings sort
+    lexicographically the same as chronologically, so plain string comparison is safe."""
+    return {k: v for k, v in d.items() if date_from <= k[0] <= date_to}
+
+def render_window_nav(window_specs, active_key, out_path, html_filename):
+    """Renders a tab strip linking to every window's copy of html_filename, with hrefs relative
+    to out_path's directory — so the same window_specs list works for every window's own HTML
+    file, regardless of how deep it's nested."""
+    from_dir = os.path.dirname(os.path.abspath(out_path))
+    links = []
+    for spec in window_specs:
+        href = os.path.relpath(os.path.join(spec["dir"], html_filename), start=from_dir)
+        cls  = "nav-tab active" if spec["key"] == active_key else "nav-tab"
+        links.append(f'<a class="{cls}" href="{href}">{spec["label"]}</a>')
+    return '<nav class="window-nav">' + ''.join(links) + '</nav>'
 
 def weighted_mean(score_weight_pairs):
     """Weighted mean of (score, weight) pairs. Returns None if list is empty."""
@@ -463,6 +527,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, lead_em
             r["good_days_pct"]  = None
             r["streak_current"] = None
             r["streak_best"]    = None
+            r["team_day_median"] = round(team_day_median, 1)
             del r["_subs_score"]
             del r["_day_scores"]
             continue
@@ -492,8 +557,10 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, lead_em
             else:
                 run = 0
         cur = run
-        r["streak_current"] = cur
-        r["streak_best"]    = best
+        r["streak_current"]  = cur
+        r["streak_best"]     = best
+        r["_day_scores_dated"] = dated
+        r["team_day_median"]  = round(team_day_median, 1)
         del r["_subs_score"]
         del r["_day_scores"]
 
@@ -554,7 +621,7 @@ def pipeline_tasker_scorecard(raw_task, raw_day, anomaly_days, out_path, lead_em
 # HTML DASHBOARD
 # ──────────────────────────────────────────────────
 
-def pipeline_html_report(rolling, period_str, out_path):
+def pipeline_html_report(rolling, period_str, out_path, nav_html="", window_flag=None):
     """Emit a self-contained HTML performance dashboard for team sharing."""
 
     for rank, r in enumerate(rolling, 1):
@@ -586,10 +653,16 @@ def pipeline_html_report(rolling, period_str, out_path):
             "asv": r["avg_subs_day"],
             "ar":  r["aht_ratio"],
             "vb":  r["vs_benchmark"],
+            "ds":  [[d, round(s, 1)] for d, s in r["_day_scores_dated"]],
+            "tm":  r.get("team_day_median"),
         })
 
-    data_blob = _json.dumps({"period": period_str, "taskers": taskers}, separators=(',', ':'))
-    html = _HTML_TEMPLATE.replace('__DATA__', data_blob).replace('__PERIOD__', period_str)
+    data_blob = _json.dumps({"period": period_str, "taskers": taskers, "window": window_flag},
+                             separators=(',', ':'))
+    html = (_HTML_TEMPLATE
+            .replace('__DATA__', data_blob)
+            .replace('__PERIOD__', period_str)
+            .replace('__NAV__', nav_html))
 
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write(html)
@@ -624,6 +697,13 @@ h3{font-size:0.95rem;font-weight:700;margin-bottom:4px}
 .ta-item:hover,.ta-item.ta-active{background:#FFF4EF;color:#FF6B35}
 .err{color:#EF4444;font-size:13px;margin-top:8px}
 .hidden{display:none!important}
+.window-nav{display:flex;flex-wrap:wrap;gap:6px;padding:10px 20px;background:#1E293B}
+.nav-tab{color:#CBD5E1;text-decoration:none;font-size:13px;padding:6px 12px;border-radius:6px}
+.nav-tab:hover{background:#334155;color:#fff}
+.nav-tab.active{background:#FF6B35;color:#fff;font-weight:600}
+#windowBanner{padding:10px 20px;font-size:13px;font-weight:600}
+#windowBanner.warn-insufficient{background:#FEE2E2;color:#991B1B}
+#windowBanner.warn-thin{background:#FEF3C7;color:#92400E}
 .team-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
 .t-box{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:16px;text-align:center}
 .t-val{font-size:1.85rem;font-weight:700;color:#1E293B}
@@ -676,10 +756,12 @@ footer{text-align:center;padding:24px;font-size:0.8rem;color:#94A3B8}
 </style>
 </head>
 <body>
+__NAV__
 <header>
   <h1>&#x1F96D; Multimango Performance Dashboard</h1>
   <p>Period: __PERIOD__ &nbsp;&middot;&nbsp; Open this file in any browser &nbsp;&middot;&nbsp; Enter an email address to view scores</p>
 </header>
+<div id="windowBanner" class="hidden"></div>
 <div class="container">
 
   <!-- Search -->
@@ -765,6 +847,24 @@ footer{text-align:center;padding:24px;font-size:0.8rem;color:#94A3B8}
 <script>
 const DATA = __DATA__;
 
+(function(){
+  const w = DATA.window;
+  if (!w) return;
+  const el = document.getElementById('windowBanner');
+  if (!el) return;
+  if (w.insufficient) {
+    el.className = 'warn-insufficient';
+    el.textContent = 'Insufficient data for this window — only ' + w.n_scored_taskers +
+      ' scored tasker(s) across ' + w.n_scoreable_days + ' scoreable day(s). Scores below may be unreliable.';
+  } else if (w.thin) {
+    el.className = 'warn-thin';
+    el.textContent = 'Thin data for this window — only ' + w.n_scoreable_days + ' of ' +
+      w.n_calendar_days + ' calendar days were scoreable. Treat scores with some caution.';
+  } else {
+    el.className = 'hidden';
+  }
+})();
+
 const TIPS = {
   final:   'Mean of your daily scores across all fully scored days. Each day = 70% hours vs 6h target + 20% submissions rank within your project + 10% speed rank.',
   effort:  'Absolute hours performance: min(daily hours / 6h target, 100). Not compared to peers. 3h = 50 pts, 6h = 100 pts. Includes all non-anomaly days.',
@@ -777,7 +877,7 @@ const TIPS = {
 function ti(k){return '<span class="tip-i" data-tip="'+TIPS[k]+'">?</span>';}
 
 let allFinals, allEfforts, allOutputs;
-let scatterChart, histChart;
+let scatterChart, histChart, trendChart;
 
 const QUAD_MSGS = {
   "Star": "You are strong on both hours and output — you are setting the pace. Keep the consistency going.",
@@ -848,6 +948,7 @@ function doSearch() {
     sec.classList.add('hidden');
     updateScatter(null);
     updateHist(null);
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
     return;
   }
   errEl.classList.add('hidden');
@@ -856,6 +957,80 @@ function doSearch() {
   sec.scrollIntoView({behavior:'smooth', block:'nearest'});
   updateScatter(t);
   updateHist(t.f);
+  initTrend(t);
+}
+
+function renderTrendSection(t) {
+  if (t.stc == null) return ''; // leads have no daily score series
+  if (!t.ds || t.ds.length < 2) {
+    return '<p class="subtitle" style="margin:0 0 14px">Not enough daily data in this window yet to show a trend.</p>';
+  }
+  return '<div style="display:flex;gap:18px;margin-bottom:8px;flex-wrap:wrap">'
+    + '<span style="font-size:0.85rem;color:#64748B">Current streak: <strong style="color:#0F172A">' + t.stc + (t.stc === 1 ? ' day' : ' days') + '</strong> above team median</span>'
+    + '<span style="font-size:0.85rem;color:#64748B">Best streak: <strong style="color:#0F172A">' + t.stb + (t.stb === 1 ? ' day' : ' days') + '</strong></span>'
+    + '</div>'
+    + '<div class="chart-wrap" style="height:260px;margin-bottom:18px"><canvas id="trendChart"></canvas></div>';
+}
+
+function initTrend(t) {
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  const canvas = document.getElementById('trendChart');
+  if (!canvas || !t.ds || t.ds.length < 2) return;
+
+  const labels = t.ds.map(p => p[0]);
+  const scores = t.ds.map(p => p[1]);
+  const tm     = t.tm;
+  const bestVal = Math.max(...scores);
+  const bestIdx = scores.indexOf(bestVal);
+  const pointColors = scores.map((s, i) => i === bestIdx ? '#FF6B35' : (s > tm ? '#10B981' : '#94A3B8'));
+  const pointRadii  = scores.map((s, i) => i === bestIdx ? 7 : 3);
+
+  trendChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Daily Score',
+          data: scores,
+          borderColor: '#334155',
+          backgroundColor: 'rgba(255,107,53,0.08)',
+          fill: true,
+          tension: 0.25,
+          pointBackgroundColor: pointColors,
+          pointBorderColor: pointColors,
+          pointRadius: pointRadii,
+          pointHoverRadius: pointRadii.map(r => r + 2),
+          segment: {
+            borderColor: ctx => (ctx.p0.parsed.y > tm && ctx.p1.parsed.y > tm) ? '#10B981' : '#334155',
+          },
+        },
+        {
+          label: 'Team Median',
+          data: labels.map(() => tm),
+          borderColor: '#94A3B8',
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {position: 'bottom', labels: {boxWidth: 10, font: {size: 11}}},
+        tooltip: {callbacks: {label: ctx =>
+          ctx.dataset.label === 'Team Median'
+            ? 'Team median: ' + tm
+            : (ctx.dataIndex === bestIdx ? 'Best day — ' : '') + 'Score: ' + ctx.parsed.y
+        }},
+      },
+      scales: {
+        y: {min: 0, max: 100, title: {display: true, text: 'Daily Score'}},
+        x: {title: {display: true, text: 'Date'}},
+      },
+    },
+  });
 }
 
 function renderCard(t) {
@@ -882,6 +1057,7 @@ function renderCard(t) {
     + '<span style="font-weight:700;font-size:1.05rem">' + t.e + '</span>'
     + '<span style="color:#64748B;font-size:0.88rem">Rank #' + t.rk + ' of ' + DATA.taskers.length + '</span>'
     + '</div>'
+    + renderTrendSection(t)
     + '<div class="score-grid">'
     + '<div class="score-box"><div class="score-num" style="color:' + fc + '">' + t.f + '</div>'
     + '<div class="score-meta">Final Score' + ti('final') + '</div>'
@@ -1091,6 +1267,25 @@ function updateHist(score) {
 })();
 
 init();
+
+// Carry the searched tasker across window-preset nav links, so switching
+// from e.g. "All Time" to "Last 1 Week" doesn't lose who you were looking at.
+(function(){
+  var params = new URLSearchParams(window.location.search);
+  var email = params.get('email');
+  if (email) {
+    document.getElementById('searchInput').value = email;
+    doSearch();
+  }
+  document.querySelectorAll('.nav-tab').forEach(function(a){
+    a.addEventListener('click', function(){
+      var cur = document.getElementById('searchInput').value.trim();
+      if (!cur) return;
+      var base = a.getAttribute('href').split('?')[0];
+      a.setAttribute('href', base + '?email=' + encodeURIComponent(cur));
+    });
+  });
+})();
 </script>
 </body>
 </html>"""
@@ -1100,20 +1295,25 @@ init();
 # MANAGEMENT HTML DASHBOARD
 # ──────────────────────────────────────────────────
 
-def pipeline_html_mgmt_report(rolling, raw_task, raw_day, anomaly_days, period_str, pod_rows, spotlight_result, out_path, pod_lead_rows=None):
+def pipeline_html_mgmt_report(rolling, raw_task, raw_day, anomaly_days, period_str, pod_rows, spotlight_result, out_path, pod_lead_rows=None, nav_html="", window_flag=None):
     """Management-facing dashboard: full leaderboard, quadrant, attention flags,
     team health, and project breakdown. All tasker emails visible."""
 
     # ── Performance tiers ─────────────────────────────────────────────────
     finals        = [r["final_score"]       for r in rolling]
     consis_scores = [r["consistency_score"] for r in rolling]
-    p10           = float(np.percentile(finals, 10))
-    p25           = float(np.percentile(finals, 25))
-    p75           = float(np.percentile(finals, 75))
-    p90           = float(np.percentile(finals, 90))
-    team_median_f = float(np.median(finals))
-    # volatile threshold = bottom-quartile consistency for this team (always relative)
-    cons_p25      = float(np.percentile(consis_scores, 25))
+    if finals:
+        p10           = float(np.percentile(finals, 10))
+        p25           = float(np.percentile(finals, 25))
+        p75           = float(np.percentile(finals, 75))
+        p90           = float(np.percentile(finals, 90))
+        team_median_f = float(np.median(finals))
+        # volatile threshold = bottom-quartile consistency for this team (always relative)
+        cons_p25      = float(np.percentile(consis_scores, 25))
+    else:
+        # Window has no scored taskers (e.g. MTD on day 1, or a short window that landed
+        # entirely on anomaly days) — degrade to a valid-but-empty report rather than crash.
+        p10 = p25 = p75 = p90 = team_median_f = cons_p25 = 0.0
 
     def get_tier(f):
         if f >= p90: return "Exceptional"
@@ -1265,12 +1465,14 @@ def pipeline_html_mgmt_report(rolling, raw_task, raw_day, anomaly_days, period_s
         "pods":      pods_data,
         "podleads":  podleads_data,
         "spotlight": _build_spotlight_blob(spotlight_result),
+        "window":    window_flag,
     }, separators=(',', ':'))
 
     html = (_MGMT_HTML_TEMPLATE
             .replace('__DATA__', data_blob)
             .replace('__PERIOD__', period_str)
-            .replace('__SPOTLIGHT_MIN_POOL__', str(SPOTLIGHT_MIN_POOL)))
+            .replace('__SPOTLIGHT_MIN_POOL__', str(SPOTLIGHT_MIN_POOL))
+            .replace('__NAV__', nav_html))
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f"  Management dashboard  → {out_path}")
@@ -1332,6 +1534,14 @@ tr:hover>td{background:#FFF8F5}
 .anom-r{background:#FEF2F2!important}
 @media(max-width:900px){.g5{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(2,1fr)}.g2{grid-template-columns:1fr}}
 @media(max-width:600px){.g5,.g4{grid-template-columns:repeat(2,1fr)}}
+.hidden{display:none!important}
+.window-nav{display:flex;flex-wrap:wrap;gap:6px;padding:10px 20px;background:#1E293B}
+.nav-tab{color:#CBD5E1;text-decoration:none;font-size:13px;padding:6px 12px;border-radius:6px}
+.nav-tab:hover{background:#334155;color:#fff}
+.nav-tab.active{background:#FF6B35;color:#fff;font-weight:600}
+#windowBanner{padding:10px 20px;font-size:13px;font-weight:600}
+#windowBanner.warn-insufficient{background:#FEE2E2;color:#991B1B}
+#windowBanner.warn-thin{background:#FEF3C7;color:#92400E}
 .sp-warn{background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:9px 14px;font-size:.75rem;color:#92400E;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px}
 .sp-badge-top{background:#D1FAE5;color:#065F46;border-radius:10px;padding:2px 8px;font-size:.68rem;font-weight:700;white-space:nowrap}
 .sp-badge-bot{background:#FEE2E2;color:#991B1B;border-radius:10px;padding:2px 8px;font-size:.68rem;font-weight:700;white-space:nowrap}
@@ -1341,6 +1551,7 @@ tr:hover>td{background:#FFF8F5}
 </style>
 </head>
 <body>
+__NAV__
 <div class="hdr">
   <div>
     <div class="hdr-t">&#x1F4CA; Multimango &mdash; Management Dashboard</div>
@@ -1351,6 +1562,7 @@ tr:hover>td{background:#FFF8F5}
     <div style="font-size:.68rem;color:#94A3B8">taskers active</div>
   </div>
 </div>
+<div id="windowBanner" class="hidden"></div>
 
 <div class="tabs">
   <div class="tab active" data-pane="ov">Overview</div>
@@ -1596,6 +1808,24 @@ tr:hover>td{background:#FFF8F5}
 
 <script>
 const DATA = __DATA__;
+
+(function(){
+  const w = DATA.window;
+  if (!w) return;
+  const el = document.getElementById('windowBanner');
+  if (!el) return;
+  if (w.insufficient) {
+    el.className = 'warn-insufficient';
+    el.textContent = 'Insufficient data for this window — only ' + w.n_scored_taskers +
+      ' scored tasker(s) across ' + w.n_scoreable_days + ' scoreable day(s). Scores below may be unreliable.';
+  } else if (w.thin) {
+    el.className = 'warn-thin';
+    el.textContent = 'Thin data for this window — only ' + w.n_scoreable_days + ' of ' +
+      w.n_calendar_days + ' calendar days were scoreable. Treat scores with some caution.';
+  } else {
+    el.className = 'hidden';
+  }
+})();
 
 const TC = {Exceptional:"#10B981",Strong:"#3B82F6",Solid:"#94A3B8",Developing:"#F59E0B","Needs Support":"#EF4444"};
 const QC = {
@@ -2571,8 +2801,17 @@ def pipeline_pod_lead_scorecard(history_path, rolling, out_path):
     all_dates_seen = sorted({d for pairs in zone_day_scores.values() for d, _ in pairs})
     period_end = all_dates_seen[-1] if all_dates_seen else None
 
+    # Only report zones that exist in *today's* roster. zone_history accumulates
+    # every zone ever seen in the changelog, including ones later renamed, merged,
+    # or emptied out (e.g. a one-day data blip in a past RS snapshot) — without this,
+    # a lead's stale historical zone lingers on the leaderboard forever alongside
+    # their real current one, showing up as a duplicate entry with null/0 stats.
+    current_zones = {r["pod_name"] for r in rolling if r["pod_name"]}
+
     lead_rows = []
     for zone, hist in sorted(zone_history.items()):
+        if zone not in current_zones:
+            continue
         tenure_start, current_leads = hist[-1]
         if not current_leads:
             continue
@@ -2945,7 +3184,9 @@ if __name__ == "__main__":
     lead_emails = lead_emails | SENIOR_MANAGEMENT | MANUAL_EXCLUSIONS
 
     raw_task, raw_day = ingest(input_csv)
-    anomaly_days      = find_anomaly_days(raw_day, lead_emails)
+    # Each window recomputes its own anomaly days below (find_anomaly_days is population-
+    # relative, same reason Quadrant/Output Score are — a day that's anomalous for the full
+    # range isn't necessarily anomalous within a shorter window, and vice versa).
 
     pod_lead_history_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "pod_lead_history.csv"
@@ -2958,54 +3199,111 @@ if __name__ == "__main__":
     )
     record_lead_roster_history(rs_pod_leads, rs_program_managers, all_dates[-1], lead_roster_history_path)
 
-    pipeline_deduped(
-        raw_task,
-        os.path.join(run_dir, "tasker_daily_deduped.csv"),
-        lead_emails,
-    )
-    pipeline_daily_summary(
-        raw_day, anomaly_days,
-        os.path.join(run_dir, "daily_summary.csv"),
-        lead_emails,
-    )
-    period_str = f"{all_dates[0]} to {all_dates[-1]}"
-    rolling = pipeline_tasker_scorecard(
-        raw_task, raw_day, anomaly_days,
-        os.path.join(run_dir, "tasker_rolling_scorecard.csv"),
-        lead_emails,
-        email_to_pod=email_to_pod,
-    )
-    # Dashboards, pod rollup, and spotlight are ranking surfaces built around a numeric
-    # score — leads (unscored by design) are excluded here, same as before. They still
-    # appear, flagged, in daily_summary.csv, tasker_daily_deduped.csv, and
-    # tasker_rolling_scorecard.csv.
-    rolling_taskers = [r for r in rolling if not r["is_lead"]]
-    pipeline_html_report(
-        rolling_taskers, period_str,
-        os.path.join(run_dir, "tasker_performance_dashboard.html")
-    )
-    pod_rows = []
-    pod_lead_rows = []
-    if email_to_pod:
-        pod_rows = pipeline_pod_scorecard(
-            rolling_taskers, email_to_pod, pod_all_emails, pod_projects,
-            os.path.join(run_dir, "pod_performance.csv")
+    # ── Phase A: resolve every window's date range + output directory up front, so the nav
+    # bar built in Phase B can link to every window regardless of generation order. "all"
+    # reuses run_dir directly (flat, today's exact filenames); every other preset gets its
+    # own subfolder mirroring that same flat layout.
+    window_specs = []
+    for preset in WINDOW_PRESETS:
+        w_from, w_to = preset["range_fn"](all_dates)
+        w_dir = run_dir if preset["key"] == "all" else os.path.join(run_dir, "windows", preset["key"])
+        os.makedirs(w_dir, exist_ok=True)
+        window_specs.append({
+            "key": preset["key"], "label": preset["label"],
+            "date_from": w_from, "date_to": w_to, "dir": w_dir,
+        })
+
+    # ── Phase B: score + render each window independently. Quadrant/Output Score are
+    # computed relative to whoever is in the window (team medians, cohort percentiles), so
+    # a different date range changes the actual score values — each window must go through
+    # the full pipeline separately, not be filtered out of one precomputed dataset.
+    for spec in window_specs:
+        w_dir = spec["dir"]
+        raw_task_w = _filter_by_date_range(raw_task, spec["date_from"], spec["date_to"])
+        raw_day_w  = _filter_by_date_range(raw_day,  spec["date_from"], spec["date_to"])
+        window_dates_w = sorted({d for (d, _) in raw_day_w})
+        anomaly_days_w = find_anomaly_days(raw_day_w, lead_emails)
+
+        if spec["key"] == "all":
+            period_str_w = f"{spec['date_from']} to {spec['date_to']}"
+        else:
+            period_str_w = f"{spec['label']} ({spec['date_from']} to {spec['date_to']})"
+
+        pipeline_deduped(
+            raw_task_w,
+            os.path.join(w_dir, "tasker_daily_deduped.csv"),
+            lead_emails,
         )
-        pod_lead_rows = pipeline_pod_lead_scorecard(
-            pod_lead_history_path, rolling_taskers,
-            os.path.join(run_dir, "pod_lead_scorecard.csv")
+        pipeline_daily_summary(
+            raw_day_w, anomaly_days_w,
+            os.path.join(w_dir, "daily_summary.csv"),
+            lead_emails,
         )
-    spotlight_result = pipeline_daily_spotlight(
-        raw_task, raw_day, anomaly_days, rolling_taskers,
-        run_dir,
-        lead_emails,
-        email_to_pod=email_to_pod if email_to_pod else None,
-    )
-    pipeline_html_mgmt_report(
-        rolling_taskers, raw_task, raw_day, anomaly_days, period_str, pod_rows,
-        spotlight_result,
-        os.path.join(run_dir, "management_dashboard.html"),
-        pod_lead_rows=pod_lead_rows,
-    )
+        rolling_w = pipeline_tasker_scorecard(
+            raw_task_w, raw_day_w, anomaly_days_w,
+            os.path.join(w_dir, "tasker_rolling_scorecard.csv"),
+            lead_emails,
+            email_to_pod=email_to_pod,
+        )
+        # Dashboards, pod rollup, and spotlight are ranking surfaces built around a numeric
+        # score — leads (unscored by design) are excluded here, same as before. They still
+        # appear, flagged, in daily_summary.csv, tasker_daily_deduped.csv, and
+        # tasker_rolling_scorecard.csv.
+        rolling_taskers_w = [r for r in rolling_w if not r["is_lead"]]
+
+        n_calendar_days  = (datetime.date.fromisoformat(spec["date_to"])
+                             - datetime.date.fromisoformat(spec["date_from"])).days + 1
+        n_scoreable_days = len(window_dates_w) - len(anomaly_days_w)
+        window_flag = {
+            "insufficient": len(rolling_taskers_w) < WINDOW_MIN_SCORED_TASKERS or n_scoreable_days <= 0,
+            "thin": n_scoreable_days > 0 and n_scoreable_days / n_calendar_days < WINDOW_THIN_DAY_PCT,
+            "n_scored_taskers": len(rolling_taskers_w),
+            "n_scoreable_days": n_scoreable_days,
+            "n_calendar_days": n_calendar_days,
+        }
+
+        tasker_html_path = os.path.join(w_dir, "tasker_performance_dashboard.html")
+        nav_tasker = render_window_nav(window_specs, spec["key"], tasker_html_path,
+                                        "tasker_performance_dashboard.html")
+        pipeline_html_report(
+            rolling_taskers_w, period_str_w, tasker_html_path,
+            nav_html=nav_tasker, window_flag=window_flag,
+        )
+
+        pod_rows_w = []
+        pod_lead_rows_w = []
+        if email_to_pod:
+            pod_rows_w = pipeline_pod_scorecard(
+                rolling_taskers_w, email_to_pod, pod_all_emails, pod_projects,
+                os.path.join(w_dir, "pod_performance.csv")
+            )
+            pod_lead_rows_w = pipeline_pod_lead_scorecard(
+                pod_lead_history_path, rolling_taskers_w,
+                os.path.join(w_dir, "pod_lead_scorecard.csv")
+            )
+        spotlight_result_w = pipeline_daily_spotlight(
+            raw_task_w, raw_day_w, anomaly_days_w, rolling_taskers_w,
+            w_dir,
+            lead_emails,
+            email_to_pod=email_to_pod if email_to_pod else None,
+        )
+        mgmt_html_path = os.path.join(w_dir, "management_dashboard.html")
+        nav_mgmt = render_window_nav(window_specs, spec["key"], mgmt_html_path,
+                                      "management_dashboard.html")
+        pipeline_html_mgmt_report(
+            rolling_taskers_w, raw_task_w, raw_day_w, anomaly_days_w, period_str_w, pod_rows_w,
+            spotlight_result_w,
+            mgmt_html_path,
+            pod_lead_rows=pod_lead_rows_w,
+            nav_html=nav_mgmt, window_flag=window_flag,
+        )
+
+        flag_note = ""
+        if window_flag["insufficient"]:
+            flag_note = "  [INSUFFICIENT DATA]"
+        elif window_flag["thin"]:
+            flag_note = "  [thin]"
+        print(f"  {spec['label']:16s} {spec['date_from']} to {spec['date_to']}  "
+              f"→ {len(rolling_taskers_w)} taskers scored{flag_note}")
 
     print("\nDone.")

@@ -1,4 +1,4 @@
-from odoo import api, fields, models
+from odoo import fields, models
 
 
 class EtharaProjectPhaseInfoLink(models.Model):
@@ -21,17 +21,3 @@ class EtharaProjectPhaseInfoLink(models.Model):
     )
     label = fields.Char(string="Label", required=True)
     url = fields.Char(string="URL", required=True)
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        records = super().create(vals_list)
-        for rec in records:
-            phase = rec.phase_id
-            if phase:
-                phase._post_project_thread(
-                    "<p><strong>Info link added:</strong> "
-                    "<a href='%s' target='_blank'>%s</a> (phase %s)</p>" % (
-                        rec.url or "", rec.label or "", phase.name or "",
-                    )
-                )
-        return records
