@@ -36,6 +36,7 @@ Endpoints
     "data": [
         "security/ir.model.access.csv",
         "data/api_endpoint_data.xml",
+        "data/mail_template.xml",
         "wizard/schedule_wizard_views.xml",
         "wizard/reschedule_wizard_views.xml",
         "wizard/cancel_wizard_views.xml",

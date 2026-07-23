@@ -9,18 +9,6 @@ buckets rendered as steps in the frontend tracker, plus ``rejected`` as
 a terminal state that replaces the current step.
 """
 
-PIPELINE_STATUS_KEYS = (
-    "applied",
-    "shortlisted",
-    "assessment",
-    "evaluation",
-    "submission",
-    "contract",
-    "compliance",
-    "email_id",
-    "onboarded",
-)
-
 PIPELINE_STATUS_LABELS = {
     "applied":     "Applied",
     "shortlisted": "Shortlisted",
@@ -34,28 +22,31 @@ PIPELINE_STATUS_LABELS = {
     "rejected":    "Rejected",
 }
 
-_POST_ASSESSMENT_STATUSES = frozenset({
-    "assessment_passed",
-    "pi_scheduled", "pi_completed", "pi_selected", "pi_hold", "pi_rejected",
-    "documents_requested", "documents_submitted", "documents_rejected",
-    "document_verification_done",
-    "contract_sent", "contract_declined", "contract_signed",
-    "onboard",
-})
+PIPELINE_STATUS_KEYS = tuple(k for k in PIPELINE_STATUS_LABELS if k != "rejected")
 
 STATUS_TO_PIPELINE_BUCKET = {s: bucket for bucket, keys in {
-    "applied":     ("pending", "resume_screening_in_progress", "resume_screening_rejected"),
-    "shortlisted": ("resume_screening_passed",),
-    "assessment":  ("pending_assessment", "assessment_in_progress", "assessment_pending_review", "assessment_rejected", "assessment_passed"),
-    "evaluation":  ("pi_scheduled", "pi_completed", "pi_hold", "pi_rejected"),
-    "submission":  ("pi_selected", "documents_requested", "documents_submitted", "documents_rejected", "document_verification_done"),
-    "contract":    ("contract_sent", "contract_declined", "contract_signed"),
-    "compliance":  ("onboard",),
+    "applied":     ("pending",),
+    "shortlisted": ("resume_screening_in_progress", "resume_screening_rejected"),
+    "assessment":  ("resume_screening_passed", "pending_assessment", "assessment_in_progress", "assessment_pending_review", "assessment_rejected"),
+    "evaluation":  ("assessment_passed", "pi_scheduled", "pi_completed", "pi_hold", "pi_rejected"),
+    "submission":  ("pi_selected", "documents_requested", "documents_submitted", "documents_rejected"),
+    "contract":    ("document_verification_done", "contract_sent", "contract_declined"),
+    "compliance":  ("contract_signed",),
+    "onboarded":   ("onboard",),
 }.items() for s in keys}
-_IN_ASSESSMENT_STATUSES = frozenset({
-    "pending_assessment", "assessment_in_progress",
-    "assessment_pending_review", "assessment_rejected",
+
+REJECTED_HIRING_STATUSES = frozenset({
+    "resume_screening_rejected",
+    "assessment_rejected",
+    "pi_rejected",
+    "documents_rejected",
+    "contract_declined",
 })
+
+_IN_ASSESSMENT_STATUSES = frozenset(
+    s for s, bucket in STATUS_TO_PIPELINE_BUCKET.items()
+    if bucket == "assessment" and s != "resume_screening_passed"
+)
 
 RESUME_RECOMMENDATION_OUT = {
     "shortlist":    "shortlisted",

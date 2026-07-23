@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="mail_template_pi_invitation" model="mail.template">
+            <field name="name">PI: Interview Invitation</field>
+            <field name="model_id" ref="calendar.model_calendar_attendee"/>
+            <field name="subject">{{ ('Interview Rescheduled - ' if object.event_id.rescheduled_count else 'Interview Invitation - ') + (object.event_id.candidate_id.job_id.name or object.event_id.name or 'Ethara.AI') }}</field>
+            <field name="use_default_to" eval="False"/>
+            <field name="auto_delete" eval="False"/>
+            <field name="lang">{{ user.lang }}</field>
+            <field name="body_html" type="html">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background-color:#f2f3f7;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
+                    <tr><td align="center">
+                        <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+                               style="max-width:600px;width:100%;background-color:#f7f8fb;border-radius:10px;">
+                            <tr><td style="padding:28px 32px 16px 32px;">
+                                <span style="font-size:22px;font-weight:bold;color:#e6007e;">Ethara</span><span style="font-size:22px;font-weight:bold;color:#1b1b3a;">.AI</span>
+                            </td></tr>
+                            <tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                            <tr><td style="padding:24px 32px 8px 32px;color:#33343f;font-size:15px;line-height:1.6;">
+                                <p style="margin:0 0 16px 0;">Hi <strong><t t-out="object.partner_id.name or 'there'"/></strong>,</p>
+                                <t t-if="object.event_id.rescheduled_count">
+                                    <p style="margin:0 0 20px 0;">Your interview has been <strong>rescheduled</strong>. Please note the new time below.</p>
+                                </t>
+                                <t t-else="">
+                                    <p style="margin:0 0 20px 0;">You have been invited to an interview<t t-if="object.event_id.candidate_id.job_id"> for the position of <strong><t t-out="object.event_id.candidate_id.job_id.name"/></strong></t>. Details are below.</p>
+                                </t>
+                                <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0;">
+                                    <tr t-if="object.event_id.interview_round">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Round</td>
+                                        <td style="padding:4px 0;color:#4b4c57;">Round <t t-out="object.event_id.interview_round"/></td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Date &amp; Time</td>
+                                        <td style="padding:4px 0;color:#4b4c57;">
+                                            <t t-out="format_datetime(dt=object.event_id.start, tz=object.mail_tz, dt_format='EEEE, d MMMM y', lang_code=object.env.lang) or ''"/>
+                                            &#183;
+                                            <t t-out="format_time(time=object.event_id.start, tz=object.mail_tz, time_format='short', lang_code=object.env.lang) or ''"/>
+                                            <t t-if="object.mail_tz"> (<t t-out="object.mail_tz"/>)</t>
+                                        </td>
+                                    </tr>
+                                    <tr t-if="object.event_id.duration">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Duration</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="'%dH%02d' % (object.event_id.duration, round(object.event_id.duration*60)%60)"/></td>
+                                    </tr>
+                                    <tr t-if="object.event_id.location">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Location</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.event_id.location"/></td>
+                                    </tr>
+                                    <tr t-if="object.event_id.user_id">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Organizer</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.event_id.user_id.name"/></td>
+                                    </tr>
+                                </table>
+                            </td></tr>
+                            <tr t-if="object.event_id.google_meet_url">
+                                <td style="padding:18px 32px 8px 32px;">
+                                    <a t-att-href="object.event_id.google_meet_url"
+                                       style="display:inline-block;background-color:#e6007e;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 24px;border-radius:8px;">Join Google Meet</a>
+                                </td>
+                            </tr>
+                            <tr><td style="padding:14px 32px 4px 32px;">
+                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                                       style="background-color:#eef2fb;border:1px solid #c9d6f2;border-radius:8px;">
+                                    <tr><td style="padding:12px 16px;color:#2f4b8f;font-size:13px;line-height:1.6;">
+                                        <div style="font-weight:bold;margin-bottom:2px;">Before the interview</div>
+                                        Please join 2-3 minutes early and be in a quiet, well-lit place with a stable internet connection.
+                                    </td></tr>
+                                </table>
+                            </td></tr>
+                            <tr><td style="padding:8px 32px 12px 32px;color:#4b4c57;font-size:14px;line-height:1.6;">
+                                Best regards,<br/>
+                                <span style="color:#6b6c78;">The Ethara.AI Recruitment Team</span>
+                            </td></tr>
+                            <tr><td style="padding:8px 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                            <tr><td style="padding:8px 32px 28px 32px;color:#8a8b96;font-size:12px;line-height:1.6;">
+                                <div style="font-weight:bold;color:#33343f;margin-bottom:4px;">Ethara.AI</div>
+                                <div>5th Floor, Plot <a href="https://maps.google.com/?q=Udyog+Vihar+Phase+1+Sector+20+Gurugram" style="color:#2563eb;text-decoration:underline;">No. 273, Udyog Vihar Phase 1, Sector 20, Gurugram, Haryana 122016</a></div>
+                                <div style="margin-top:4px;"><a href="https://www.ethara.ai" style="color:#e6007e;text-decoration:none;">www.ethara.ai</a></div>
+                            </td></tr>
+                        </table>
+                    </td></tr>
+                </table>
+            </field>
+        </record>
+
+        <record id="mail_template_pi_cancellation" model="mail.template">
+            <field name="name">PI: Interview Cancelled</field>
+            <field name="model_id" ref="calendar.model_calendar_event"/>
+            <field name="subject">Interview Cancelled - {{ (object.candidate_id.job_id.name if object.candidate_id and object.candidate_id.job_id else object.name) or 'Ethara.AI' }}</field>
+            <field name="use_default_to" eval="False"/>
+            <field name="auto_delete" eval="False"/>
+            <field name="lang">{{ user.lang }}</field>
+            <field name="body_html" type="html">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background-color:#f2f3f7;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
+                    <tr><td align="center">
+                        <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+                               style="max-width:600px;width:100%;background-color:#f7f8fb;border-radius:10px;">
+                            <tr><td style="padding:28px 32px 16px 32px;">
+                                <span style="font-size:22px;font-weight:bold;color:#e6007e;">Ethara</span><span style="font-size:22px;font-weight:bold;color:#1b1b3a;">.AI</span>
+                            </td></tr>
+                            <tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                            <tr><td style="padding:24px 32px 8px 32px;color:#33343f;font-size:15px;line-height:1.6;">
+                                <p style="margin:0 0 16px 0;">Hello,</p>
+                                <p style="margin:0 0 16px 0;">The following interview has been <strong style="color:#b3403a;">cancelled</strong>. It has been removed from your calendar.</p>
+                            </td></tr>
+                            <tr><td style="padding:0 32px 4px 32px;">
+                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                                       style="background-color:#fdecec;border:1px solid #f2c4c4;border-radius:8px;">
+                                    <tr><td style="padding:14px 18px;">
+                                        <div style="color:#b3403a;font-size:16px;font-weight:bold;margin-bottom:6px;">Interview Cancelled</div>
+                                        <div style="color:#9a5550;font-size:13px;line-height:1.6;">
+                                            <t t-out="object.name or 'Interview'"/>
+                                        </div>
+                                    </td></tr>
+                                </table>
+                            </td></tr>
+                            <tr><td style="padding:14px 32px 8px 32px;color:#33343f;font-size:15px;line-height:1.6;">
+                                <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0;">
+                                    <tr t-if="ctx.get('cancel_reason')">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Reason</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="ctx.get('cancel_reason')"/></td>
+                                    </tr>
+                                    <tr t-if="ctx.get('cancel_comment')">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Comment</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="ctx.get('cancel_comment')"/></td>
+                                    </tr>
+                                    <tr t-if="object.start">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Was scheduled for</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="format_datetime(dt=object.start, dt_format='EEEE, d MMMM y', lang_code=object.env.lang) or ''"/> &#183; <t t-out="format_time(time=object.start, time_format='short', lang_code=object.env.lang) or ''"/></td>
+                                    </tr>
+                                    <tr t-if="object.candidate_id">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Candidate</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.candidate_id.partner_name or object.candidate_id.name"/></td>
+                                    </tr>
+                                    <tr t-if="object.user_id">
+                                        <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Organizer</td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.user_id.name"/></td>
+                                    </tr>
+                                </table>
+                            </td></tr>
+                            <tr><td style="padding:14px 32px 12px 32px;color:#4b4c57;font-size:14px;line-height:1.6;">
+                                We will follow up separately if a rescheduled slot is arranged.<br/><br/>
+                                Best regards,<br/>
+                                <span style="color:#6b6c78;">The Ethara.AI Recruitment Team</span>
+                            </td></tr>
+                            <tr><td style="padding:8px 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
+                            <tr><td style="padding:8px 32px 28px 32px;color:#8a8b96;font-size:12px;line-height:1.6;">
+                                <div style="font-weight:bold;color:#33343f;margin-bottom:4px;">Ethara.AI</div>
+                                <div>5th Floor, Plot <a href="https://maps.google.com/?q=Udyog+Vihar+Phase+1+Sector+20+Gurugram" style="color:#2563eb;text-decoration:underline;">No. 273, Udyog Vihar Phase 1, Sector 20, Gurugram, Haryana 122016</a></div>
+                                <div style="margin-top:4px;"><a href="https://www.ethara.ai" style="color:#e6007e;text-decoration:none;">www.ethara.ai</a></div>
+                            </td></tr>
+                        </table>
+                    </td></tr>
+                </table>
+            </field>
+        </record>
+
+    </data>
+</odoo>

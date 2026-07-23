@@ -14,7 +14,7 @@ from odoo.addons.ethara_hrms_extension.constants import (
     PIPELINE_STATUS_KEYS,
     PIPELINE_STATUS_LABELS,
     STATUS_TO_PIPELINE_BUCKET,
-    _POST_ASSESSMENT_STATUSES,
+    REJECTED_HIRING_STATUSES,
     _IN_ASSESSMENT_STATUSES,
     RESUME_RECOMMENDATION_OUT,
 )
@@ -827,7 +827,6 @@ class EtharaCandidatesApi(http.Controller):
 
 
 def _build_progress_payload(rec):
-    is_rejected = rec.pipeline_status == "rejected" or bool(rec.refuse_reason_id)
     is_archived = not rec.active
 
     rec_out = (
@@ -836,77 +835,59 @@ def _build_progress_payload(rec):
         else None
     )
 
-    status_val = rec.status or ""
-    assessment_done = status_val in _POST_ASSESSMENT_STATUSES
+    effective_status = _derive_effective_status(rec)
+    is_rejected = (
+        rec.pipeline_status == "rejected"
+        or bool(rec.refuse_reason_id)
+        or effective_status in REJECTED_HIRING_STATUSES
+    )
+
+    current_bucket = STATUS_TO_PIPELINE_BUCKET.get(effective_status, "applied")
+    if current_bucket not in PIPELINE_STATUS_KEYS:
+        current_bucket = "applied"
+    current_idx = PIPELINE_STATUS_KEYS.index(current_bucket)
+
+    status_val = effective_status
     assessment_in_progress = status_val in _IN_ASSESSMENT_STATUSES
-    evidence = {
-        "applied": (_iso(rec.create_date), "Registered as candidate"),
-        "shortlisted": (
-            _iso(rec.resume_screened_at),
-            (
-                ("Rejected · Score %s" % int(rec.resume_score or 0))
-                if is_rejected
-                else ("Score %s · %s" % (
-                    int(rec.resume_score or 0),
-                    rec_out.replace("_", " ").title(),
-                )) if rec_out else None
-            ),
-        ) if rec.resume_screened_at else (None, None),
-        "assessment": (
-            (_iso(rec.write_date), status_val.replace("_", " ").title())
-            if assessment_done
-            else (None, "In progress" if assessment_in_progress else None)
-        ),
+    shortlisted_detail = None
+    if rec.resume_screened_at:
+        if effective_status == "resume_screening_rejected":
+            shortlisted_detail = "Rejected · Score %s" % int(rec.resume_score or 0)
+        elif rec_out:
+            shortlisted_detail = "Score %s · %s" % (
+                int(rec.resume_score or 0),
+                rec_out.replace("_", " ").title(),
+            )
+
+    assessment_detail = None
+    if effective_status in ("assessment_passed", "assessment_rejected"):
+        assessment_detail = status_val.replace("_", " ").title()
+    elif assessment_in_progress:
+        assessment_detail = "In progress"
+
+    fallback_at = _iso(
+        _f(rec, "status_updated_at") or rec.write_date or rec.create_date
+    )
+    step_meta = {
+        "applied":     (_iso(rec.create_date), "Registered as candidate"),
+        "shortlisted": (_iso(rec.resume_screened_at) or fallback_at, shortlisted_detail),
+        "assessment":  (fallback_at if current_idx >= 2 else None, assessment_detail),
     }
 
-    current_bucket = STATUS_TO_PIPELINE_BUCKET.get(status_val)
-    if current_bucket in PIPELINE_STATUS_KEYS:
-        bucket_idx = PIPELINE_STATUS_KEYS.index(current_bucket)
-        fallback = _iso(rec.status_updated_at or rec.write_date or rec.create_date)
-        for prev in PIPELINE_STATUS_KEYS[:bucket_idx]:
-            prev_ev = evidence.get(prev, (None, None))
-            if not prev_ev[0]:
-                evidence[prev] = (fallback, prev_ev[1])
-        cur_ev = evidence.get(current_bucket, (None, None))
-        if not cur_ev[1]:
-            evidence[current_bucket] = (cur_ev[0], status_val.replace("_", " ").title())
-
     total = len(PIPELINE_STATUS_KEYS)
-
-    if is_rejected:
-        current_idx = 1
-    elif current_bucket in PIPELINE_STATUS_KEYS:
-        current_idx = PIPELINE_STATUS_KEYS.index(current_bucket)
-    elif not rec.job_id:
-        current_idx = 0
-    elif (rec.pipeline_status or "applied") == "applied" and not rec.resume_screened_at:
-        current_idx = 0
-    else:
-        current_idx = total - 1
-        for i, key in enumerate(PIPELINE_STATUS_KEYS):
-            ev_at, _ev_detail = evidence.get(key, (None, None))
-            if not ev_at:
-                current_idx = i
-                break
-
     steps = []
     for i, key in enumerate(PIPELINE_STATUS_KEYS):
-        ev_at, ev_detail = evidence.get(key, (None, None))
-        if is_rejected:
-            if i == 0:
-                step_status = "completed" if ev_at else "current"
-            elif i == 1:
-                step_status = "rejected"
-            else:
-                step_status = "pending"
-        elif i == current_idx:
-            step_status = "current"
-        elif ev_at:
+        ev_at, ev_detail = step_meta.get(key, (None, None))
+        if i < current_idx:
             step_status = "completed"
+            if not ev_at:
+                ev_at = fallback_at
         elif i == current_idx:
-            step_status = "current"
+            step_status = "rejected" if is_rejected else "current"
         else:
             step_status = "pending"
+            ev_at = None
+            ev_detail = None
         steps.append({
             "key": key,
             "label": PIPELINE_STATUS_LABELS[key],

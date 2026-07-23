@@ -178,6 +178,65 @@ class CalendarEvent(models.Model):
                 new_status = "assessment_passed"
         if candidate.status != new_status:
             candidate.sudo().status = new_status
+        if new_status in ("pi_selected", "pi_rejected"):
+            self._expire_meet_links_for_candidate(candidate)
+
+    def _delete_and_verify_google_meet(self, event):
+        import requests
+        g_id = event.google_event_id
+        company = event.env.company
+        url = (
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events/"
+            f"{g_id}"
+        )
+        headers = {
+            "Authorization": f"Bearer {company.hangout_company_access_token}",
+        }
+        resp = requests.delete(url, headers=headers, timeout=20)
+        if resp.status_code == 401:
+            company.google_meet_company_refresh_token()
+            headers["Authorization"] = (
+                f"Bearer {company.hangout_company_access_token}"
+            )
+            resp = requests.delete(url, headers=headers, timeout=20)
+        if resp.status_code not in (200, 204, 404, 410):
+            raise Exception(
+                f"Google Calendar delete returned "
+                f"{resp.status_code}: {resp.text[:200]}"
+            )
+
+    @api.model
+    def _expire_meet_links_for_candidate(self, candidate):
+        import logging
+        _log = logging.getLogger(__name__)
+        events = self.env["calendar.event"].sudo().search([
+            ("candidate_id", "=", candidate.id),
+            ("google_event_id", "!=", False),
+        ])
+        for ev in events:
+            try:
+                self._delete_and_verify_google_meet(ev)
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "Google Meet delete failed for event %s (g_id=%s): %s",
+                    ev.id, ev.google_event_id, exc,
+                )
+        if events:
+            events.write({
+                "google_meet_url": False,
+                "google_meet_code": False,
+                "google_event_id": False,
+                "videocall_location": False,
+                "need_sync": False,
+            })
+            for ev in events:
+                ev.message_post(
+                    body=_(
+                        "Interview process closed. This meeting link has "
+                        "expired and is no longer valid."
+                    ),
+                    subtype_xmlid="mail.mt_note",
+                )
 
     @api.constrains(
         "technical_skills_score",

@@ -237,14 +237,14 @@ def _employee_partner(employee_id):
 def _find_or_create_alarm(minutes):
     Alarm = request.env["calendar.alarm"].sudo()
     alarm = Alarm.search([
-        ("alarm_type", "=", "email"),
+        ("alarm_type", "=", "notification"),
         ("duration", "=", minutes),
         ("interval", "=", "minutes"),
     ], limit=1)
     if not alarm:
         alarm = Alarm.create({
-            "name": f"{minutes} minutes before (email)",
-            "alarm_type": "email",
+            "name": f"{minutes} minutes before",
+            "alarm_type": "notification",
             "duration": minutes,
             "interval": "minutes",
         })
@@ -302,6 +302,9 @@ def _get_configured_from_email():
 
 def _queue_invitation_emails(attendees, extra_attachment_ids=None):
     template = request.env.ref(
+        "google_meet_api.mail_template_pi_invitation",
+        raise_if_not_found=False,
+    ) or request.env.ref(
         "calendar.calendar_template_meeting_invitation",
         raise_if_not_found=False,
     )
@@ -320,17 +323,17 @@ def _queue_invitation_emails(attendees, extra_attachment_ids=None):
             ("state", "=", "outgoing"),
             ("mail_message_id.res_id", "in", event_ids),
             ("mail_message_id.model", "=", "calendar.event"),
-        ])
+        ], order="id")
         if new_mails:
             write_vals = {"auto_delete": False}
             from_email = _get_configured_from_email()
             if from_email:
                 write_vals["email_from"] = from_email
-            if ta_partner.email:
-                write_vals["email_cc"] = ta_partner.email
             if extra_attachment_ids:
                 write_vals["attachment_ids"] = [(4, aid) for aid in extra_attachment_ids]
             new_mails.write(write_vals)
+            if ta_partner.email:
+                new_mails[0].email_cc = ta_partner.email
 
 
 def _cancel_event_and_notify(event, reason, comment=None, notify=True):
@@ -373,22 +376,29 @@ def _queue_cancellation_emails(event, reason, comment=None):
             "res_id": 0,
         }).id
 
-    body = Markup(
-        "<div>"
-        "<p><strong>Interview cancelled.</strong></p>"
-        "<p><strong>Meeting:</strong> %s</p>"
-        "<p><strong>Was scheduled for:</strong> %s</p>"
-        "<p><strong>Reason:</strong> %s</p>"
-        "%s"
-        "<p><em>This meeting has been removed from your calendar.</em></p>"
-        "</div>"
-    ) % (
-        event.name or "Interview",
-        str(event.start) if event.start else "",
-        reason or "other",
-        (Markup("<p><strong>Comment:</strong> %s</p>") % comment) if comment else Markup(""),
+    cancel_template = request.env.ref(
+        "google_meet_api.mail_template_pi_cancellation",
+        raise_if_not_found=False,
     )
-    subject = f"Cancelled: {event.name}" if event.name else "Interview cancelled"
+    if cancel_template:
+        ctx = {"cancel_reason": reason or "other", "cancel_comment": comment or ""}
+        tmpl = cancel_template.sudo().with_context(**ctx)
+        body = tmpl._render_field("body_html", event.ids, compute_lang=True)[event.id]
+        subject = tmpl._render_field("subject", event.ids, compute_lang=True)[event.id]
+    else:
+        body = Markup(
+            "<div><p><strong>Interview cancelled.</strong></p>"
+            "<p><strong>Meeting:</strong> %s</p>"
+            "<p><strong>Was scheduled for:</strong> %s</p>"
+            "<p><strong>Reason:</strong> %s</p>%s"
+            "<p><em>This meeting has been removed from your calendar.</em></p></div>"
+        ) % (
+            event.name or "Interview",
+            str(event.start) if event.start else "",
+            reason or "other",
+            (Markup("<p><strong>Comment:</strong> %s</p>") % comment) if comment else Markup(""),
+        )
+        subject = f"Cancelled: {event.name}" if event.name else "Interview cancelled"
 
     author_partner_id = (
         event.user_id.partner_id.id
@@ -504,6 +514,12 @@ def _event_dict(rec):
         "google_meet_url": rec.google_meet_url or None,
         "google_meet_code": rec.google_meet_code or None,
         "google_event_id": rec.google_event_id or None,
+        "meet_link_note": (
+            "This meeting link has expired — interview process is closed."
+            if rec.candidate_id and rec.candidate_id.status in ("pi_selected", "pi_rejected")
+            and not rec.google_meet_url
+            else None
+        ),
         "candidate_id": (
             {"id": rec.candidate_id.id, "name": rec.candidate_id.partner_name or rec.candidate_id.name}
             if rec.candidate_id else None
@@ -1302,6 +1318,19 @@ class GoogleMeetApi(http.Controller):
             resume_att = _fetch_resume_attachment(candidate, event)
             if resume_att:
                 event_attachments |= resume_att
+
+        if job and job.description:
+            html = (
+                f"<html><body><h2>Job Description &mdash; {job.name}</h2>"
+                f"{job.description}</body></html>"
+            )
+            event_attachments |= Attachment.create({
+                "name": f"Job Description - {job.name}.html",
+                "datas": base64.b64encode(html.encode("utf-8")),
+                "res_model": "calendar.event",
+                "res_id": event.id,
+                "mimetype": "text/html",
+            })
 
         for att in data.get("attachments") or []:
             if not isinstance(att, dict):
