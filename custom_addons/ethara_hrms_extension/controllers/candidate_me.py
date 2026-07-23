@@ -349,6 +349,7 @@ class EtharaCandidateMeApi(http.Controller):
             vals["expected_ctc"] = expected_ctc
         if job.department_id:
             vals["department_id"] = job.department_id.id
+        request.env["hr.applicant"].sudo()._refuse_prior_rejected(user.id)
         applicant = request.env["hr.applicant"].sudo().create(vals)
         return return_Response(
             message="Application submitted successfully.",

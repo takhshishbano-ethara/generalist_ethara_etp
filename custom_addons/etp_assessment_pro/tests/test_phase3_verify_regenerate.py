@@ -11,7 +11,6 @@ import json
 from unittest.mock import patch, Mock
 
 from odoo.tests.common import TransactionCase, tagged
-from odoo.exceptions import UserError
 
 from odoo.addons.etp_assessment_pro.services import vertex
 
@@ -53,6 +52,12 @@ class TestPhase3VerifyRegenerate(TransactionCase):
                    "prompt": plan["render_prompts"]["a"]},
                   {"slot": "b", "label": "Response B",
                    "prompt": plan["render_prompts"]["b"]}]
+        # Materialize the dimension answer key from construction_keys so the
+        # (legitimate, separate) _assert_no_key_drift by-construction guard passes;
+        # this test isolates the flaw-RENDER-verify behaviour, not key drift.
+        from odoo.addons.etp_assessment_pro.constants import (
+            ab_specs_from_construction_keys)
+        dims = ab_specs_from_construction_keys(plan["construction_keys"])
         sop = self.Prompt.create({"name": "SOP P3"})
         return self.Draft.create({
             "prompt_id": sop.id,
@@ -61,6 +66,8 @@ class TestPhase3VerifyRegenerate(TransactionCase):
             "question_type": "image_ab",
             "difficulty": "medium",
             "flaw_plan_json": json.dumps(plan),
+            "dimensions_json": json.dumps(dims),
+            "official_reasoning": "The faithful side wins by construction.",
             "image_brief_json": json.dumps(briefs),
             "image_state": "pending",
         })
@@ -102,7 +109,10 @@ class TestPhase3VerifyRegenerate(TransactionCase):
         self.assertEqual(rec["sides"]["b"]["regenerations"], 1)
         self.assertTrue(rec["sides"]["b"]["confirmed"])
 
-    def test_c_absent_past_cap_blocks_approval(self):
+    def test_c_absent_past_cap_does_not_block_approval(self):
+        # Research-aligned (renderers/ab.py has no verify gate): an unconfirmed
+        # planted flaw is ADVISORY, not a veto. needs_review is set + a note is
+        # available for reviewers, but approval PROCEEDS (construction_keys stand).
         draft = self._draft()
         gen = self._fake_img()
         with patch.object(vertex, "generate_image", gen), \
@@ -117,9 +127,11 @@ class TestPhase3VerifyRegenerate(TransactionCase):
         self.assertEqual(rec["sides"]["b"]["regenerations"], 2)
         self.assertFalse(rec["sides"]["b"]["confirmed"])
         self.assertFalse(rec["sides"]["b"]["unavailable"])
-        with self.assertRaises(UserError):
-            draft.action_approve()
-        self.assertEqual(draft.state, "draft")
+        # advisory note is available...
+        self.assertTrue(draft._flaw_render_review_note())
+        # ...but approval is NOT blocked (no UserError, question ships).
+        draft.action_approve()
+        self.assertEqual(draft.state, "approved")
 
     def test_d1_disabled_renders_as_before(self):
         self.env["ir.config_parameter"].sudo().set_param(
@@ -147,4 +159,7 @@ class TestPhase3VerifyRegenerate(TransactionCase):
         rec = json.loads(draft.verification_json)
         self.assertFalse(rec["needs_review"])
         self.assertTrue(rec["sides"]["b"]["unavailable"])
-        draft._assert_flaw_render_verified()
+        # unavailable verify never flags for review, and never blocks.
+        self.assertFalse(draft._flaw_render_review_note())
+        draft.action_approve()
+        self.assertEqual(draft.state, "approved")

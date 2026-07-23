@@ -499,13 +499,22 @@ class TestImageAbBlendScoring(_Base):
                 ("Label Accuracy (LAI)", "Response A"),
                 ("Overall Choice (OC)", "Response A")]
 
-    def _resp(self, assessment, ev, applicant, justification="", correct=3):
+    def _resp(self, assessment, ev, applicant, justification="", correct=3,
+              wrong_axes=None):
         official = list(self.OFFICIAL)
         q = self._build_image_ab(official)
+        # By default the LAST `len-correct` axes are made wrong. Because OC is the
+        # last axis, correct=3 makes the OVERALL wrong -> P1 cap-60. Pass
+        # wrong_axes to choose EXACTLY which axis indices are wrong instead (so a
+        # plumbing test can keep OC correct and avoid the cap).
         picks = []
         for i, (name, lbl) in enumerate(official):
-            picks.append((name, lbl) if i < correct
-                         else (name, "Tie" if lbl != "Tie" else "Both Bad"))
+            if wrong_axes is not None:
+                is_wrong = i in wrong_axes
+            else:
+                is_wrong = i >= correct
+            picks.append((name, "Tie" if lbl != "Tie" else "Both Bad")
+                         if is_wrong else (name, lbl))
         lines = self._lines_for(q, picks)
         return self.Response.create({
             "assessment_id": assessment.id, "assessment_evaluator_id": ev.id,
@@ -521,12 +530,25 @@ class TestImageAbBlendScoring(_Base):
     def test_toggle_off_scores_verdicts_only_immediately(self):
         ev, applicant, a = self._evaluator()
         a.require_justification_image_comparison = False
-        r = self._resp(a, ev, applicant, correct=3)
+        # 3 of 4 correct with OC RIGHT (only VQ wrong) -> no cap, 75%.
+        r = self._resp(a, ev, applicant, wrong_axes={1})
         r._enqueue_subjective_scoring()
         self.assertEqual(r.llm_state, "scored")          # settled at submit, no LLM
         self.assertEqual(r.ab_mcq_pct, 75.0)             # 3 of 4 axes match
         self.assertEqual(r.ab_final_pct, 75.0)           # verdicts only
         self.assertEqual(r.llm_max_score, 1)
+
+    def test_wrong_overall_caps_verdict_item_at_60(self):
+        # P1 (research scoring.md 48-49): a wrong OVERALL preference caps the item
+        # at 60 no matter how many sub-dimensions are right. correct=3 leaves OC
+        # (the last axis) wrong -> 3/4=75% verdicts, capped to 60.
+        ev, applicant, a = self._evaluator()
+        a.require_justification_image_comparison = False
+        r = self._resp(a, ev, applicant, correct=3)
+        r._enqueue_subjective_scoring()
+        self.assertEqual(r.llm_state, "scored")
+        self.assertEqual(r.ab_mcq_pct, 75.0)             # 3 of 4 axes still match
+        self.assertEqual(r.ab_final_pct, 60.0)           # but OC wrong -> cap 60
 
     def test_toggle_on_blends_verdicts_and_justification_with_ceil(self):
         ev, applicant, a = self._evaluator()
@@ -542,7 +564,8 @@ class TestImageAbBlendScoring(_Base):
     def test_toggle_on_blank_justification_scores_verdicts_only(self):
         ev, applicant, a = self._evaluator()
         a.require_justification_image_comparison = True
-        r = self._resp(a, ev, applicant, justification="", correct=3)
+        # OC correct (only VQ wrong) so the verdict lane stays at 75 (no cap).
+        r = self._resp(a, ev, applicant, justification="", wrong_axes={1})
         r._enqueue_subjective_scoring()
         self.assertEqual(r.llm_state, "scored")          # blank -> no LLM
         # blank justification -> verdict lane only: llm_raw_100 = verdict% = 75
@@ -577,7 +600,7 @@ class TestImageAbBlendScoring(_Base):
         # WITHOUT a Vertex call.
         ev, applicant, a = self._evaluator()
         a.require_justification_image_comparison = False
-        r = self._resp(a, ev, applicant, justification="", correct=3)
+        r = self._resp(a, ev, applicant, justification="", wrong_axes={1})
         r.write({"llm_state": "pending"})
         with patch.object(vertex, "_call_vertex") as m:
             scoring.score_evaluator(self.env, ev)
@@ -1009,7 +1032,7 @@ class TestImageLabelInlineDetection(_Base):
 
     def test_source_url_draft_preview_boxed_from_dense_map_without_detect(self):
         # A source_url image whose live DOM capture is unavailable (Playwright off)
-        # falls back to the stored dense map for the ADMIN PREVIEW only — this is
+        # falls back to the stored dense map for the ADMIN PREVIEW only - this is
         # the source_url branch, unchanged by the label-position fix (which governs
         # SYNTHETIC images). Patch Playwright off so the test is deterministic and
         # never reaches the real page.
@@ -1439,7 +1462,7 @@ class TestImageLabelSourceUrlCapture(_Base):
     def test_fallback_detects_after_render_not_from_dense_map(self):
         # CORRECTED CONTRACT (label-position fix): the generator's dense map holds
         # coordinates the TEXT model guessed BEFORE the screenshot was rendered, so
-        # they never align with the image the IMAGE model actually drew — the cause
+        # they never align with the image the IMAGE model actually drew - the cause
         # of "labels at the wrong positions". When no live DOM capture is possible,
         # we now DETECT on the actual rendered pixels (research renderers/ui.py),
         # never draw the guessed boxes. So detection MUST run.
@@ -1515,8 +1538,8 @@ class TestImageLabelSourceUrlCapture(_Base):
         self.assertTrue(img.label_boxes_json)        # dense fallback map carried
         self.assertFalse(img.detections_json)        # capture-primary still runs
         # CORRECTED CONTRACT: with no live DOM capture available, the box geometry
-        # comes from DETECTION on the actual rendered pixels — not the generator's
-        # guessed dense map — so the labels land where the elements really are.
+        # comes from DETECTION on the actual rendered pixels - not the generator's
+        # guessed dense map - so the labels land where the elements really are.
         fake_dets = [
             {"box_2d": [40, 30, 90, 300], "label": "Search",
              "description": "Focuses the search field"},

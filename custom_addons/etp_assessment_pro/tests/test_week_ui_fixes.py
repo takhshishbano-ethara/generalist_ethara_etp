@@ -10,6 +10,21 @@ class TestTagMachineKeyAutoPopulate(TransactionCase):
     """g5: a human adds a tag by typing Prefix + Readable Name; the machine key
     builds itself in canonical form, and bad input is rejected."""
 
+    # Fixed keys these tests mint. A real generation run (SOP tag extraction)
+    # can leave any of these committed in a shared dev DB, which would trip the
+    # one-key-one-tag uniqueness guard on create. Clear them in setUp so the
+    # test owns a clean slate; TransactionCase rolls the delete back afterwards,
+    # so committed data in CI/prod is never actually touched.
+    _MINTED_KEYS = (
+        "skill:quality-prompt-writing", "domain:ai-image-editing",
+        "task:evaluate-quality", "skill:evaluate-quality", "modality:video",
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.env["etp.assessment.pro.tag"].search(
+            [("name", "in", list(self._MINTED_KEYS))]).unlink()
+
     def _Tag(self):
         return self.env["etp.assessment.pro.tag"]
 
@@ -80,4 +95,29 @@ class TestCandidateFeedbackInReview(TransactionCase):
         src = inspect.getsource(portal.EtpAssessmentPortal._build_answer_review)
         self.assertIn("llm_feedback", src)
         self.assertIn('"feedback"', src)
+
+    def test_candidate_feedback_is_verdict_never_internal_reasoning(self):
+        """The candidate-facing llm_feedback MUST be the clean judge `verdict`,
+        NEVER `reasoning` — the composition lanes + ceiling path stuff the INTERNAL
+        scoring math (e.g. '[image_label coverage=0.33 x correctness=0.00 -> raw
+        0]') into `reasoning`, and that is admin-only. Regression for the bug where
+        _store_scored fell back feedback -> reasoning and leaked the math to the
+        candidate's Review Answers 'Grader feedback' box."""
+        import inspect
+        from odoo.addons.etp_assessment_pro.services import scoring
+        src = inspect.getsource(scoring._store_scored)
+        # the feedback source line must prefer verdict and must NOT fall back to
+        # reasoning (which carries the internal composition/ceiling audit).
+        self.assertIn('it.get("feedback") or it.get("verdict")', src)
+        self.assertNotIn('it.get("feedback") or it.get("reasoning")', src)
+
+    def test_score_breakdown_does_not_duplicate_verdict(self):
+        # The verdict shows once (Grader feedback box). The Score breakdown header
+        # must not re-print score_verdict, or the candidate sees it twice.
+        import os
+        from odoo.addons.etp_assessment_pro import __path__ as modpath
+        tmpl = os.path.join(modpath[0], "views", "portal_templates.xml")
+        with open(tmpl, encoding="utf-8") as fh:
+            xml = fh.read()
+        self.assertNotIn("Score breakdown<t t-if=\"row.get('score_verdict')\"", xml)
 

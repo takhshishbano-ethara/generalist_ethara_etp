@@ -4,7 +4,6 @@ access_tag_manager,etp.assessment.pro.tag.manager,model_etp_assessment_pro_tag,e
 access_question_manager,etp.assessment.pro.question.manager,model_etp_assessment_pro_question,etp_assessment_pro.group_assessment_manager,1,1,1,1
 access_question_image_evaluator,etp.assessment.pro.question.image.evaluator,model_etp_assessment_pro_question_image,etp_assessment_pro.group_assessment_evaluator,1,0,0,0
 access_question_image_manager,etp.assessment.pro.question.image.manager,model_etp_assessment_pro_question_image,etp_assessment_pro.group_assessment_manager,1,1,1,1
-access_question_image_portal,etp.assessment.pro.question.image.portal,model_etp_assessment_pro_question_image,base.group_portal,1,0,0,0
 access_question_video_evaluator,etp.assessment.pro.question.video.evaluator,model_etp_assessment_pro_question_video,etp_assessment_pro.group_assessment_evaluator,1,0,0,0
 access_question_video_manager,etp.assessment.pro.question.video.manager,model_etp_assessment_pro_question_video,etp_assessment_pro.group_assessment_manager,1,1,1,1
 access_question_video_portal,etp.assessment.pro.question.video.portal,model_etp_assessment_pro_question_video,base.group_portal,1,0,0,0

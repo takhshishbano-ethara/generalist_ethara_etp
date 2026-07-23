@@ -325,8 +325,52 @@ class EtpAssessmentPortal(http.Controller):
                     if r and qtype not in ("mcq", "msq")
                     and r.llm_state == "scored"
                     else ""),
+                # Project-aware (drop 2) itemized score accounting: the deductions
+                # (each lost-point line) and credit (what they got right), shown as
+                # a clean list in Review Answers — never a raw JSON blob.
+                "score_verdict": (
+                    (r.llm_verdict or "").strip()
+                    if r and qtype not in ("mcq", "msq")
+                    and r.llm_state == "scored" else ""),
+                "deductions": (
+                    self._parse_score_lines(r.llm_deductions_json)
+                    if r and qtype not in ("mcq", "msq")
+                    and r.llm_state == "scored" else []),
+                "credit": (
+                    self._parse_score_lines(r.llm_credit_json)
+                    if r and qtype not in ("mcq", "msq")
+                    and r.llm_state == "scored" else []),
             })
         return rows
+
+    @staticmethod
+    def _parse_score_lines(raw_json):
+        """Parse a deductions/credit JSON field into a clean list of dicts for the
+        template. Returns [] on any malformed/empty input (never raises into a
+        candidate-facing page)."""
+        if not (raw_json or "").strip():
+            return []
+        try:
+            data = json.loads(raw_json)
+        except (ValueError, TypeError):
+            return []
+        out = []
+        for d in data if isinstance(data, list) else []:
+            if not isinstance(d, dict):
+                continue
+            entry = {
+                "reason": str(d.get("reason") or "").strip(),
+                "evidence": str(d.get("evidence") or "").strip(),
+            }
+            pts = d.get("points")
+            if pts is not None:
+                try:
+                    entry["points"] = int(round(float(pts)))
+                except (TypeError, ValueError):
+                    entry["points"] = None
+            if entry["reason"] or entry["evidence"]:
+                out.append(entry)
+        return out
 
     def _unanswered_question_ids(self, evaluator):
         """Question ids in this attempt with no submitted response yet."""
@@ -421,7 +465,34 @@ class EtpAssessmentPortal(http.Controller):
             image_id)
         if not image.exists() or image.question_id.id not in order:
             return request.not_found()
-        return self._serve_image(image, bool(kw.get("annotated")))
+        # SECURITY (Finding L-2): the annotated overlay is only safe to show when
+        # its markers are CONTENT-FREE positions the candidate must label — i.e.
+        # UI/dense-box labelling, where the numbered boxes sit on controls and the
+        # answer is the FUNCTION the candidate writes. For DEFECT annotation (q7r)
+        # the markers are drawn ON the defects, so the overlay IS the answer key
+        # (it reveals where every defect is). Never serve the annotated image for
+        # a defect-annotation question, whatever ?annotated= asks for.
+        annotated = bool(kw.get("annotated")) and self._annotated_is_worker_safe(
+            image.question_id)
+        return self._serve_image(image, annotated=annotated)
+
+    @staticmethod
+    def _annotated_is_worker_safe(question):
+        """True only when a question's annotated overlay carries NO answer content
+        — the numbered boxes of a UI/dense labelling task (the candidate supplies
+        the labels). A defect-annotation overlay marks the defects themselves, so
+        its markers reveal the answer and it must stay candidate-hidden."""
+        if (question.question_type or "") != "image_label":
+            return False
+        # UI/dense labelling is flagged by detection_mode 'ui'/'dense' or a live
+        # source_url capture; defect annotation uses the default object mode.
+        mode = (question.detection_mode or "").lower()
+        if mode in ("ui", "dense", "dense_boxes"):
+            return True
+        # a live-DOM captured screenshot is a UI task by construction
+        if question.image_ids.filtered(lambda i: i.source_url):
+            return True
+        return False
 
     @http.route("/etp_assessment/admin_qimage/<int:image_id>",
                 type="http", auth="user")
@@ -430,6 +501,14 @@ class EtpAssessmentPortal(http.Controller):
         private-S3 question image (raw S3 URLs 403). Mirrors the candidate
         ``serve_question_image`` serving logic but gates on the internal user's
         model/record read access instead of an exam token."""
+        # Portal candidates must NEVER reach this backend route: they carry a
+        # broad base.group_portal read grant on question.image with no record
+        # rule, so check_access("read") alone would pass for ANY image_id and
+        # leak question content across assessments (bypassing the token +
+        # question_order scoping the candidate route enforces). Restrict to
+        # internal/backend users; check_access stays as the second layer.
+        if not request.env.user._is_internal():
+            return request.not_found()
         image = request.env["etp.assessment.pro.question.image"].browse(
             image_id)
         if not image.exists():
@@ -494,6 +573,12 @@ class EtpAssessmentPortal(http.Controller):
         """Internal, ACL-checked proxy so backend admins can preview a
         private-S3 question video. Mirrors serve_admin_question_image: gates on
         the internal user's record read access, then reuses _serve_video."""
+        # Same IDOR guard as serve_admin_question_image: portal candidates hold
+        # a base.group_portal read grant on question.video with no record rule,
+        # so check_access("read") alone would leak any clip by integer id.
+        # Backend users only; check_access remains the second layer.
+        if not request.env.user._is_internal():
+            return request.not_found()
         video = request.env["etp.assessment.pro.question.video"].browse(
             video_id)
         if not video.exists():

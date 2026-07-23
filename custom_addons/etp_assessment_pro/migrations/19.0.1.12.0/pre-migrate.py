@@ -97,7 +97,7 @@ def migrate(cr, version):
     _try(cr, "5", f"ALTER TABLE {qd} DROP COLUMN IF EXISTS dimension_id CASCADE")
     _try(cr, "6", f"ALTER TABLE {qdo} DROP COLUMN IF EXISTS master_option_id CASCADE")
 
-    # Step 7: response.line — drop orphans that could not be retargeted (would
+    # Step 7: response.line - drop orphans that could not be retargeted (would
     # violate the required question_dimension_id), then swap the old FK columns
     # out and rename the new selected option column into place.
     cr.execute("SAVEPOINT etp_qdim")

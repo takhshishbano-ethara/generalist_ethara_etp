@@ -106,12 +106,6 @@ class EtpAssessmentQuestionImage(models.Model):
     capture_config_json = fields.Text(
         string="Capture Config (JSON)", copy=False,
         help='image_label DOM-capture directives {"viewport":{"width","height"},'
-             '"wait_ms":int,"dismiss":[selectors]} threaded into '
-             "capture_and_annotate so cookie/consent overlays are dismissed and "
-             "the right viewport is used before the live DOM is enumerated.")
-    capture_config_json = fields.Text(
-        string="Capture Config (JSON)", copy=False,
-        help='image_label DOM-capture directives {"viewport":{"width","height"},'
              '"wait_ms":int,"dismiss":["<accept selector>"]} threaded into the '
              "live capture so the settle delay and cookie/consent dismissal run "
              "before the DOM is enumerated.")
@@ -309,11 +303,11 @@ class EtpAssessmentQuestionImage(models.Model):
         # draw the generator's guessed `boxes` (the old _annotate_from_dense_map
         # short-circuit): those coordinates are authored by the TEXT model before
         # the screenshot exists, so they never align with what the IMAGE model
-        # actually rendered — the cause of "labels at the wrong positions". The
+        # actually rendered - the cause of "labels at the wrong positions". The
         # only trustworthy boxes are (a) real DOM rects from a live page (handled
         # above) or (b) vision-detected controls in the ACTUAL rendered pixels
         # (below). One detection call per image is the correct cost/accuracy
-        # trade — wrong boxes are worse than a saved quota call on an assessment.
+        # trade - wrong boxes are worse than a saved quota call on an assessment.
         return self._annotate_from_bytes(self._source_image_bytes(), ui=ui)
 
     def _dense_detections(self):

@@ -5,7 +5,7 @@ import uuid
 from datetime import timedelta
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
@@ -89,6 +89,21 @@ class EtpApplicantAssessment(models.Model):
     started_at = fields.Datetime(readonly=True, copy=False)
     submitted_at = fields.Datetime(readonly=True, copy=False)
     deadline_at = fields.Datetime(readonly=True, copy=False)
+
+    valid_from = fields.Datetime(
+        string="Link Active From",
+        copy=False,
+        help="Candidate cannot open the assessment link before this time. "
+             "Blank = link is live as soon as it is sent.",
+    )
+    valid_until = fields.Datetime(
+        string="Link Active Until",
+        copy=False,
+        help="Candidate cannot open the assessment link after this time. "
+             "Blank = link stays live until the assessment is submitted or "
+             "cancelled. Does not affect the in-session timer once the "
+             "candidate has already started.",
+    )
 
     duration_minutes = fields.Integer(readonly=True)
     pass_mark_percent = fields.Float(readonly=True)
@@ -479,7 +494,13 @@ class EtpApplicantAssessment(models.Model):
                 self.ids,
             )
             return
+        now = fields.Datetime.now()
         for rec in self:
+            window_vals = {
+                'valid_from': now,
+                'valid_until': now + timedelta(days=7),
+            }
+            rec.write(window_vals)
             recipient = rec.applicant_id.email_from
             if not recipient:
                 _logger.warning(
@@ -584,16 +605,48 @@ class EtpApplicantAssessment(models.Model):
         for rec in self:
             if rec.state != "submitted":
                 continue
+            # Force fresh recompute so stale final_score can't fail the pass check.
+            rec.answer_ids.flush_recordset()
+            rec.invalidate_recordset(
+                ["objective_score", "warning_penalty",
+                 "final_score", "has_pending_review"]
+            )
             if rec.has_pending_review:
+                _logger.info(
+                    "action_score: assessment=%s left in submitted state "
+                    "(has_pending_review=True)",
+                    rec.id,
+                )
                 continue
             rec.state = "scored"
             applicant = rec.applicant_id
             if applicant:
-                passed = (rec.final_score or 0.0) >= (rec.pass_mark_percent or 0.0)
-                applicant.status = (
+                final_score = rec.final_score or 0.0
+                pass_mark = rec.pass_mark_percent or 0.0
+                passed = final_score >= pass_mark
+                new_status = (
                     "assessment_passed" if passed
                     else "assessment_rejected"
                 )
+                applicant_sudo = applicant.sudo()
+                try:
+                    applicant_sudo.write({"status": new_status})
+                    applicant_sudo.flush_recordset(["status"])
+                    _logger.info(
+                        "action_score: applicant=%s status set to %s "
+                        "(final_score=%.2f pass_mark=%.2f) assessment=%s",
+                        applicant.id, new_status, final_score,
+                        pass_mark, rec.id,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Failed to set applicant status to %s for "
+                        "applicant=%s assessment=%s "
+                        "(final_score=%.2f pass_mark=%.2f "
+                        "current status=%s)",
+                        new_status, applicant.id, rec.id,
+                        final_score, pass_mark, applicant.status,
+                    )
             rec._send_result_email()
         return True
 
@@ -654,6 +707,30 @@ class EtpApplicantAssessment(models.Model):
         if not self.deadline_at:
             return False
         return fields.Datetime.now() > self.deadline_at
+
+    @api.constrains("valid_from", "valid_until")
+    def _check_link_validity_window(self):
+        for rec in self:
+            if rec.valid_from and rec.valid_until and rec.valid_until <= rec.valid_from:
+                raise ValidationError(_(
+                    "Link Active Until must be later than Link Active From."
+                ))
+
+    def _check_link_window(self):
+        self.ensure_one()
+        now = fields.Datetime.now()
+        if self.valid_from and now < self.valid_from:
+            status = "not_yet"
+        elif self.valid_until and now > self.valid_until:
+            status = "expired"
+        else:
+            status = "ok"
+        return {
+            "status": status,
+            "valid_from": self.valid_from,
+            "valid_until": self.valid_until,
+            "now": now,
+        }
 
     def _maybe_auto_submit(self):
         for rec in self:
@@ -866,18 +943,50 @@ class EtpApplicantAssessment(models.Model):
         for rec in self:
             if rec.state != "submitted":
                 continue
+            # Force fresh recompute so stale final_score can't fail the pass check.
+            rec.answer_ids.flush_recordset()
+            rec.invalidate_recordset(
+                ["objective_score", "warning_penalty",
+                 "final_score", "has_pending_review"]
+            )
             if rec.has_pending_review:
+                _logger.info(
+                    "_finalize_scoring_after_llm_qc: assessment=%s left in "
+                    "submitted state (has_pending_review=True, "
+                    "llm_qc_state=%s)",
+                    rec.id, rec.llm_qc_state,
+                )
                 continue
             rec.state = "scored"
             applicant = rec.applicant_id
             if applicant:
-                passed = (
-                    (rec.final_score or 0.0) >= (rec.pass_mark_percent or 0.0)
-                )
-                applicant.sudo().status = (
+                final_score = rec.final_score or 0.0
+                pass_mark = rec.pass_mark_percent or 0.0
+                passed = final_score >= pass_mark
+                new_status = (
                     "assessment_passed" if passed
                     else "assessment_rejected"
                 )
+                applicant_sudo = applicant.sudo()
+                try:
+                    applicant_sudo.write({"status": new_status})
+                    applicant_sudo.flush_recordset(["status"])
+                    _logger.info(
+                        "_finalize_scoring_after_llm_qc: applicant=%s "
+                        "status set to %s (final_score=%.2f "
+                        "pass_mark=%.2f) assessment=%s",
+                        applicant.id, new_status, final_score,
+                        pass_mark, rec.id,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Failed to set applicant status to %s for "
+                        "applicant=%s assessment=%s "
+                        "(final_score=%.2f pass_mark=%.2f "
+                        "current status=%s)",
+                        new_status, applicant.id, rec.id,
+                        final_score, pass_mark, applicant.status,
+                    )
             if not rec.llm_qc_result_email_sent:
                 rec._send_llm_qc_result_email()
         return True

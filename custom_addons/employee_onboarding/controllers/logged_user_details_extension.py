@@ -46,10 +46,22 @@ class LoggedUserDetailsOnboardingExtension(ApiAuthController):
             # shouldn't be nagged with the onboarding popup.
             completed = True
             user = request.env.user
-            if user and user.exists() and user.employee_id:
-                completed = bool(user.employee_id.sudo().onboarding_completed)
+            if user and user.exists():
+                if user.employee_id:
+                    completed = bool(user.employee_id.sudo().onboarding_completed)
 
-            record["onboarding_completed"] = True if user.is_organization_account else completed
+                employee_dept = request.env.ref(
+                    "api_auth_gateway.department_role_employee",
+                    raise_if_not_found=False,
+                )
+                role_dept = user.user_role.department_id if user.user_role else None
+                if employee_dept and role_dept and role_dept.id != employee_dept.id:
+                    completed = True
+
+                if user.is_organization_account:
+                    completed = True
+
+            record["onboarding_completed"] = completed
             response.set_data(json.dumps(body))
         except Exception:
             _logger.exception(

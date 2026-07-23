@@ -218,7 +218,13 @@ class TestDensePerBoxScoring(_Base):
         self.assertEqual(audit["label_scores"]["attempted_boxes"], 3)
         self.assertEqual(audit["label_scores"]["coverage"], 1.0)
 
-    def test_low_coverage_still_caps_dense_at_40(self):
+    def test_low_coverage_flags_review_but_keeps_parity_score(self):
+        # PARITY (research trusts the judge's deductions): a lenient judge score is
+        # NOT hard-capped by coverage anymore — the old coverage<=0.5 -> cap-40
+        # double-penalty is gone (research scores image_label purely via its own
+        # 100*correct/total deductions). Instead, when the judge scores ABOVE what
+        # the coverage can justify (here 1/4 boxes -> ceiling 25, judge said 95),
+        # we FLAG needs_review for an admin without changing the mark.
         bkey = [{"number": n, "element": "e%d" % n,
                  "functionality": "does %d" % n} for n in range(1, 5)]
         q = self._label_q(behavioural_key=bkey, coverage="yes")
@@ -227,7 +233,13 @@ class TestDensePerBoxScoring(_Base):
                           return_value=self._v6_payload(resp, 0.95)):
             scoring._score_image_label_items(self.env, resp)
         resp.invalidate_recordset()
-        self.assertEqual(resp.llm_raw_100, 40.0)
+        # score stays at the judge's mark (parity), NOT clamped to 40
+        self.assertEqual(resp.llm_raw_100, 95.0)
+        # but the lenient-vs-coverage mismatch is surfaced for review
+        flags = json.loads(resp.llm_flags_json or "[]")
+        self.assertIn("needs_review", flags)
+        audit = json.loads(resp.llm_result_json)
+        self.assertEqual(audit["label_scores"]["coverage_ceiling"], 25.0)
 
 
 class TestLegacySingleBox(_Base):

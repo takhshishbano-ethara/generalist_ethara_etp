@@ -131,6 +131,12 @@ class NonStemRun(models.Model):
             cmd += ["--rs", rs_path]
 
             try:
+                # Clean up old pipeline output dirs so only fresh output remains
+                script_dir = os.path.dirname(SCRIPT_PATH)
+                for d in os.listdir(script_dir):
+                    if d.startswith("mm_performance_") and os.path.isdir(os.path.join(script_dir, d)):
+                        shutil.rmtree(os.path.join(script_dir, d))
+
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -147,8 +153,7 @@ class NonStemRun(models.Model):
                         f"Pipeline failed (exit code {result.returncode}):\n{log}"
                     )
 
-                # The pipeline creates output next to the script file, not in cwd
-                script_dir = os.path.dirname(SCRIPT_PATH)
+                # The pipeline creates output next to the script file
                 output_dirs = [
                     d for d in os.listdir(script_dir)
                     if d.startswith("mm_performance_") and os.path.isdir(os.path.join(script_dir, d))
@@ -156,12 +161,6 @@ class NonStemRun(models.Model):
                 if not output_dirs:
                     self.write({"state": "error"})
                     raise UserError("Pipeline ran but no output folder was created.")
-
-                # Use the most recently created output dir
-                output_dirs.sort(
-                    key=lambda d: os.path.getctime(os.path.join(script_dir, d)),
-                    reverse=True,
-                )
                 out_dir = os.path.join(script_dir, output_dirs[0])
 
                 # Read all window HTML dashboards

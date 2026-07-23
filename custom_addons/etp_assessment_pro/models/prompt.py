@@ -621,9 +621,52 @@ class EtpAssessmentPrompt(models.Model):
         drafts = self.question_ids.filtered(lambda r: r.state == "draft")
         if not drafts:
             raise UserError("There are no pending drafts to approve.")
-        # action_approve logs the approval rollup to this generator's chatter,
-        # so no separate note here (that would double-log the same event).
-        drafts.action_approve()
+        # Skip-and-continue: approve each draft in its own savepoint so one bad
+        # draft (e.g. an image_ab whose planted flaw never rendered) cannot roll
+        # back the good ones. action_approve suppresses its own chatter note; we
+        # post a single rollup below. The accumulator is an empty slice of
+        # `drafts` so it matches the draft model, never the generator's own model.
+        approved = drafts.browse()
+        failures = []
+        for draft in drafts:
+            try:
+                with self.env.cr.savepoint():
+                    draft.with_context(skip_approval_log=True).action_approve()
+                approved |= draft
+            except (UserError, ValidationError) as exc:
+                # savepoint rolled the failed draft back; its ORM cache may be
+                # stale, so drop it before touching the record again.
+                draft.invalidate_recordset()
+                failures.append((draft, str(exc)))
+        if approved:
+            approved._log_drafts_to_generators(approved, "approved")
+        if failures:
+            detail = "\n".join(
+                "- %s: %s" % (
+                    (d.name or d.question_prompt or "draft"),
+                    (msg or "").strip().splitlines()[0] if msg else "unknown error")
+                for d, msg in failures)
+            self._log_activity(Markup(
+                "<b>%d draft(s) skipped during Approve All</b> "
+                "(the other %d were approved):<br/>%s")
+                % (len(failures), len(approved), escape(detail)))
+            if not approved:
+                # Nothing got through - surface the reasons instead of a silent
+                # no-op so the admin knows why.
+                raise UserError(
+                    "No drafts could be approved. Each failed its approval "
+                    "check:\n%s" % detail)
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Approved with skips",
+                    "message": "%d draft(s) approved; %d skipped (see the "
+                               "generator log for why)."
+                               % (len(approved), len(failures)),
+                    "type": "warning", "sticky": False,
+                },
+            }
         return True
 
     def action_extract_tags(self):
@@ -1523,7 +1566,21 @@ class EtpAssessmentPromptQuestion(models.Model):
                                 for r in not_ready))
         for rec in drafts:
             if rec.question_type == "image_ab" and rec.verification_json:
-                rec._assert_flaw_render_verified()
+                note = rec._flaw_render_review_note()
+                if note:
+                    # Research-aligned (renderers/ab.py has NO hard verify gate): a
+                    # planted flaw that did not visibly render does NOT block the
+                    # question. The construction_keys are the by-construction ground
+                    # truth (the render plan was authored to make them true); an
+                    # unconfirmed pixel is an ADVISORY signal, not a veto. We log it
+                    # and leave verification_json.needs_review visible so a reviewer
+                    # can eyeball / deny, but approval proceeds. Previously this
+                    # raised UserError and dead-locked the flow ("this should not
+                    # happen"). See RESEARCH_DROP3_FINDINGS.md.
+                    _logger.warning(
+                        "etp_assessment image_ab flaw not visually confirmed for "
+                        "%r (approving anyway; construction_keys stand): %s",
+                        rec.name or "draft", note)
         for rec in drafts:
             vals = {
                 "name": rec.name,
@@ -1556,7 +1613,11 @@ class EtpAssessmentPromptQuestion(models.Model):
             if rec.question_type == "image_label":
                 rec._apply_authored_label_key(q)
             rec.write({"state": "approved", "approved_question_id": q.id})
-        self._log_drafts_to_generators(drafts, "approved")
+        # Batch approval (action_approve_all_drafts) posts ONE rollup for the
+        # whole set and passes skip_approval_log so each per-draft call here does
+        # not double-log the same event.
+        if not self.env.context.get("skip_approval_log"):
+            self._log_drafts_to_generators(drafts, "approved")
         return True
 
     def _log_drafts_to_generators(self, drafts, verb):
@@ -1596,15 +1657,22 @@ class EtpAssessmentPromptQuestion(models.Model):
                 "ground-truth - refusing to approve.\n%s"
                 % (self.name or "draft", "\n".join(drift)))
 
-    def _assert_flaw_render_verified(self):
+    def _flaw_render_review_note(self):
+        """Return a human-readable note when a planted image_ab flaw was not
+        visibly confirmed in the pixels, else ''. ADVISORY ONLY — the caller logs
+        it and leaves verification_json.needs_review visible, but does NOT block
+        approval. Research's renderers/ab.py has no verify gate at all; the
+        construction_keys are the authored by-construction ground truth, so an
+        unconfirmed pixel is a review hint, not a veto (previously this raised and
+        dead-locked approval — the 'this should not happen' bug)."""
         self.ensure_one()
         import json as _json
         try:
             rec = _json.loads(self.verification_json or "{}")
         except (ValueError, TypeError):
-            return
+            return ""
         if not isinstance(rec, dict) or not rec.get("needs_review"):
-            return
+            return ""
         unconfirmed = []
         for slot, side in (rec.get("sides") or {}).items():
             if not isinstance(side, dict) or side.get("confirmed") \
@@ -1613,12 +1681,7 @@ class EtpAssessmentPromptQuestion(models.Model):
             for v in side.get("verdicts") or []:
                 if isinstance(v, dict) and not v.get("present"):
                     unconfirmed.append("%s: %s" % (slot, v.get("flaw") or "?"))
-        raise UserError(
-            "Flaw verification failed: a planted flaw never rendered into the "
-            "image after re-generation, so the construction key it backs is not "
-            "justified by the pixels - refusing to approve %r. Regenerate the "
-            "image or fix the flaw plan.\n%s"
-            % (self.name or "draft", "\n".join(unconfirmed) or "(unconfirmed)"))
+        return "\n".join(unconfirmed) or "(a planted flaw was not confirmed)"
 
     def _dimension_specs(self):
         self.ensure_one()
@@ -2157,12 +2220,15 @@ class EtpAssessmentPromptQuestion(models.Model):
         return True
 
     def _plant_defects_on_render(self, images):
-        """DEFECT form (q7r) true-by-construction render. The rendered 'single'
-        image is the CLEAN base; plant every defect with PIL at a known pixel and
-        stamp the numbered marker on the ACTUAL drawn region, then write the
-        worker-facing original (with defects, NO markers) as the stimulus and the
-        annotated (with markers) as the answer-key overlay. The answer key is true
-        by construction, so no marker ever lands on empty space."""
+        """DEFECT form (q7r) true-by-construction render — drop-2 base+edit+
+        vision-ground flow. The rendered 'single' image is the CLEAN base; ONE
+        combined image-to-image edit bakes every structural defect into the real
+        pixels, then each defect's anchor is vision-grounded on the FINAL image and
+        the marker stamped there only if the flaw is confirmed present. Unverified
+        defects are dropped and the survivors renumbered 1..N, so no marker ever
+        lands on empty space and the answer key can never reference a defect that
+        didn't render.
+        """
         import base64 as _b64
         import json as _json
         self.ensure_one()
@@ -2173,7 +2239,30 @@ class EtpAssessmentPromptQuestion(models.Model):
         defects = plan.get("defects") if isinstance(plan, dict) else None
         if not isinstance(defects, list) or not defects:
             return images
-        from ..services import defect_render, image_ingest
+        from ..services import defect_render, image_ingest, vertex
+
+        # ctx exposes the two model callables the renderer needs, bound to our
+        # Vertex service (kept out of the pure-PIL renderer so it stays testable).
+        # usage_ctx threads the draft id so image-edit / locate spend is ledgered
+        # and the H-5 budget caps are honoured on every billable call.
+        _env = self.env
+        # llm_usage.prompt_id FKs the GENERATOR (etp.assessment.pro.prompt), so
+        # attribute spend to self.prompt_id (the generator), NOT self.id (this draft
+        # question) — the latter FK-violates and poisons the render transaction.
+        _uctx = {"prompt_id": self.prompt_id.id or False, "note": "defect-render"}
+
+        class _DefectCtx:
+            @staticmethod
+            def edit_image(edit_prompt, ref_png_bytes):
+                return vertex.edit_image(
+                    _env, edit_prompt, ref_png_bytes, usage_ctx=dict(_uctx))
+
+            @staticmethod
+            def locate(image_png_bytes, anchor, flaw=""):
+                return vertex.locate_defect(
+                    _env, image_png_bytes, anchor, flaw, usage_ctx=dict(_uctx))
+
+        ctx = _DefectCtx()
         for spec in images:
             if not isinstance(spec, dict):
                 continue
@@ -2183,13 +2272,15 @@ class EtpAssessmentPromptQuestion(models.Model):
             if not raw:
                 continue
             try:
-                original_png, annotated_png, planted = defect_render.plant(
-                    raw, defects, seed=abs(hash("draft-%s" % self.id)) % 100000)
+                original_png, annotated_png, info = defect_render.plant(
+                    raw, defects, ctx=ctx,
+                    seed=abs(hash("draft-%s" % self.id)) % 100000)
             except Exception:  # noqa: BLE001 - injection must never fail the render
                 _logger.exception(
                     "Defect injection failed for draft %s; leaving base image",
                     self.id)
                 continue
+            planted = info.get("defects") or []
             # Worker sees the ORIGINAL (defects present, no markers). The annotated
             # overlay + the planted key are the answer sheet the reviewer/scorer use.
             spec["data"] = ("data:image/png;base64,%s"
@@ -2198,12 +2289,15 @@ class EtpAssessmentPromptQuestion(models.Model):
                                       % _b64.b64encode(annotated_png).decode())
             # Persist the true-by-construction key as detections_json in the same
             # {number, label, description, box_px} shape the label UI/scoring read.
+            # Markers are already renumbered 1..N (survivors only) by the renderer.
             key = [{"number": p["marker"],
                     "label": (p.get("flaw") or "")[:80],
                     "description": p.get("flaw") or "",
                     "box_px": [p["marker_xy"][0] - 20, p["marker_xy"][1] - 20,
                                p["marker_xy"][0] + 20, p["marker_xy"][1] + 20]}
-                   for p in planted]
+                   for p in planted
+                   if isinstance(p.get("marker_xy"), (list, tuple))
+                   and len(p["marker_xy"]) == 2]
             spec["detections_json"] = _json.dumps(key, ensure_ascii=False)
             try:
                 url, _stored = image_ingest.ingest(

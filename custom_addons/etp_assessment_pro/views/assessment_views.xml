@@ -155,18 +155,21 @@
                                            decoration-warning="state == 'in_progress'"
                                            decoration-success="state == 'submitted'"/>
                                     <field name="invite_state" widget="badge"
+                                           optional="show"
                                            decoration-muted="invite_state == 'none'"
                                            decoration-warning="invite_state == 'queued'"
                                            decoration-success="invite_state == 'sent'"
                                            decoration-danger="invite_state == 'failed'"/>
-                                    <field name="started_at"/>
-                                    <field name="answered_count"/>
-                                    <field name="total_questions"/>
-                                    <field name="total_score"/>
+                                    <field name="started_at" optional="show"/>
+                                    <field name="answered_count" optional="hide"/>
+                                    <field name="total_questions" optional="hide"/>
+                                    <field name="total_score"
+                                           string="Objective Marks" optional="hide"/>
                                     <field name="llm_total_score"
-                                           string="Subjective Marks" optional="show"/>
+                                           string="Subjective Marks" optional="hide"/>
                                     <field name="llm_state" widget="badge"
-                                           optional="show"
+                                           string="Subjective Scoring"
+                                           optional="hide"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-danger="llm_state in ('failed', 'error')"/>
                                     <field name="score_marks_display"
@@ -175,17 +178,18 @@
                                            widget="etp_score_marks"
                                            string="Score" optional="show"/>
                                     <field name="raw_result"
-                                           string="Raw Score" optional="show"/>
+                                           string="Raw Score" optional="hide"/>
                                     <field name="result" widget="badge"
                                            decoration-success="result == 'pass'"
                                            decoration-danger="result == 'fail'"
                                            decoration-muted="result == 'pending'"/>
                                     <field name="scoring_error_flag" widget="badge"
+                                           optional="show"
                                            decoration-danger="scoring_error_flag"/>
                                     <field name="integrity_alert" widget="boolean"
-                                           string="Integrity Alert" optional="show"/>
-                                    <field name="is_locked"/>
-                                    <field name="violation_count" optional="show"/>
+                                           string="Integrity Alert" optional="hide"/>
+                                    <field name="is_locked" optional="hide"/>
+                                    <field name="violation_count" optional="hide"/>
                                 </list>
                             </field>
                         </page>

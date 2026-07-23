@@ -464,7 +464,8 @@ def _json_parses(text):
 
 def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
                  temperature=0.4, usage_ctx=None, response_json=False,
-                 response_schema=None, user_parts=None, model=None):
+                 response_schema=None, user_parts=None, model=None,
+                 thinking=False):
     import httpx
     _project, _loc, default_model, _key = _vertex_creds(env)
     model = model or default_model
@@ -480,17 +481,26 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
             "maxOutputTokens": attempt_tokens,
             "temperature": temperature,
         }
-        _apply_thinking_budget(gen_config, model)
+        # thinking=True (P5 video scoring: research score.py:252 "video judging
+        # needs deep reasoning -> thinking ON") lets the model reason instead of
+        # forcing thinkingBudget 0. Leave the budget unset so the model self-sizes.
+        if not thinking:
+            _apply_thinking_budget(gen_config, model)
         if response_json:
             gen_config["responseMimeType"] = "application/json"
             if response_schema:
                 gen_config["responseSchema"] = response_schema
         payload = {
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user",
                           "parts": user_parts or [{"text": user_text}]}],
             "generationConfig": gen_config,
         }
+        # Vertex rejects a systemInstruction whose only part has null/empty text
+        # ("only text part is used to specify the system_instruction"). Omit the
+        # field entirely when there is no system prompt (e.g. the critique pass and
+        # the locate_defect grounding call pass None/"" here).
+        if system_prompt:
+            payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
         _logger.info(
             "etp_assessment Vertex call: model=%s max_tokens=%d json=%s attempt=%d",
             model, attempt_tokens, response_json, attempt + 1,
@@ -688,6 +698,121 @@ def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
     )
 
 
+def edit_image(env, edit_prompt, ref_png_bytes, *, usage_ctx=None):
+    """Image-to-image edit — ported 1:1 from the research harness `gen_image_edit`.
+
+    Sends the reference image as an inlineData part FOLLOWED by the edit
+    instruction text, with responseModalities=[TEXT, IMAGE]; returns the edited
+    image bytes. Used by the q7r defect renderer to bake structural defects
+    (fused fingers, garbled inline text, impossible joints — things PIL cannot
+    synthesize) into the real pixels in ONE re-render, so a marker can then be
+    vision-grounded on the final image. Same scene, only the requested changes.
+    """
+    model = _vertex_image_model(env)
+    url, headers = _gemini_request(env, model, "generateContent")
+    # H-5: image edit is billable too — honour the spend caps before the call.
+    _check_budget(env, usage_ctx)
+    import base64 as _b
+    ref_b64 = _b.b64encode(bytes(ref_png_bytes)).decode()
+    payload = {
+        "contents": [{"role": "user", "parts": [
+            {"inlineData": {"mimeType": "image/png", "data": ref_b64}},
+            {"text": edit_prompt or ""},
+        ]}],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "temperature": 1.0,
+        },
+    }
+    _logger.info("etp_assessment Vertex image EDIT: model=%s", model)
+    resp = _httpx().post(url, json=payload, headers=headers)
+    if resp.status_code == 429:
+        raise VertexQuotaError(
+            f"Vertex image-edit quota exhausted [429]: {resp.text[:200]}")
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Vertex image-edit error [{resp.status_code}]: {resp.text[:400]}")
+    data = resp.json()
+    _log_usage(env, model, data.get("usageMetadata"), 1, usage_ctx)
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError(
+            f"Vertex image-edit response missing candidates: {str(data)[:300]}")
+    for part in parts or []:
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            import base64 as _b
+            return _b.b64decode(inline["data"])
+    raise RuntimeError(
+        "Vertex image-edit response had no image part (safety block / refusal?): "
+        f"{str(data)[:300]}")
+
+
+# Grounding schema for locate_defect — mirrors the research harness _LOCATE_SCHEMA.
+_LOCATE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "found": {"type": "BOOLEAN"},
+        "box_2d": {"type": "ARRAY", "items": {"type": "INTEGER"},
+                   "minItems": 4, "maxItems": 4},
+        "defect_present": {"type": "BOOLEAN"},
+    },
+    "required": ["found", "box_2d"],
+}
+
+
+def locate_defect(env, image_png_bytes, anchor, flaw="", *, usage_ctx=None):
+    """Vision-ground `anchor` in the ACTUAL rendered pixels so a defect marker
+    lands on it, and judge whether `flaw` is visibly present there — ported 1:1
+    from the research harness `locate_defect`.
+
+    Returns {found, box_2d:[ymin,xmin,ymax,xmax] on a 0-1000 grid, defect_present}.
+    This is how markers stay exact after a generative edit re-renders the scene:
+    placement comes from vision on the FINAL image, never a pre-guessed pixel.
+    """
+    model = _detection_model(env)
+    import base64 as _b
+    b64 = _b.b64encode(bytes(image_png_bytes)).decode()
+    prompt = (
+        "You are locating one spot in a photograph so a marker can be dropped on "
+        "it. Find this object or area: %s. Return found=true with a TIGHT bounding "
+        "box (box_2d as [ymin,xmin,ymax,xmax] on a 0-1000 grid) centered on it."
+        % (anchor or "")
+    )
+    if flaw:
+        prompt += (
+            ' Also judge whether this specific flaw is visibly present there: '
+            '"%s". Set defect_present accordingly.' % flaw)
+    prompt += " If you cannot see the object at all, return found=false."
+    ctx = dict(usage_ctx or {})
+    ctx["operation"] = "locate_defect"
+    ctx.setdefault("note", "ground-marker")
+    raw = _call_vertex(
+        env, system_prompt="", user_text="",
+        user_parts=[
+            {"inlineData": {"mimeType": "image/png", "data": b64}},
+            {"text": prompt},
+        ],
+        model=model, max_tokens=2000, temperature=0.0, response_json=True,
+        response_schema=_LOCATE_SCHEMA, usage_ctx=ctx)
+    try:
+        obj = json.loads((raw or "").strip())
+    except (ValueError, TypeError):
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        obj = json.loads(m.group(0)) if m else {}
+    box = obj.get("box_2d")
+    if not (isinstance(box, list) and len(box) == 4 and obj.get("found", True)):
+        return {"found": False, "box_2d": None,
+                "defect_present": bool(obj.get("defect_present", False))}
+    try:
+        box = [int(round(float(c))) for c in box]
+    except (TypeError, ValueError):
+        return {"found": False, "box_2d": None, "defect_present": False}
+    return {"found": True, "box_2d": box,
+            "defect_present": bool(obj.get("defect_present", False))}
+
+
 def _video_model(env):
     return _param(env, "etp_assessment_pro.video_model", VIDEO_DEFAULT_MODEL) \
         or VIDEO_DEFAULT_MODEL
@@ -873,7 +998,15 @@ def _extract_json_array(text):
     text = re.sub(r"^```(?:json)?", "", text).strip()
     text = re.sub(r"```$", "", text).strip()
     try:
-        return _unwrap_json_list(json.loads(text))
+        out = _unwrap_json_list(json.loads(text))
+        if isinstance(out, list):
+            return out
+        # A lone JSON object (not wrapped in a known list key) parses fine but is
+        # NOT a list; callers doing `[it for it in ... if isinstance(it, dict)]`
+        # would iterate the dict's string KEYS -> zero items. Wrap it as a
+        # one-item list, mirroring the regex branch below.
+        if isinstance(out, dict):
+            return [out]
     except Exception:
         pass
     for pattern in (r"\[.*\]", r"\{.*\}"):
@@ -1189,38 +1322,71 @@ def _image_type_contract(qtype, ab_dims=None):
         "ideal_labels is a plain string, no boxes. "
         "(3) DEFECT ANNOTATION — TRUE BY CONSTRUCTION (the faithful form for a "
         "single-image AI-defect / anomaly spotting task, e.g. drop a dot on each "
-        "AI tell). Use this INSTEAD of a source_url when the SOP's task is marking "
-        "defects in one image. The platform renders a CLEAN base image from "
-        "base_prompt, then PLANTS each defect deterministically with code at the "
-        "pixel you give and stamps the numbered marker on the ACTUAL drawn region, "
-        "so the answer key is provable and every marker lands on a real defect. "
-        "The canvas is 1280 wide by 720 tall; give ALL coordinates in that pixel "
-        "space (top-left origin). Emit image_specs = {\"base_prompt\": \"<a CLEAN, "
-        "plausible photorealistic 16:9 scene with NO readable text and NO defects "
-        "(a market stall, an office desk, a cafe table) — just the setting the "
-        "defects get planted into>\", \"defects\": [{\"marker\": 1, \"kind\": "
-        '"<symbols|text|duplication|physics|smoothing|shadow>", "op": "<one op '
-        'below>", "spec": {<op-specific fields, all pixels in the 1280x720 '
-        'space>}, "marker_xy": [<x>, <y>], "flaw": "<one specific sentence: '
-        "exactly what is wrong at this point>\"}, ... plant 2 to 4 defects across "
-        "DIFFERENT kinds ...], \"answer_key\": {\"ideal_labels\": {\"1\": "
-        "\"<canonical one-sentence note>\", ...}, \"decoys\": [\"<an allowed extra "
-        "that must NOT be marked>\"], \"scoring_guide\": \"coverage + precision, a "
-        "wrong mark costs more than a miss\"}}. The OPS and their spec fields: "
-        "garbled_card {x,y,w,h,title?,title_size?,lines,font_size,angle?} a card of "
-        "garbled unreadable text; text_card {x,y,w,h,text_lines:[{text,size,"
-        "garbled?,font?}]} a board with clean or misspelled lines; garbled_words "
-        "{x,y,w,size,lines?} garbled lettering on a surface; float_copy "
-        "{src_box:[x0,y0,x1,y1],dst_x,dst_y,scale?,mask?} duplicate an object "
-        "(clone artifact); smear {box:[x0,y0,x1,y1],dx?,dy?,steps?,blur?} melt two "
-        "objects together; warp {box:[x0,y0,x1,y1],amp?,wavelength?,axis?} bend a "
-        "straight structure; smooth {box:[x0,y0,x1,y1],blur?,lift?} a waxy "
-        "over-smoothed AI patch; shadow {box:[x0,y0,x1,y1],opacity?,blur?} a "
-        "shadow cast the wrong way. Place each defect where it belongs in the base "
-        "scene (a price card on the stall front, a label on a jar), set marker_xy "
-        "on it, spread the defects across different kinds, and name at least one "
-        "decoy in answer_key that must NOT be marked so precision is measurable. "
-        "In ALL forms the image \"prompt\"/base_prompt is REQUIRED and the "
+        "AI tell — the q7r task). Use this INSTEAD of a source_url when the SOP's "
+        "task is marking defects in one image. Use BASE+EDIT: the platform renders "
+        "a CLEAN base image from base_prompt, then BAKES all the defects into the "
+        "real pixels in ONE image-to-image edit. The edit re-renders the whole "
+        "scene, so a pre-guessed pixel is worthless — instead the platform "
+        "VISION-GROUNDS each defect's `anchor` (the visible object it sits on) in "
+        "the FINAL image, stamps the numbered marker on that object, and asks the "
+        "same call whether the flaw is actually present (an absent flaw is flagged "
+        "unverified and DROPPED). So markers land on the real object no matter "
+        "where the model rendered it, and the key is true by construction. The "
+        "defects MUST be the strong, NAMEABLE kinds a real AI image gives itself "
+        "away with (see taxonomy) — never a vague blur or \"looks off\": a worker "
+        "must be able to point at it and say what is wrong. A word like \"blurry\" "
+        "must never be the honest description of a defect you planted. Emit "
+        "image_specs = {\\\"base_prompt\\\": \\\"<a CLEAN, plausible photorealistic "
+        "16:9 scene, NO defects — but it MUST contain the real surfaces each defect "
+        "will corrupt: a hand actually touching an object, a printed sign or label "
+        "or paper, a reflective surface, an animal's limb. Leave text surfaces "
+        "present but do not stress clean spelling — the edit supplies the garbled "
+        "text.>\\\", \\\"defects\\\": [{\\\"marker\\\": 1, \\\"kind\\\": "
+        '"<anatomy|fusion|text|continuity|physical-purchase|smoothing>", '
+        '"method": "edit", "edit_instruction": "<precise image-edit command naming '
+        "the EXACT object and the EXACT structural failure, e.g. 'Give the man's "
+        "right hand a sixth finger beside the pinky' or 'Make the chalkboard read a "
+        "jumble of malformed letters that spell no real word'. One defect, one "
+        "place. Never say blur/smudge/make it look off.>\\\", \\\"anchor\\\": \\\"<a "
+        "short phrase naming the ONE visible object the marker sits on, so vision "
+        "can find it in the rendered image: 'the framed sign on the desk', 'the "
+        "right hand holding the ledger'. Must be unique in the scene — not 'a book' "
+        "when there are many.>\\\", \\\"flaw\\\": \\\"<the canonical one-sentence "
+        "note an ideal worker writes: name the defect + the visual evidence>\\\"}, "
+        "... OVER-PLANT as many CANDIDATE defects as the scene naturally supports — "
+        "the number is NOT fixed: a simple scene may carry 3 to 4, a rich/busy "
+        "scene 6 to 10+ ...], \\\"answer_key\\\": {\\\"ideal_labels\\\": {\\\"1\\\": "
+        "\\\"<canonical one-sentence note>\\\", ...}, \\\"decoys\\\": [\\\"<a "
+        "harmless real object the prompt did not forbid, that must NOT be "
+        "marked>\\\"], \\\"scoring_guide\\\": \\\"coverage + precision, a wrong mark "
+        "costs more than a miss\\\"}}. DEFECT TAXONOMY — plant strong, specific "
+        "tells drawn from these kinds: anatomy (extra/fused/missing fingers, an "
+        "extra limb, a joint bent at an impossible angle); fusion (one object "
+        "merges into another with no clean boundary); text (garbled text ON the "
+        "scene's own surface — sign, label, paper, screen — malformed merged "
+        "letters forming no real word, OR one corrupted letter in an otherwise "
+        "legible word; NOT a pasted card); continuity (a reflection that omits the "
+        "subject or contradicts the scene, a duplicated object, a shadow cast the "
+        "wrong way, a count that does not match); physical-purchase (an object "
+        "floating with no support or contact shadow, a clip resting on top of hair "
+        "instead of gripping it); smoothing (a waxy over-smoothed patch with no "
+        "texture despite hard light). OVER-PLANT AND BIAS BY RELIABILITY: the edit "
+        "does not always take, and the platform ships ONLY the defects it can "
+        "verify are visibly present (the rest are dropped, survivors renumbered "
+        "1..N) — so plant a generous, scene-appropriate number and lean on the "
+        "kinds that render reliably. RELIABLE, use freely: text, continuity, "
+        "fusion, fused-finger anatomy. HARD, at most ONE per question: added-"
+        "geometry anatomy (a sixth finger, an extra limb), physical-purchase, "
+        "smoothing — the model often refuses these, so pair any hard defect with 3+ "
+        "reliable ones. Every defect sits on a DISTINCT anchor so nothing overlaps. "
+        "Name at least one decoy in answer_key that must NOT be marked so precision "
+        "is measurable. PIL FALLBACK — use ONLY for a genuine duplicate/clone "
+        "artifact, where copying pixels beats an edit: {\\\"marker\\\": N, "
+        '"kind": "continuity", "method": "pil", "op": "float_copy", "spec": '
+        "{\\\"src_box\\\":[x0,y0,x1,y1],\\\"dst_x\\\":X,\\\"dst_y\\\":Y,"
+        "\\\"scale\\\":1.0}, \\\"marker_xy\\\":[X,Y], \\\"flaw\\\":\\\"...\\\"} in "
+        "the 1280x720 pixel space. "
+        "In ALL forms the image \\\"prompt\\\"/base_prompt is REQUIRED and the "
         "stimulus must SHOW the evidence, never a caption that states the answer."
     )
 
@@ -1519,14 +1685,27 @@ def _image_label_draft_fields(specs):
     if base_prompt and isinstance(raw_defects, list) and raw_defects:
         clean_defects = []
         for d in raw_defects:
-            if not isinstance(d, dict) or not d.get("op"):
+            if not isinstance(d, dict):
+                continue
+            # drop-2 shape: an EDIT defect (method=edit + edit_instruction + anchor)
+            # OR a PIL clone defect (method=pil / an op in _DEFECT_OPS). Keep every
+            # field the renderer reads for both lanes; a bare flaw+anchor still
+            # counts as an edit defect (method defaults to edit downstream).
+            has_edit = bool(str(d.get("edit_instruction") or "").strip())
+            has_op = d.get("op") in _DEFECT_OPS
+            if not (has_edit or has_op):
                 continue
             clean_defects.append({
                 "marker": d.get("marker"),
                 "kind": d.get("kind"),
+                "method": d.get("method") or ("pil" if has_op and not has_edit
+                                              else "edit"),
+                "edit_instruction": str(d.get("edit_instruction") or "").strip(),
+                "anchor": str(d.get("anchor") or "").strip(),
                 "op": d.get("op"),
                 "spec": d.get("spec") or {},
                 "marker_xy": d.get("marker_xy"),
+                "region": d.get("region"),
                 "flaw": str(d.get("flaw") or "").strip(),
             })
         if clean_defects:
@@ -1954,14 +2133,18 @@ def _validate_question_item(it, qtype, ab_dims=None):
     elif qtype == "image_label":
         specs = it.get("image_specs") or {}
         # DEFECT form (q7r) — true by construction: a base_prompt + a non-empty
-        # defects[] plan with valid ops is a complete, self-contained image_label
-        # item (the platform renders the clean base then plants each defect). This
-        # is the FAITHFUL single-image defect-annotation lane and needs neither a
+        # defects[] plan is a complete, self-contained image_label item (the
+        # platform renders the clean base, bakes the defects via one image-edit,
+        # then vision-grounds each marker). A defect is valid if it is an EDIT
+        # defect (edit_instruction, drop-2 primary lane) OR a PIL clone op. This is
+        # the FAITHFUL single-image defect-annotation lane and needs neither a
         # source_url nor an images[] brief.
         base_prompt = str(specs.get("base_prompt") or "").strip()
         raw_defects = specs.get("defects")
         has_defects = (base_prompt and isinstance(raw_defects, list)
-                       and any(isinstance(d, dict) and d.get("op") in _DEFECT_OPS
+                       and any(isinstance(d, dict)
+                               and (str(d.get("edit_instruction") or "").strip()
+                                    or d.get("op") in _DEFECT_OPS)
                                for d in raw_defects))
         if has_defects:
             pass  # valid defect-annotation item
@@ -2647,7 +2830,10 @@ def _critique_revise(env, model, base_parts, items, usage_ctx=None):
             env, None, user_text="", user_parts=parts, model=model,
             max_tokens=_MAX_OUTPUT_TOKENS_CEILING, temperature=0.2,
             response_json=True, usage_ctx=usage_ctx)
-    except (ValueError, LLMRefusalError) as exc:
+    except (ValueError, LLMRefusalError, RuntimeError) as exc:
+        # A self-heal/critique failure (including a Vertex 4xx RuntimeError) must
+        # NEVER poison the surrounding generation transaction — degrade to "no
+        # issues" and let generation ship the un-revised bank.
         _logger.warning("etp_assessment critique pass failed: %s", exc)
         return []
     corr = _extract_solutions(raw)

@@ -221,7 +221,7 @@ class EtpCandidatePortal(http.Controller):
 class EtpPortalHome(CustomerPortal):
 
     def _candidate_applicant(self):
-        # Security: internal users (share=False) intentionally included —
+        # Security: internal users (share=False) intentionally included  - 
         # matched by login==email so an employee-candidate's assessments show.
         user = request.env.user
         Applicant = request.env["hr.applicant"].sudo()
