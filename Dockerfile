@@ -95,9 +95,9 @@ RUN chmod +x odoo-bin
 
 EXPOSE 8071
 # Edit this line when adding a module.
-ENV ODOO_MODULES="erza,erza_dashboard,aurora_dashboard,milobench_dashboard"
+ENV ODOO_MODULES="api_auth_gateway"
 
 # so normal deploys don't re-run the upgrade.
-ENV ODOO_RUN_UPGRADE="false"
+ENV ODOO_RUN_UPGRADE="true"
 
 CMD ["./odoo-bin", "-c", "odoo.conf"]
