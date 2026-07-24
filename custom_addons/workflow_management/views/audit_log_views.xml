@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Audit Log List View -->
+    <record id="view_workflow_audit_log_tree" model="ir.ui.view">
+        <field name="name">workflow.audit.log.tree</field>
+        <field name="model">workflow.audit.log</field>
+        <field name="arch" type="xml">
+            <list string="Audit Logs" create="0" edit="0" delete="0">
+                <field name="create_date" string="Timestamp"/>
+                <field name="event"/>
+                <field name="category" widget="badge"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'success'"
+                       decoration-danger="status == 'failure'"/>
+                <field name="user_name"/>
+                <field name="summary"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Audit Log Form View (read-only) -->
+    <record id="view_workflow_audit_log_form" model="ir.ui.view">
+        <field name="name">workflow.audit.log.form</field>
+        <field name="model">workflow.audit.log</field>
+        <field name="arch" type="xml">
+            <form string="Audit Log" create="0" edit="0" delete="0">
+                <sheet>
+                    <group>
+                        <group string="Event">
+                            <field name="event"/>
+                            <field name="category"/>
+                            <field name="status"/>
+                            <field name="create_date" string="Timestamp"/>
+                        </group>
+                        <group string="User">
+                            <field name="user_id"/>
+                            <field name="user_name"/>
+                        </group>
+                    </group>
+                    <group string="Details">
+                        <field name="details_json" widget="text" nolabel="1" colspan="2"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Audit Log Search View -->
+    <record id="view_workflow_audit_log_search" model="ir.ui.view">
+        <field name="name">workflow.audit.log.search</field>
+        <field name="model">workflow.audit.log</field>
+        <field name="arch" type="xml">
+            <search string="Search Audit Logs">
+                <field name="event"/>
+                <field name="user_name"/>
+                <separator/>
+                <filter string="Seat Management" name="seat" domain="[('category', '=', 'seat_management')]"/>
+                <filter string="Transfers" name="transfer" domain="[('category', '=', 'seat_transfer')]"/>
+                <filter string="Room Bookings" name="booking" domain="[('category', '=', 'room_booking')]"/>
+                <filter string="Employees" name="employee" domain="[('category', '=', 'employee_management')]"/>
+                <filter string="Attendance" name="attendance" domain="[('category', '=', 'attendance')]"/>
+                <separator/>
+                <filter string="Failures" name="failures" domain="[('status', '=', 'failure')]"/>
+                <separator/>
+                <group>
+                    <filter string="Category" name="group_category" context="{'group_by': 'category'}"/>
+                    <filter string="User" name="group_user" context="{'group_by': 'user_id'}"/>
+                    <filter string="Event" name="group_event" context="{'group_by': 'event'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Audit Log Action -->
+    <record id="action_workflow_audit_log" model="ir.actions.act_window">
+        <field name="name">Audit Logs</field>
+        <field name="res_model">workflow.audit.log</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

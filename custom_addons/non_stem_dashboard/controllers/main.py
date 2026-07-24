@@ -1,3 +1,5 @@
+import re
+
 from werkzeug.exceptions import Forbidden
 
 from odoo import http
@@ -5,6 +7,15 @@ from odoo.http import request
 
 
 class NonStemDashboardController(http.Controller):
+
+    @staticmethod
+    def _make_public_nav(html, dashboard_type):
+        """Rewrite nav tab hrefs from per-run URLs to public URLs."""
+        return re.sub(
+            r'href="/non_stem_dashboard/' + dashboard_type + r'/\d+/([^"]+)"',
+            rf'href="/non_stem_dashboard/public/{dashboard_type}/\1"',
+            html,
+        )
 
     @http.route([
         "/non_stem_dashboard/tasker/<int:run_id>",
@@ -117,6 +128,7 @@ class NonStemDashboardController(http.Controller):
             html = run.tasker_dashboard_html
         if not html:
             return request.not_found()
+        html = self._make_public_nav(html, "tasker")
         return http.Response(html, content_type="text/html", status=200)
 
     @http.route([
@@ -136,6 +148,7 @@ class NonStemDashboardController(http.Controller):
             html = run.management_dashboard_html
         if not html:
             return request.not_found()
+        html = self._make_public_nav(html, "management")
         return http.Response(html, content_type="text/html", status=200)
 
     @http.route(

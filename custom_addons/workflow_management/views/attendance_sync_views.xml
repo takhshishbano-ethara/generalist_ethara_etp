@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Attendance Sync List View -->
+    <record id="view_workflow_attendance_sync_tree" model="ir.ui.view">
+        <field name="name">workflow.attendance.sync.tree</field>
+        <field name="model">workflow.attendance.sync</field>
+        <field name="arch" type="xml">
+            <list string="Attendance Sync Configs">
+                <field name="name"/>
+                <field name="essl_host"/>
+                <field name="essl_database"/>
+                <field name="last_sync"/>
+                <field name="records_synced"/>
+                <field name="sync_status" widget="badge"
+                       decoration-success="sync_status == 'success'"
+                       decoration-warning="sync_status == 'running'"
+                       decoration-danger="sync_status == 'error'"
+                       decoration-info="sync_status == 'idle'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Attendance Sync Form View -->
+    <record id="view_workflow_attendance_sync_form" model="ir.ui.view">
+        <field name="name">workflow.attendance.sync.form</field>
+        <field name="model">workflow.attendance.sync</field>
+        <field name="arch" type="xml">
+            <form string="Attendance Sync">
+                <header>
+                    <button name="action_test_connection"
+                            type="object"
+                            string="Test Connection"
+                            class="btn-secondary"
+                            icon="fa-plug"/>
+                    <button name="action_sync_now"
+                            type="object"
+                            string="Sync Now"
+                            class="btn-primary"
+                            icon="fa-refresh"
+                            confirm="Start attendance sync from ESSL?"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Connection Settings">
+                            <field name="name"/>
+                            <field name="essl_host" placeholder="192.168.1.100"/>
+                            <field name="essl_port"/>
+                            <field name="essl_user"/>
+                            <field name="essl_password" password="True"/>
+                            <field name="essl_database"/>
+                        </group>
+                        <group string="Sync Status">
+                            <field name="sync_status"/>
+                            <field name="last_sync"/>
+                            <field name="records_synced"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <group string="Error Log" invisible="not error_log">
+                        <field name="error_log" nolabel="1" colspan="2" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Attendance Sync Action -->
+    <record id="action_workflow_attendance_sync" model="ir.actions.act_window">
+        <field name="name">Attendance Sync</field>
+        <field name="res_model">workflow.attendance.sync</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>
