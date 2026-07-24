@@ -42,8 +42,7 @@ class EmployeeController(http.Controller):
             else:
                 mail_values = {
                     'subject': 'Welcome to Ethara - Your Login Credentials',
-                    'email_from': request.env['ir.config_parameter'].sudo().get_param(
-                        'mail.catchall.email', 'noreply@ethara.ai'),
+                    'email_from': request.env['res.company'].sudo()._get_notification_from_email(),
                     'email_to': user.email,
                     'body_html': '''
                         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">

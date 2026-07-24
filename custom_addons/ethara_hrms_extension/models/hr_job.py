@@ -181,10 +181,7 @@ class HrJob(models.Model):
         if not recipients:
             _logger.info('JD %s deactivated: no recipients to notify.', self.id)
             return 0
-        email_from = self.env['ir.config_parameter'].sudo().get_param(
-            'mail.catchall.email') or (
-            self.company_id.email if self.company_id else None
-        ) or 'no-reply@ethara.ai'
+        email_from = self.company_id._get_notification_from_email()
         body = self._render_deactivation_email(reason, actor)
         Mail = self.env['mail.mail'].sudo()
         sent = 0
@@ -311,10 +308,7 @@ class HrJob(models.Model):
         if approvers is None:
             approvers = self._get_job_approver_users()
         base_url = self._approval_base_url()
-        email_from = self.env['ir.config_parameter'].sudo().get_param(
-            'mail.catchall.email') or (
-            self.company_id.email if self.company_id else None
-        ) or 'no-reply@ethara.ai'
+        email_from = self.company_id._get_notification_from_email()
         Mail = self.env['mail.mail'].sudo()
         sent = 0
         for user in approvers:

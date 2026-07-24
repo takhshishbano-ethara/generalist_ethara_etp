@@ -554,8 +554,7 @@ class ApiAuthController(http.Controller):
                 'ip_address': ip_address,
                 'device_info': device_info,
             }
-            email_from = request.env['ir.config_parameter'].sudo().get_param(
-                'mail.catchall.email', 'no-reply@kuberha.ai')
+            email_from = request.env['res.company'].sudo()._get_notification_from_email()
 
             # -- Step 4: locate the template --
             template = request.env.ref(
@@ -669,8 +668,7 @@ class ApiAuthController(http.Controller):
                     mail_server.name, mail_server.smtp_host,
                     mail_server.smtp_port)
 
-            email_from = request.env['ir.config_parameter'].sudo().get_param(
-                'mail.catchall.email', 'no-reply@kuberha.ai')
+            email_from = request.env['res.company'].sudo()._get_notification_from_email()
 
             template = request.env.ref(
                 'api_auth_gateway.email_template_password_reset',

@@ -120,8 +120,7 @@ class EmployeeSelfRegistrationController(http.Controller):
         if that record is missing.
         """
         try:
-            email_from = admin_env['ir.config_parameter'].sudo().get_param(
-                'mail.catchall.email') or 'noreply@ethara.ai'
+            email_from = admin_env['res.company'].sudo()._get_notification_from_email()
             template = admin_env.ref(
                 'employee_extension.email_template_registration_otp',
                 raise_if_not_found=False,

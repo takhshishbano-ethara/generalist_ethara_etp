@@ -5,7 +5,7 @@
         <record id="email_template_employee_onboarding" model="mail.template">
             <field name="name">Employee Onboarding - Welcome</field>
             <field name="model_id" ref="base.model_res_users"/>
-            <field name="email_from">{{ (object.company_id.email or 'noreply@ethara.ai') }}</field>
+            <field name="email_from">{{ object.company_id._get_notification_from_email() }}</field>
             <field name="email_to">{{ object.email }}</field>
             <field name="subject">Welcome to Ethara - Your Login Credentials</field>
             <field name="body_html" type="html">
