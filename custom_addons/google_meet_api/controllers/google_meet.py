@@ -304,36 +304,53 @@ def _queue_invitation_emails(attendees, extra_attachment_ids=None):
     template = request.env.ref(
         "google_meet_api.mail_template_pi_invitation",
         raise_if_not_found=False,
-    ) or request.env.ref(
-        "calendar.calendar_template_meeting_invitation",
-        raise_if_not_found=False,
     )
     if not template:
         return
-    ta_partner = request.env.user.partner_id
-    non_ta = attendees.filtered(lambda a: a.partner_id.id != ta_partner.id)
-    if not non_ta:
+    for event in attendees.mapped("event_id"):
+        _build_and_queue_pi_mail(event, template, extra_attachment_ids)
+
+
+def _build_and_queue_pi_mail(event, template, extra_attachment_ids=None):
+    cand = event.candidate_id
+    to_email = (cand.partner_id.email if cand and cand.partner_id else None) \
+        or (cand.email_from if cand else None)
+    if not to_email:
         return
-    event_ids = non_ta.mapped("event_id").ids
-    non_ta.with_user(SUPERUSER_ID).with_context(
-        no_mail_to_attendees=False,
-    )._notify_attendees(template, force_send=False)
-    if event_ids:
-        new_mails = request.env["mail.mail"].sudo().search([
-            ("state", "=", "outgoing"),
-            ("mail_message_id.res_id", "in", event_ids),
-            ("mail_message_id.model", "=", "calendar.event"),
-        ], order="id")
-        if new_mails:
-            write_vals = {"auto_delete": False}
-            from_email = _get_configured_from_email()
-            if from_email:
-                write_vals["email_from"] = from_email
-            if extra_attachment_ids:
-                write_vals["attachment_ids"] = [(4, aid) for aid in extra_attachment_ids]
-            new_mails.write(write_vals)
-            if ta_partner.email:
-                new_mails[0].email_cc = ta_partner.email
+    cc = []
+    for p in event.partner_ids:
+        if p.email and p.email.lower() != to_email.lower() and p.email not in cc:
+            cc.append(p.email)
+    ta_email = request.env.user.partner_id.email
+    if ta_email and ta_email.lower() != to_email.lower() and ta_email not in cc:
+        cc.append(ta_email)
+
+    tmpl = template.sudo()
+    body = tmpl._render_field("body_html", event.ids, compute_lang=True)[event.id]
+    subject = tmpl._render_field("subject", event.ids, compute_lang=True)[event.id]
+
+    attach_ids = list(extra_attachment_ids or [])
+    ics_map = event.sudo()._get_ics_file() or {}
+    ics = ics_map.get(event.id)
+    if ics:
+        ics_att = request.env["ir.attachment"].sudo().create({
+            "name": "invitation.ics",
+            "datas": base64.b64encode(ics),
+            "mimetype": "text/calendar; method=REQUEST",
+            "res_model": "mail.compose.message",
+            "res_id": 0,
+        })
+        attach_ids.append(ics_att.id)
+
+    request.env["mail.mail"].sudo().create({
+        "subject": subject,
+        "body_html": body,
+        "email_from": _get_configured_from_email() or False,
+        "email_to": to_email,
+        "email_cc": ",".join(cc) if cc else False,
+        "auto_delete": False,
+        "attachment_ids": [(6, 0, attach_ids)],
+    })
 
 
 def _cancel_event_and_notify(event, reason, comment=None, notify=True):
@@ -492,6 +509,10 @@ def _event_dict(rec):
             and rec.interview_status in ("upcoming", "in_progress")):
         rec.invalidate_recordset(["interview_status"])
         rec._compute_interview_status()
+    if (rec.candidate_id and rec.is_google_meet
+            and rec.google_event_id and rec.stop
+            and rec.stop < datetime.utcnow()):
+        rec._expire_past_meet_links(rec.candidate_id)
     return {
         "id": rec.id,
         "name": rec.name,
@@ -517,6 +538,9 @@ def _event_dict(rec):
         "meet_link_note": (
             "This meeting link has expired — interview process is closed."
             if rec.candidate_id and rec.candidate_id.status in ("pi_selected", "pi_rejected")
+            and not rec.google_meet_url
+            else "Interview slot ended — meeting link has expired."
+            if rec.is_google_meet and rec.stop and rec.stop < datetime.utcnow()
             and not rec.google_meet_url
             else None
         ),
@@ -962,7 +986,7 @@ class GoogleMeetApi(http.Controller):
                 (app, a) for (app, a) in pairs
                 if search_q in (app.partner_name or "").lower()
                 or search_q in (app.email_from or "").lower()
-                or search_q in (app.name or "").lower()
+                or search_q in (app.candidate_code or "").lower()
             ]
 
         total = len(pairs)

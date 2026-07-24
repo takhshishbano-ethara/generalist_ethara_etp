@@ -4,8 +4,8 @@
 
         <record id="mail_template_pi_invitation" model="mail.template">
             <field name="name">PI: Interview Invitation</field>
-            <field name="model_id" ref="calendar.model_calendar_attendee"/>
-            <field name="subject">{{ ('Interview Rescheduled - ' if object.event_id.rescheduled_count else 'Interview Invitation - ') + (object.event_id.candidate_id.job_id.name or object.event_id.name or 'Ethara.AI') }}</field>
+            <field name="model_id" ref="calendar.model_calendar_event"/>
+            <field name="subject">{{ ('Interview Rescheduled - ' if object.rescheduled_count else 'Interview Invitation - ') + (object.candidate_id.job_id.name or object.name or 'Ethara.AI') }}</field>
             <field name="use_default_to" eval="False"/>
             <field name="auto_delete" eval="False"/>
             <field name="lang">{{ user.lang }}</field>
@@ -20,44 +20,44 @@
                             </td></tr>
                             <tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e5ec;"></div></td></tr>
                             <tr><td style="padding:24px 32px 8px 32px;color:#33343f;font-size:15px;line-height:1.6;">
-                                <p style="margin:0 0 16px 0;">Hi <strong><t t-out="object.partner_id.name or 'there'"/></strong>,</p>
-                                <t t-if="object.event_id.rescheduled_count">
+                                <p style="margin:0 0 16px 0;">Hi <strong><t t-out="object.candidate_id.partner_name or object.candidate_id.name or 'there'"/></strong>,</p>
+                                <t t-if="object.rescheduled_count">
                                     <p style="margin:0 0 20px 0;">Your interview has been <strong>rescheduled</strong>. Please note the new time below.</p>
                                 </t>
                                 <t t-else="">
-                                    <p style="margin:0 0 20px 0;">You have been invited to an interview<t t-if="object.event_id.candidate_id.job_id"> for the position of <strong><t t-out="object.event_id.candidate_id.job_id.name"/></strong></t>. Details are below.</p>
+                                    <p style="margin:0 0 20px 0;">You have been invited to an interview<t t-if="object.candidate_id.job_id"> for the position of <strong><t t-out="object.candidate_id.job_id.name"/></strong></t>. Details are below.</p>
                                 </t>
                                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0;">
-                                    <tr t-if="object.event_id.interview_round">
+                                    <tr t-if="object.interview_round">
                                         <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Round</td>
-                                        <td style="padding:4px 0;color:#4b4c57;">Round <t t-out="object.event_id.interview_round"/></td>
+                                        <td style="padding:4px 0;color:#4b4c57;">Round <t t-out="object.interview_round"/></td>
                                     </tr>
                                     <tr>
                                         <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Date &amp; Time</td>
                                         <td style="padding:4px 0;color:#4b4c57;">
-                                            <t t-out="format_datetime(dt=object.event_id.start, tz=object.mail_tz, dt_format='EEEE, d MMMM y', lang_code=object.env.lang) or ''"/>
+                                            <t t-out="format_datetime(dt=object.start, tz='Asia/Calcutta', dt_format='EEEE, d MMMM y', lang_code=object.env.lang) or ''"/>
                                             &#183;
-                                            <t t-out="format_time(time=object.event_id.start, tz=object.mail_tz, time_format='short', lang_code=object.env.lang) or ''"/>
-                                            <t t-if="object.mail_tz"> (<t t-out="object.mail_tz"/>)</t>
+                                            <t t-out="format_time(time=object.start, tz='Asia/Calcutta', time_format='short', lang_code=object.env.lang) or ''"/>
+                                            (IST)
                                         </td>
                                     </tr>
-                                    <tr t-if="object.event_id.duration">
+                                    <tr t-if="object.duration">
                                         <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Duration</td>
-                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="'%dH%02d' % (object.event_id.duration, round(object.event_id.duration*60)%60)"/></td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="'%dH%02d' % (object.duration, round(object.duration*60)%60)"/></td>
                                     </tr>
-                                    <tr t-if="object.event_id.location">
+                                    <tr t-if="object.location">
                                         <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Location</td>
-                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.event_id.location"/></td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.location"/></td>
                                     </tr>
-                                    <tr t-if="object.event_id.user_id">
+                                    <tr t-if="object.user_id">
                                         <td style="padding:4px 24px 4px 0;font-weight:bold;color:#33343f;vertical-align:top;">Organizer</td>
-                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.event_id.user_id.name"/></td>
+                                        <td style="padding:4px 0;color:#4b4c57;"><t t-out="object.user_id.name"/></td>
                                     </tr>
                                 </table>
                             </td></tr>
-                            <tr t-if="object.event_id.google_meet_url">
+                            <tr t-if="object.google_meet_url">
                                 <td style="padding:18px 32px 8px 32px;">
-                                    <a t-att-href="object.event_id.google_meet_url"
+                                    <a t-att-href="object.google_meet_url"
                                        style="display:inline-block;background-color:#e6007e;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 24px;border-radius:8px;">Join Google Meet</a>
                                 </td>
                             </tr>

@@ -40,7 +40,10 @@ def _iso(dt):
 def _current_stage(applicant):
     if applicant.pipeline_status == "rejected" or applicant.refuse_reason_id:
         return "rejected"
-    return applicant.pipeline_status or "applied"
+    effective = _derive_effective_status(applicant)
+    if effective in REJECTED_HIRING_STATUSES:
+        return "rejected"
+    return STATUS_TO_PIPELINE_BUCKET.get(effective) or applicant.pipeline_status or "applied"
 
 
 def _current_status(applicant):

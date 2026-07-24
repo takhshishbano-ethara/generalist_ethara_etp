@@ -173,27 +173,26 @@ class EtharaEmployeeDashboardController(http.Controller):
             ])
             uploaded_doc_types = set(documents.mapped('document_type'))
 
-            leave_types = request.env['greythr.leave.type'].sudo().search([])
-
-            existing_balances = request.env['greythr.leave.balance'].sudo().search(
-                [
-                    ('employee_id', '=', emp.id),
-                    ('leave_type_id', 'in', leave_types.ids),
-                ],
-                order='year desc, id desc',
-            )
-            balance_by_type = {}
-            for bal in existing_balances:
-                type_id = bal.leave_type_id.id if bal.leave_type_id else None
-                if type_id and type_id not in balance_by_type:
-                    balance_by_type[type_id] = bal
-
             leave_balance_records = {}
-            for lt in leave_types:
-                bal = balance_by_type.get(lt.id)
-                leave_balance_records[lt.name] = (
-                    safe_get_value(bal, 'current_balance', 'float') if bal else 0.0
+            if 'greythr.leave.type' in request.env and 'greythr.leave.balance' in request.env:
+                leave_types = request.env['greythr.leave.type'].sudo().search([])
+                existing_balances = request.env['greythr.leave.balance'].sudo().search(
+                    [
+                        ('employee_id', '=', emp.id),
+                        ('leave_type_id', 'in', leave_types.ids),
+                    ],
+                    order='year desc, id desc',
                 )
+                balance_by_type = {}
+                for bal in existing_balances:
+                    type_id = bal.leave_type_id.id if bal.leave_type_id else None
+                    if type_id and type_id not in balance_by_type:
+                        balance_by_type[type_id] = bal
+                for lt in leave_types:
+                    bal = balance_by_type.get(lt.id)
+                    leave_balance_records[lt.name] = (
+                        safe_get_value(bal, 'current_balance', 'float') if bal else 0.0
+                    )
 
             onboarding_completed = bool(
                 'onboarding_completed' in emp._fields and emp.onboarding_completed

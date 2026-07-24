@@ -180,6 +180,8 @@ class CalendarEvent(models.Model):
             candidate.sudo().status = new_status
         if new_status in ("pi_selected", "pi_rejected"):
             self._expire_meet_links_for_candidate(candidate)
+        else:
+            self._expire_past_meet_links(candidate)
 
     def _delete_and_verify_google_meet(self, event):
         import requests
@@ -204,6 +206,39 @@ class CalendarEvent(models.Model):
                 f"Google Calendar delete returned "
                 f"{resp.status_code}: {resp.text[:200]}"
             )
+
+    @api.model
+    def _expire_past_meet_links(self, candidate):
+        import logging
+        _log = logging.getLogger(__name__)
+        now = fields.Datetime.now()
+        events = self.env["calendar.event"].sudo().search([
+            ("candidate_id", "=", candidate.id),
+            ("stop", "<", now),
+            ("google_event_id", "!=", False),
+        ])
+        for ev in events:
+            try:
+                self._delete_and_verify_google_meet(ev)
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "Past-event Meet delete failed for %s: %s", ev.id, exc,
+                )
+        if events:
+            events.write({
+                "google_meet_url": False,
+                "google_meet_code": False,
+                "google_event_id": False,
+                "videocall_location": False,
+                "need_sync": False,
+            })
+            for ev in events:
+                ev.message_post(
+                    body=_(
+                        "Interview slot ended. Meeting link has expired."
+                    ),
+                    subtype_xmlid="mail.mt_note",
+                )
 
     @api.model
     def _expire_meet_links_for_candidate(self, candidate):
