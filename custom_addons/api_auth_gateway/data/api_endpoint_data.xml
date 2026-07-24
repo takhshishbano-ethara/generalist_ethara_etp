@@ -28,7 +28,7 @@
         <record id="endpoint_api_docs" model="api.endpoint">
             <field name="url_pattern">/api/docs</field>
         </record>
-        <record id="endpoint_api_docs_openapi.yaml" model="api.endpoint">
+        <record id="endpoint_api_docs_openapi_yaml" model="api.endpoint">
             <field name="url_pattern">/api/docs/openapi.yaml</field>
         </record>
         <record id="endpoint_api_get_jsonl_data" model="api.endpoint">
