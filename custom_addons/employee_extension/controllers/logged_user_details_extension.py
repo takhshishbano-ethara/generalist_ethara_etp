@@ -45,9 +45,7 @@ class LoggedUserDetailsCandidateExtension(ApiAuthController):
             if not candidate_role or not user.user_role or user.user_role.id != candidate_role.id:
                 return response
 
-            applicant = request.env["hr.applicant"].sudo().with_context(
-                active_test=False,
-            ).search(
+            applicant = request.env["hr.applicant"].sudo().search(
                 [("candidate_user_id", "=", user.id)], limit=1,
             )
             if not applicant:

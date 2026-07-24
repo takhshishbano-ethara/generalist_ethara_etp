@@ -511,9 +511,7 @@ def _send_selection_form_email(applicant):
     form_link = '%s/selection-form/%s' % (
         base_url.rstrip('/'), applicant.candidate_code or applicant.id,
     )
-    email_from = ICP.get_param(
-        'mail.catchall.email', 'no-reply@kuberha.ai',
-    )
+    email_from = request.env['res.company'].sudo()._get_notification_from_email()
     subject = 'Please complete your selection form – %s' % (
         applicant.job_id.name if applicant.job_id else 'Ethara',
     )

@@ -54,10 +54,15 @@ REQUIRED_ON_SUBMIT_BASE = (
     'partner_name', 'email_from', 'partner_phone',
     'date_of_birth', 'experience_type', 'highest_qualification',
     'father_name', 'mother_name', 'gender', 'marital',
-    'aadhaar_number', 'pan_number', 'has_uan_number',
+    'aadhaar_number', 'pan_number',
     'emergency_contact_name', 'emergency_contact_phone',
     'emergency_contact_relation',
     'current_address', 'permanent_address',
+)
+
+BANK_DEPENDENT_FIELDS = (
+    'bank_name', 'bank_account_holder_name',
+    'bank_account_number', 'bank_ifsc_code',
 )
 
 REQUIRED_DOCUMENTS_BASE = (
@@ -446,6 +451,11 @@ class ApplicantSelectionFormDataController(http.Controller):
 
             if applicant.has_uan_number and not applicant.uan_number:
                 missing_fields.append('uan_number')
+
+            if applicant.has_savings_account or applicant.has_salary_account:
+                for f in BANK_DEPENDENT_FIELDS:
+                    if not applicant[f]:
+                        missing_fields.append(f)
 
             if len(applicant.reference_ids) < 2:
                 missing_fields.append('reference_ids (need 2)')

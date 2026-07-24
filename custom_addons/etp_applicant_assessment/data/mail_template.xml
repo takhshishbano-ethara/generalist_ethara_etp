@@ -9,7 +9,7 @@
             <field name="name">Applicant Assessment: Invitation</field>
             <field name="model_id" ref="model_etp_applicant_assessment"/>
             <field name="subject">Assessment Invitation - {{ object.job_id.name }}</field>
-            <field name="email_from">{{ (object.company_id.email or user.email or '') }}</field>
+            <field name="email_from">{{ object.company_id._get_notification_from_email() }}</field>
             <field name="email_to">{{ object.applicant_id.email_from }}</field>
             <!-- Must stay off: with it on, Odoo ignores email_to above and asks the
                  model for default recipients, which this model does not provide. -->
@@ -112,7 +112,7 @@
             <field name="name">Applicant Assessment: Result</field>
             <field name="model_id" ref="model_etp_applicant_assessment"/>
             <field name="subject">{{ 'Congratulations! Assessment Cleared' if object.result == 'pass' else 'Your Assessment Result' }} - {{ object.job_id.name }}</field>
-            <field name="email_from">{{ (object.company_id.email or 'no-reply@ethara.ai') }}</field>
+            <field name="email_from">{{ object.company_id._get_notification_from_email() }}</field>
             <field name="email_to">{{ object.applicant_id.email_from }}</field>
             <!-- Must stay off: with it on, Odoo ignores email_to above and asks the
                  model for default recipients, which this model does not provide. -->
