@@ -1,0 +1,400 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================= folders ================= -->
+    <record id="view_epo_folder_list" model="ir.ui.view">
+        <field name="name">epo.folder.list</field>
+        <field name="model">epo.folder</field>
+        <field name="arch" type="xml">
+            <list decoration-bf="is_system">
+                <field name="project_id"/>
+                <field name="complete_name" string="Path"/>
+                <field name="root"/>
+                <field name="slug" optional="hide"/>
+                <field name="is_system"/>
+                <field name="is_mandatory"/>
+                <field name="document_count"/>
+                <field name="total_document_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_folder_form" model="ir.ui.view">
+        <field name="name">epo.folder.form</field>
+        <field name="model">epo.folder</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="alert alert-info" role="alert" invisible="not is_system">
+                        Part of the skeleton every project gets — it cannot be renamed,
+                        moved or deleted. Add folders and files inside it.
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="is_system"/></h1>
+                        <h4 class="text-muted">
+                            <field name="complete_name" readonly="1"/>
+                        </h4>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="project_id" readonly="1"/>
+                            <field name="parent_id" readonly="is_system"/>
+                            <field name="root" readonly="1"/>
+                            <field name="slug" readonly="1" invisible="not slug"/>
+                        </group>
+                        <group>
+                            <field name="is_system" readonly="1"/>
+                            <field name="is_mandatory" readonly="is_system"/>
+                            <field name="document_count" readonly="1"/>
+                            <field name="total_document_count" readonly="1"/>
+                            <field name="s3_prefix" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="description"
+                           placeholder="What belongs in this folder?"/>
+                    <notebook>
+                        <page string="Documents" name="documents">
+                            <field name="document_ids"
+                                   context="{'default_folder_id': id}">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="doc_type"/>
+                                    <field name="url" widget="url"/>
+                                    <field name="file_data" filename="file_name"
+                                           string="Upload"/>
+                                    <field name="file_name" column_invisible="True"/>
+                                    <field name="storage" readonly="1"/>
+                                    <field name="file_size" readonly="1"/>
+                                    <field name="is_mandatory"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Subfolders" name="children">
+                            <field name="child_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="document_count"/>
+                                    <field name="total_document_count"/>
+                                    <field name="is_system"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_folder_search" model="ir.ui.view">
+        <field name="name">epo.folder.search</field>
+        <field name="model">epo.folder</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="project_id"/>
+                <filter name="knowledge" string="Knowledge"
+                        domain="[('root', '=', 'knowledge')]"/>
+                <filter name="management" string="Management"
+                        domain="[('root', '=', 'management')]"/>
+                <filter name="empty" string="Empty"
+                        domain="[('document_ids', '=', False)]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_root" string="Side"
+                            context="{'group_by': 'root'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_folder" model="ir.actions.act_window">
+        <field name="name">Folders</field>
+        <field name="res_model">epo.folder</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_group_project': 1}</field>
+    </record>
+
+    <!-- ================= documents ================= -->
+    <record id="view_epo_document_list" model="ir.ui.view">
+        <field name="name">epo.document.list</field>
+        <field name="model">epo.document</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="project_id"/>
+                <field name="folder_id"/>
+                <field name="name"/>
+                <field name="doc_type"/>
+                <field name="storage"/>
+                <field name="file_size"/>
+                <field name="is_mandatory"/>
+                <field name="uploaded_by_id" optional="show"/>
+                <field name="create_date" string="Uploaded"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_document_form" model="ir.ui.view">
+        <field name="name">epo.document.form</field>
+        <field name="model">epo.document</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Document name"/></h1>
+                        <h4 class="text-muted"><field name="folder_id" readonly="1"/></h4>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="folder_id"/>
+                            <field name="project_id" readonly="1"/>
+                            <field name="doc_type"/>
+                            <field name="is_mandatory"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="url" widget="url"
+                                   invisible="doc_type != 'link'"
+                                   required="doc_type == 'link'"
+                                   placeholder="https://…"/>
+                            <field name="file_data" filename="file_name" string="Upload"
+                                   invisible="doc_type != 'file'"/>
+                            <field name="file_name" invisible="1"/>
+                            <field name="storage" readonly="1"
+                                   invisible="doc_type != 'file'"/>
+                            <field name="file_size" readonly="1"
+                                   invisible="doc_type != 'file'"/>
+                            <field name="mime_type" readonly="1"
+                                   invisible="doc_type != 'file'"/>
+                            <field name="uploaded_by_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Storage" invisible="storage != 's3'">
+                        <field name="s3_bucket" readonly="1"/>
+                        <field name="s3_key" readonly="1"/>
+                        <field name="checksum" readonly="1"/>
+                    </group>
+                    <field name="description"
+                           placeholder="What is in this document?"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_document_search" model="ir.ui.view">
+        <field name="name">epo.document.search</field>
+        <field name="model">epo.document</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="folder_id"/>
+                <filter name="knowledge" string="Knowledge"
+                        domain="[('root', '=', 'knowledge')]"/>
+                <filter name="management" string="Management"
+                        domain="[('root', '=', 'management')]"/>
+                <filter name="sop" string="SOP" domain="[('category', '=', 'sop')]"/>
+                <filter name="on_s3" string="Stored in S3"
+                        domain="[('storage', '=', 's3')]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_folder" string="Folder"
+                            context="{'group_by': 'folder_id'}"/>
+                    <filter name="group_root" string="Side"
+                            context="{'group_by': 'root'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_document" model="ir.actions.act_window">
+        <field name="name">Documents</field>
+        <field name="res_model">epo.document</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_group_folder': 1}</field>
+    </record>
+
+    <!-- ================= training ================= -->
+    <record id="view_epo_training_list" model="ir.ui.view">
+        <field name="name">epo.training.list</field>
+        <field name="model">epo.training</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="project_id"/>
+                <field name="name"/>
+                <field name="mode"/>
+                <field name="scheduled_at"/>
+                <field name="trainer_id"/>
+                <field name="is_mandatory"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_training_form" model="ir.ui.view">
+        <field name="name">epo.training.form</field>
+        <field name="model">epo.training</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="project_id"/>
+                            <field name="name"/>
+                            <field name="mode"/>
+                            <field name="is_mandatory"/>
+                        </group>
+                        <group>
+                            <field name="scheduled_at" required="mode == 'online'"/>
+                            <field name="duration_mins"/>
+                            <field name="url" widget="url"/>
+                            <field name="trainer_id"/>
+                        </group>
+                    </group>
+                    <field name="notes"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_training_search" model="ir.ui.view">
+        <field name="name">epo.training.search</field>
+        <field name="model">epo.training</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="trainer_id"/>
+                <filter name="mandatory" string="Gates onboarding"
+                        domain="[('is_mandatory', '=', True)]"/>
+                <filter name="live" string="Live sessions"
+                        domain="[('mode', '=', 'online')]"/>
+                <filter name="upcoming" string="Upcoming"
+                        domain="[('scheduled_at', '&gt;=',
+                                  context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="inactive" string="Archived"
+                        domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_mode" string="Mode"
+                            context="{'group_by': 'mode'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_training" model="ir.actions.act_window">
+        <field name="name">Training</field>
+        <field name="res_model">epo.training</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_epo_training_search"/>
+        <field name="context">{'search_default_group_project': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No training set up yet</p>
+            <p>Only <b>mandatory</b> sessions gate onboarding; the rest are reference.
+               A project with no mandatory training passes that step automatically —
+               the gate never blocks on a stage nobody set up.</p>
+        </field>
+    </record>
+
+
+
+
+    <!-- Named to match its menu entry: what is stored here is the link to a paper,
+         never the paper itself. -->
+
+
+
+
+    <!-- ================= assessment (external link, v2 §4.6.2) ================= -->
+    <record id="view_ethara_assessment_list" model="ir.ui.view">
+        <field name="name">ethara.assessment.list</field>
+        <field name="model">ethara.assessment</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="not active">
+                <field name="sequence" widget="handle"/>
+                <field name="project_id"/>
+                <field name="title"/>
+                <field name="provider"/>
+                <field name="url" widget="url"/>
+                <field name="pass_score" string="Pass mark (info)"/>
+                <field name="is_mandatory"/>
+                <field name="active" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_assessment_form" model="ir.ui.view">
+        <field name="name">ethara.assessment.form</field>
+        <field name="model">ethara.assessment</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="alert alert-info" role="alert">
+                        The paper is authored and sat in an external application. Odoo
+                        stores the link and nothing else — no questions, no attempts, no
+                        scoring. A PM or Pod Lead reads the result there and verifies it
+                        on the tasker's <b>Onboarding</b> record, which records who did
+                        it and when.
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="title" placeholder="External Assessment"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="project_id" options="{'no_create': True}"/>
+                            <field name="provider" placeholder="Google Form · TestGorilla · internal"/>
+                            <field name="url" widget="url" placeholder="https://…"/>
+                        </group>
+                        <group>
+                            <field name="pass_score"/>
+                            <field name="is_mandatory"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <field name="notes" placeholder="How to reach it, what to bring."/>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_assessment_search" model="ir.ui.view">
+        <field name="name">ethara.assessment.search</field>
+        <field name="model">ethara.assessment</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="title"/>
+                <field name="project_id"/>
+                <field name="provider"/>
+                <filter name="mandatory" string="Gates onboarding"
+                        domain="[('is_mandatory', '=', True)]"/>
+                <filter name="inactive" string="Archived" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_provider" string="Provider"
+                            context="{'group_by': 'provider'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_assessment" model="ir.actions.act_window">
+        <field name="name">Assessments</field>
+        <field name="res_model">ethara.assessment</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_assessment_search"/>
+        <field name="context">{'search_default_group_project': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No assessment linked yet</p>
+            <p>Point the project at the external application where the paper lives. Only
+               <b>mandatory</b> assessments gate onboarding — a project with none passes
+               that step automatically.</p>
+        </field>
+    </record>
+
+</odoo>

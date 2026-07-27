@@ -1,0 +1,47 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_epo_pod_member,epo.pod member,model_epo_pod,group_epo_member,1,0,0,0
+access_epo_pod_manager,epo.pod manager,model_epo_pod,group_epo_manager,1,1,1,0
+access_epo_pod_admin,epo.pod admin,model_epo_pod,group_epo_admin,1,1,1,1
+access_epo_role_member,epo.role.assignment member,model_epo_role_assignment,group_epo_member,1,0,0,0
+access_epo_role_manager,epo.role.assignment manager,model_epo_role_assignment,group_epo_manager,1,1,1,0
+access_epo_role_admin,epo.role.assignment admin,model_epo_role_assignment,group_epo_admin,1,1,1,1
+access_epo_project_member,project.project ethara member,project.model_project_project,group_epo_member,1,0,0,0
+access_epo_project_manager,project.project ethara manager,project.model_project_project,group_epo_manager,1,1,1,0
+access_epo_project_admin,project.project ethara admin,project.model_project_project,group_epo_admin,1,1,1,1
+access_epo_folder_member,epo.folder member,model_epo_folder,group_epo_member,1,0,0,0
+access_epo_folder_manager,epo.folder manager,model_epo_folder,group_epo_manager,1,1,1,1
+access_epo_document_member,epo.document member,model_epo_document,group_epo_member,1,0,0,0
+access_epo_document_manager,epo.document manager,model_epo_document,group_epo_manager,1,1,1,1
+access_epo_training_member,epo.training member,model_epo_training,group_epo_member,1,0,0,0
+access_epo_training_manager,epo.training manager,model_epo_training,group_epo_manager,1,1,1,1
+access_ethara_assessment_member,ethara.assessment member,model_ethara_assessment,group_epo_member,1,0,0,0
+access_ethara_assessment_manager,ethara.assessment manager,model_ethara_assessment,group_epo_manager,1,1,1,1
+access_epo_allocation_member,epo.allocation member,model_epo_allocation,group_epo_member,1,0,0,0
+access_epo_allocation_lead,epo.allocation lead,model_epo_allocation,group_epo_pod_lead,1,0,0,0
+access_epo_allocation_manager,epo.allocation manager,model_epo_allocation,group_epo_manager,1,1,1,0
+access_epo_allocation_admin,epo.allocation admin,model_epo_allocation,group_epo_admin,1,1,1,1
+access_epo_phase_member,epo.allocation.phase member,model_epo_allocation_phase,group_epo_member,1,0,0,0
+access_epo_phase_lead,epo.allocation.phase lead,model_epo_allocation_phase,group_epo_pod_lead,1,1,1,0
+access_epo_phase_manager,epo.allocation.phase manager,model_epo_allocation_phase,group_epo_manager,1,1,1,0
+access_epo_roster_member,epo.roster.day member,model_epo_roster_day,group_epo_member,1,0,0,0
+access_epo_roster_lead,epo.roster.day lead,model_epo_roster_day,group_epo_pod_lead,1,1,1,0
+access_epo_roster_manager,epo.roster.day manager,model_epo_roster_day,group_epo_manager,1,1,1,0
+access_epo_roster_admin,epo.roster.day admin,model_epo_roster_day,group_epo_admin,1,1,1,1
+access_epo_template_member,epo.form.template member,model_epo_form_template,group_epo_member,1,0,0,0
+access_epo_template_manager,epo.form.template manager,model_epo_form_template,group_epo_manager,1,1,1,1
+access_epo_section_member,epo.form.section member,model_epo_form_section,group_epo_member,1,0,0,0
+access_epo_section_manager,epo.form.section manager,model_epo_form_section,group_epo_manager,1,1,1,1
+access_epo_field_member,epo.form.field member,model_epo_form_field,group_epo_member,1,0,0,0
+access_epo_field_manager,epo.form.field manager,model_epo_form_field,group_epo_manager,1,1,1,1
+access_epo_entry_member,epo.form.entry member,model_epo_form_entry,group_epo_member,1,1,1,0
+access_epo_entry_manager,epo.form.entry manager,model_epo_form_entry,group_epo_manager,1,1,1,0
+access_epo_entry_admin,epo.form.entry admin,model_epo_form_entry,group_epo_admin,1,1,1,1
+access_epo_value_member,epo.form.value member,model_epo_form_value,group_epo_member,1,1,1,1
+access_epo_value_manager,epo.form.value manager,model_epo_form_value,group_epo_manager,1,1,1,1
+access_epo_onboarding_member,epo.onboarding member,model_epo_onboarding,group_epo_member,1,0,0,0
+access_epo_onboarding_lead,epo.onboarding lead,model_epo_onboarding,group_epo_pod_lead,1,1,0,0
+access_epo_onboarding_manager,epo.onboarding manager,model_epo_onboarding,group_epo_manager,1,1,1,0
+access_epo_onboarding_admin,epo.onboarding admin,model_epo_onboarding,group_epo_admin,1,1,1,1
+access_epo_timeline_member,epo.timeline.event member,model_epo_timeline_event,group_epo_member,1,0,0,0
+access_epo_timeline_manager,epo.timeline.event manager,model_epo_timeline_event,group_epo_manager,1,0,0,0
+access_epo_audit_admin,epo.audit.log admin,model_epo_audit_log,group_epo_admin,1,0,0,0

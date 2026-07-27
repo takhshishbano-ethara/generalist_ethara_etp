@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Project codes — data model v2 §4.2.
+
+             A code is the handle everyone outside this system uses: it goes on the
+             delivery report, in the Slack channel name, on the invoice line. So it is
+             generated, not typed — two PMs naming projects on the same morning must
+             not be able to collide, and nobody should have to remember what last
+             month's numbering was.
+
+             Assigned only to projects in this pipeline (§10.4, Option B): the other
+             three modules that own rows on project.project keep their own numbering,
+             and project_extension already has project_seq.
+
+             A PM may still type a code by hand when a client mandates one; it is
+             uppercased and checked for uniqueness either way. -->
+
+        <record id="seq_ethara_project_code" model="ir.sequence">
+            <field name="name">Ethara project code</field>
+            <field name="code">ethara.project.code</field>
+            <field name="prefix">EPR/%(year)s/</field>
+            <field name="padding">4</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+            <field name="implementation">standard</field>
+        </record>
+
+    </data>
+</odoo>

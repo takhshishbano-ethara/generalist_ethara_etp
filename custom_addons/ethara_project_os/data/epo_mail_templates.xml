@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Sent to a pod member the moment they are put on a project.
+
+             It exists because that is the moment they need to know something and
+             nobody has told them: the onboarding gate has just opened in front of
+             them, and until they clear it they cannot submit anything. An email that
+             only said "you have been allocated" would leave them to find that out by
+             hitting a wall, so it names the three steps and who to ask. -->
+
+        <record id="mail_template_allocated" model="mail.template">
+            <field name="name">Project OS: allocated to a project</field>
+            <field name="model_id" ref="model_epo_allocation"/>
+            <field name="email_from">{{ (user.email_formatted or user.company_id.email_formatted) }}</field>
+            <!-- use_default_to defaults to True, which makes Odoo ignore email_to
+                 and ask the record for its default recipients instead. An allocation
+                 has none — it is a link between a project and a person, not a contact
+                 record — so the mail came out addressed to nobody. Turning it off is
+                 what makes the explicit address below take effect. -->
+            <field name="use_default_to" eval="False"/>
+            <field name="email_to">{{ object.employee_id.work_email }}</field>
+            <field name="subject">You are on {{ object.project_id.name }} ({{ object.project_id.code }})</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;line-height:1.6">
+    <p>Hello <t t-out="object.employee_id.name or ''">Mira</t>,</p>
+
+    <p>
+        You have been allocated to
+        <strong><t t-out="object.project_id.name or ''">Multimango Batch 7</t></strong>
+        (<t t-out="object.project_id.code or ''">EXT-2026-0007</t>)
+        from <strong><t t-out="format_date(object.date_from) or ''">24/07/2026</t></strong>.
+    </p>
+
+    <table style="border-collapse:collapse;margin:16px 0">
+        <tr>
+            <td style="padding:4px 16px 4px 0;color:#6b7280">Your pod lead</td>
+            <td style="padding:4px 0"><strong><t t-out="object.employee_id.epo_pod_lead_id.name or 'to be assigned'">Piyush</t></strong></td>
+        </tr>
+        <tr>
+            <td style="padding:4px 16px 4px 0;color:#6b7280">Pod</td>
+            <td style="padding:4px 0"><t t-out="object.pod_id.display_name or '—'">POD-A</t></td>
+        </tr>
+        <tr>
+            <td style="padding:4px 16px 4px 0;color:#6b7280">Your role on it</td>
+            <td style="padding:4px 0"><t t-out="dict(object._fields['role_on_project'].selection).get(object.role_on_project) or ''">Pod Member</t></td>
+        </tr>
+        <tr t-if="object.allocation_pct &lt; 100">
+            <td style="padding:4px 16px 4px 0;color:#6b7280">Allocation</td>
+            <td style="padding:4px 0"><t t-out="'%.0f' % object.allocation_pct">50</t>% of your time</td>
+        </tr>
+        <tr>
+            <td style="padding:4px 16px 4px 0;color:#6b7280">Project owner (GPM)</td>
+            <td style="padding:4px 0"><t t-out="object.project_id.gpm_id.name or '—'">Gita</t></td>
+        </tr>
+    </table>
+
+    <p><strong>Before you can start tasking</strong>, these have to be done, in order —
+        they are on your Onboarding screen:</p>
+    <ol style="margin:8px 0 16px 20px;padding:0">
+        <li>Read the <strong>SOP</strong> in the project's Knowledge folder and mark it read.</li>
+        <li t-if="object.project_id.has_training">Attend or watch the <strong>training</strong> session and mark it attended.</li>
+        <li t-if="object.project_id.has_assessment">Pass the <strong>assessment</strong>.</li>
+    </ol>
+    <p t-if="not object.project_id.has_training and not object.project_id.has_assessment"
+       style="color:#6b7280">
+        This project has no training or assessment set up, so marking the SOP as read
+        is all that stands between you and your first task.
+    </p>
+
+    <p>Until those are done the stagelist stays locked — that is expected, not a fault.
+        If anything is unclear, ask
+        <t t-out="object.employee_id.epo_pod_lead_id.name or 'your pod lead'">Piyush</t>.</p>
+
+    <p style="color:#6b7280;font-size:12px;margin-top:24px">
+        Sent automatically by Ethara Project OS when you were added to the project.
+    </p>
+</div>
+            </field>
+        </record>
+
+    </data>
+</odoo>

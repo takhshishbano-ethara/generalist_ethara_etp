@@ -1,0 +1,436 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================= pods ================= -->
+    <record id="view_epo_pod_list" model="ir.ui.view">
+        <field name="name">epo.pod.list</field>
+        <field name="model">epo.pod</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="code"/>
+                <field name="name"/>
+                <field name="lead_employee_id"/>
+                <field name="floor"/>
+                <field name="zone"/>
+                <field name="seat_range"/>
+                <field name="member_count"/>
+                <field name="capacity"/>
+                <field name="seats_free"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_pod_form" model="ir.ui.view">
+        <field name="name">epo.pod.form</field>
+        <field name="model">epo.pod</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Pod name"/></h1>
+                        <h3><field name="code" placeholder="POD-01"/></h3>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="lead_employee_id"/>
+                            <field name="work_location_id"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="floor"/>
+                            <field name="zone"/>
+                            <field name="seat_range"/>
+                            <field name="capacity"/>
+                            <field name="member_count" readonly="1"/>
+                            <field name="seats_free" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Members" name="members">
+                            <field name="member_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="epo_seat_no"/>
+                                    <field name="epo_role"/>
+                                    <field name="epo_current_project_id"/>
+                                    <field name="epo_best_assessment_score"
+                                           string="Best score"/>
+                                    <field name="work_email"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_pod_search" model="ir.ui.view">
+        <field name="name">epo.pod.search</field>
+        <field name="model">epo.pod</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="code"/>
+                <field name="lead_employee_id"/>
+                <filter name="leaderless" string="No pod lead"
+                        domain="[('lead_employee_id', '=', False)]"/>
+                <filter name="full" string="At or over capacity"
+                        domain="[('capacity', '&gt;', 0), ('seats_free', '&lt;=', 0)]"/>
+                <filter name="inactive" string="Archived"
+                        domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_lead" string="Pod Lead"
+                            context="{'group_by': 'lead_employee_id'}"/>
+                    <filter name="group_location" string="Location"
+                            context="{'group_by': 'work_location_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_pod" model="ir.actions.act_window">
+        <field name="name">Pods</field>
+        <field name="res_model">epo.pod</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_epo_pod_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create the first pod</p>
+            <p>A pod is a seating and supervision grouping, never the allocation unit —
+               people are put on projects individually. Nothing ever requires a pod, so
+               a new joiner with no seat yet is fine.</p>
+        </field>
+    </record>
+
+    <!-- ================= role grants ================= -->
+    <record id="view_epo_role_list" model="ir.ui.view">
+        <field name="name">epo.role.assignment.list</field>
+        <field name="model">epo.role.assignment</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="not is_current">
+                <field name="employee_id"/>
+                <field name="role"/>
+                <field name="scope_pod_id"/>
+                <field name="date_from"/>
+                <field name="date_to"/>
+                <field name="is_current"/>
+                <field name="granted_by_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_role_form" model="ir.ui.view">
+        <field name="name">epo.role.assignment.form</field>
+        <field name="model">epo.role.assignment</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_revoke" type="object" string="Revoke"
+                            invisible="not is_current"
+                            confirm="Revoking ends the grant today and removes the matching login level. The grant itself stays on record."/>
+                </header>
+                <sheet>
+                    <div class="alert alert-info" role="alert">
+                        Granting a role here is what gives somebody their Project OS login
+                        level — the Odoo groups are kept in step automatically, and
+                        revoking is a date rather than a separate chore.
+                    </div>
+                    <group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="role"/>
+                            <field name="scope_pod_id" invisible="role != 'pl'"
+                                   required="role == 'pl'"/>
+                            <field name="user_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                            <field name="is_current" readonly="1"/>
+                            <field name="granted_by_id"/>
+                        </group>
+                    </group>
+                    <field name="reason" placeholder="Why was this granted?"/>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_role_search" model="ir.ui.view">
+        <field name="name">epo.role.assignment.search</field>
+        <field name="model">epo.role.assignment</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <filter name="current" string="Current"
+                        domain="[('is_current', '=', True)]"/>
+                <filter name="lapsed" string="Lapsed"
+                        domain="[('is_current', '=', False)]"/>
+                <group>
+                    <filter name="group_role" string="Role"
+                            context="{'group_by': 'role'}"/>
+                    <filter name="group_employee" string="Person"
+                            context="{'group_by': 'employee_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_role" model="ir.actions.act_window">
+        <field name="name">Role Grants</field>
+        <field name="res_model">epo.role.assignment</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_current': 1}</field>
+    </record>
+
+    <!-- ================= roster ================= -->
+    <record id="view_epo_roster_list" model="ir.ui.view">
+        <field name="name">epo.roster.day.list</field>
+        <field name="model">epo.roster.day</field>
+        <field name="arch" type="xml">
+            <list editable="bottom"
+                  decoration-warning="tasking_status == 'tasking' and not onboarding_unlocked"
+                  decoration-danger="tasking_status == 'unable_to_task'"
+                  decoration-muted="locked or tasking_status == 'leave'"
+                  decoration-info="tasking_status in ('onboarding', 'training', 'assessment')">
+                <field name="business_date"/>
+                <field name="employee_id" readonly="id"/>
+                <field name="pod_id" readonly="1" optional="show"/>
+                <field name="project_id"/>
+                <field name="tasking_status"/>
+                <field name="present"/>
+                <field name="onboarding_blockers" string="Onboarding" optional="show"/>
+                <field name="issue"/>
+                <field name="onboarding_unlocked" column_invisible="True"/>
+                <field name="source" readonly="1" optional="hide"/>
+                <field name="locked" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_roster_form" model="ir.ui.view">
+        <field name="name">epo.roster.day.form</field>
+        <field name="model">epo.roster.day</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_unlock" type="object" string="Unlock"
+                            groups="ethara_project_os.group_epo_admin"
+                            invisible="not locked"
+                            context="{'epo_reason': 'Unlocked from the backend'}"
+                            confirm="This day is closed for payroll. Unlocking is recorded in the audit log. Continue?"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="business_date"/>
+                            <field name="pod_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="project_id"/>
+                            <field name="tasking_status"/>
+                            <field name="present"/>
+                            <field name="source" readonly="1"/>
+                            <field name="locked" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="issue"
+                           placeholder="Required when the status is Unable to Task"
+                           required="tasking_status == 'unable_to_task'"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_roster_search" model="ir.ui.view">
+        <field name="name">epo.roster.day.search</field>
+        <field name="model">epo.roster.day</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <field name="pod_id"/>
+                <filter name="today" string="Today"
+                        domain="[('business_date', '=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="blocked" string="Unable to task"
+                        domain="[('tasking_status', '=', 'unable_to_task')]"/>
+                <filter name="ramping" string="Not tasking yet"
+                        domain="[('tasking_status', 'in',
+                                  ['onboarding', 'training', 'assessment'])]"/>
+                <filter name="bench" string="On the bench"
+                        domain="[('tasking_status', '=', 'bench')]"/>
+                <filter name="not_cleared" string="Not cleared to task"
+                        domain="[('onboarding_unlocked', '=', False),
+                                 ('project_id', '!=', False)]"/>
+                <group>
+                    <filter name="group_date" string="Date"
+                            context="{'group_by': 'business_date'}"/>
+                    <filter name="group_pod" string="Pod"
+                            context="{'group_by': 'pod_id'}"/>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_status" string="Status"
+                            context="{'group_by': 'tasking_status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_roster" model="ir.actions.act_window">
+        <field name="name">Tasking Board</field>
+        <field name="res_model">epo.roster.day</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_today': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Today's board is empty</p>
+            <p>The nightly job carries yesterday's roster forward. If this is empty,
+               either the job has not run yet or nobody is allocated.</p>
+        </field>
+    </record>
+
+    <!-- ================= employee ================= -->
+    <record id="view_epo_employee_form" model="ir.ui.view">
+        <field name="name">hr.employee.form.epo</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Project OS" name="epo">
+                    <group>
+                        <group string="Placement">
+                            <field name="epo_pod_id"/>
+                            <field name="epo_pod_lead_id" readonly="1"/>
+                            <field name="epo_seat_no"/>
+                            <field name="epo_job_status"/>
+                            <field name="epo_role" readonly="1"/>
+                        </group>
+                        <group string="Right now">
+                            <field name="epo_current_project_id" readonly="1"/>
+                            <field name="epo_allowed_project_ids" readonly="1"
+                                   widget="many2many_tags"/>
+                            <field name="epo_project_count" readonly="1"/>
+                            <field name="epo_best_assessment_score" readonly="1"/>
+                            <field name="epo_days_onboarding" readonly="1"/>
+                            <field name="epo_days_tasking" readonly="1"/>
+                            <field name="epo_submission_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <button name="action_epo_open_history" type="object"
+                            string="Open full history" class="btn-secondary"/>
+                    <separator string="Projects"/>
+                    <field name="epo_allocation_ids" readonly="1">
+                        <list>
+                            <field name="project_id"/>
+                            <field name="role_on_project"/>
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                            <field name="current_phase"/>
+                            <field name="days_total"/>
+                            <field name="days_onboarding"/>
+                            <field name="days_tasking"/>
+                            <field name="days_to_productive"/>
+                            <field name="submission_count"/>
+                        </list>
+                    </field>
+                    <separator string="Project OS role"/>
+                    <div class="text-muted mb-2">
+                        Roles live in <b>api.role</b> (Settings → Users → the user's
+                        Role). Project OS reads that and puts the person in the matching
+                        group. The grants below are a fallback for anyone whose role is
+                        not mapped there yet.
+                    </div>
+                    <field name="epo_role_assignment_ids">
+                        <list>
+                            <field name="role"/>
+                            <field name="scope_pod_id"/>
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                            <field name="is_current"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- A primary list view, at a high priority and bound explicitly to the action
+         below, so it never becomes the default hr.employee list for the HR app. The
+         point of this screen is the Project OS columns; the HR list has none of them. -->
+    <record id="view_epo_employee_list" model="ir.ui.view">
+        <field name="name">hr.employee.list.epo</field>
+        <field name="model">hr.employee</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <list create="false">
+                <field name="name"/>
+                <field name="epo_role"/>
+                <field name="epo_pod_id"/>
+                <field name="epo_pod_lead_id" optional="show"/>
+                <field name="epo_seat_no" optional="hide"/>
+                <field name="epo_job_status" optional="hide"/>
+                <field name="epo_current_project_id"/>
+                <field name="epo_best_assessment_score" string="Best score"/>
+                <field name="epo_project_count" string="Projects"/>
+                <field name="epo_days_onboarding" string="Onboard"/>
+                <field name="epo_days_tasking" string="Task"/>
+                <field name="epo_submission_count" string="Submissions"/>
+                <field name="work_email" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_employee_search" model="ir.ui.view">
+        <field name="name">hr.employee.search.epo</field>
+        <field name="model">hr.employee</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="epo_pod_id"/>
+                <field name="epo_current_project_id"/>
+                <filter name="bench" string="On the bench"
+                        domain="[('epo_current_project_id', '=', False)]"/>
+                <filter name="allocated" string="On a project"
+                        domain="[('epo_current_project_id', '!=', False)]"/>
+                <filter name="unscored" string="Never assessed"
+                        domain="[('epo_best_assessment_score', '=', 0)]"/>
+                <separator/>
+                <filter name="members" string="Pod Members"
+                        domain="[('epo_role', '=', 'pm')]"/>
+                <filter name="leads" string="Pod Leads"
+                        domain="[('epo_role', '=', 'pl')]"/>
+                <group>
+                    <filter name="group_role" string="Role"
+                            context="{'group_by': 'epo_role'}"/>
+                    <filter name="group_pod" string="Pod"
+                            context="{'group_by': 'epo_pod_id'}"/>
+                    <filter name="group_project" string="Current project"
+                            context="{'group_by': 'epo_current_project_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_people" model="ir.actions.act_window">
+        <field name="name">People</field>
+        <field name="res_model">hr.employee</field>
+        <field name="view_mode">list,form</field>
+        <!-- Only people who hold a Project OS role. Somebody with no grant is an
+             employee, not a participant, and belongs in the HR app. -->
+        <field name="domain">[('epo_role', '!=', False)]</field>
+        <field name="search_view_id" ref="view_epo_employee_search"/>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'sequence': 10, 'view_mode': 'list', 'view_id': ref('view_epo_employee_list')}),
+            (0, 0, {'sequence': 20, 'view_mode': 'form', 'view_id': ref('hr.view_employee_form')})]"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Nobody has a Project OS role yet</p>
+            <p>Grant one under <b>Resources → Role Grants</b>. The grant is what gives
+               somebody their login level, and it is effective-dated so the record of
+               having held it survives.</p>
+        </field>
+    </record>
+
+</odoo>

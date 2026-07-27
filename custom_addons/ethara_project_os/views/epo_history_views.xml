@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================= timeline ================= -->
+    <record id="view_epo_timeline_list" model="ir.ui.view">
+        <field name="name">epo.timeline.event.list</field>
+        <field name="model">epo.timeline.event</field>
+        <field name="arch" type="xml">
+            <list create="false" edit="false">
+                <field name="occurred_at"/>
+                <field name="business_date" optional="hide"/>
+                <field name="category"/>
+                <field name="event_type"/>
+                <field name="summary"/>
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <field name="actor_id" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_timeline_form" model="ir.ui.view">
+        <field name="name">epo.timeline.event.form</field>
+        <field name="model">epo.timeline.event</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="occurred_at"/>
+                            <field name="business_date"/>
+                            <field name="event_type"/>
+                            <field name="category"/>
+                        </group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="project_id"/>
+                            <field name="actor_id"/>
+                            <field name="res_model"/>
+                            <field name="res_id"/>
+                        </group>
+                    </group>
+                    <field name="summary"/>
+                    <field name="payload_json"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_timeline_search" model="ir.ui.view">
+        <field name="name">epo.timeline.event.search</field>
+        <field name="model">epo.timeline.event</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <field name="summary"/>
+                <filter name="people" string="People"
+                        domain="[('category', '=', 'people')]"/>
+                <filter name="project" string="Project lifecycle"
+                        domain="[('category', '=', 'project')]"/>
+                <filter name="membership" string="Membership"
+                        domain="[('category', '=', 'membership')]"/>
+                <filter name="onboarding" string="Onboarding"
+                        domain="[('category', '=', 'onboarding')]"/>
+                <filter name="work" string="Daily work"
+                        domain="[('category', '=', 'work')]"/>
+                <group>
+                    <filter name="group_employee" string="Person"
+                            context="{'group_by': 'employee_id'}"/>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_category" string="Category"
+                            context="{'group_by': 'category'}"/>
+                    <filter name="group_date" string="Date"
+                            context="{'group_by': 'business_date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_timeline" model="ir.actions.act_window">
+        <field name="name">History</field>
+        <field name="res_model">epo.timeline.event</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Nothing has happened yet</p>
+            <p>One append-only stream, two readings: filter by person for their full
+               history, or by project for the project's.</p>
+        </field>
+    </record>
+
+    <!-- ================= audit ================= -->
+    <record id="view_epo_audit_list" model="ir.ui.view">
+        <field name="name">epo.audit.log.list</field>
+        <field name="model">epo.audit.log</field>
+        <field name="arch" type="xml">
+            <list create="false" edit="false">
+                <field name="occurred_at"/>
+                <field name="actor_id"/>
+                <field name="action"/>
+                <field name="res_model"/>
+                <field name="res_id"/>
+                <field name="reason"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_epo_audit" model="ir.actions.act_window">
+        <field name="name">Audit Log</field>
+        <field name="res_model">epo.audit.log</field>
+        <field name="view_mode">list</field>
+    </record>
+
+</odoo>

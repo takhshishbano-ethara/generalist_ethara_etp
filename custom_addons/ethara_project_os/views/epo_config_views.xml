@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_epo_config_settings" model="ir.ui.view">
+        <field name="name">res.config.settings.epo</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Project OS" name="ethara_project_os"
+                     logo="/base/static/description/settings.png">
+                    <block title="Document storage"
+                           help="Project files live in S3 when a bucket is configured, and in Odoo otherwise. Nothing is ever served from a public URL — downloads mint a short-lived presigned link.">
+                        <setting string="Bucket">
+                            <field name="epo_s3_connector_id"/>
+                        </setting>
+                        <setting string="Download link lifetime">
+                            <field name="epo_s3_url_ttl"/> seconds
+                        </setting>
+                    </block>
+                    <block title="Roster">
+                        <setting string="Carry the roster forward nightly"
+                                 help="Clones yesterday's roster for anyone without a row today.">
+                            <field name="epo_roster_carry_forward"/>
+                        </setting>
+                        <setting string="Payroll lock window">
+                            <field name="epo_payroll_lock_days"/> days
+                        </setting>
+                    </block>
+                    <block title="Allocation">
+                        <setting string="Maximum total allocation"
+                                 help="Ceiling on a person's combined allocation across concurrent projects.">
+                            <field name="epo_max_allocation_pct"/> %
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_epo_config_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'ethara_project_os'}</field>
+    </record>
+
+</odoo>

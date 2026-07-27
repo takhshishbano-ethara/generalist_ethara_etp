@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Defaults only. The real values belong in the deployment's settings;
+             nothing reaches out to the assessment system until base_url is set. -->
+
+
+        <record id="param_roster_carry_forward" model="ir.config_parameter">
+            <field name="key">epo.roster.carry_forward</field>
+            <field name="value">True</field>
+        </record>
+
+        <record id="param_roster_lock_days" model="ir.config_parameter">
+            <field name="key">epo.roster.lock_days</field>
+            <field name="value">7</field>
+        </record>
+
+        <record id="param_max_allocation" model="ir.config_parameter">
+            <field name="key">epo.allocation.max_pct</field>
+            <field name="value">100</field>
+        </record>
+
+    </data>
+</odoo>

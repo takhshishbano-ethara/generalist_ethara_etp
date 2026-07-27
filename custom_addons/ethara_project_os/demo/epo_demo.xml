@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Demo data lives entirely behind this one call.
+
+             Odoo only loads this file when the database was created with demo data, so
+             installing with the `without-demo=all` option gives a completely empty
+             system.
+             To drop the demo permanently, delete the `demo/` folder and the "demo" key
+             in __manifest__.py — nothing else references it.
+
+             The builder calls the real business logic rather than inserting rows, so
+             the demo cannot show a state the system would not actually produce. See
+             models/epo_demo.py. -->
+
+        <function model="epo.demo" name="build"/>
+
+    </data>
+</odoo>

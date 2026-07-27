@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- The backend menu is an operations console, not the product.
+
+         The four roles work in a separate frontend against /api/project-os/*. What is
+         here is for the people who have to fix things: a GPM correcting a record, a
+         lead checking a roster, an Admin reading the audit log. Every screen is gated
+         so a pod member never lands in it.
+
+         No web_icon: there is no icon asset in this module, and pointing at a missing
+         file gives a broken image on the Apps screen rather than the default. -->
+
+    <menuitem id="menu_epo_root" name="Project OS" sequence="42"
+              groups="ethara_project_os.group_epo_pod_lead"/>
+
+    <!-- ========== the daily board ========== -->
+    <menuitem id="menu_epo_work" name="Work" parent="menu_epo_root" sequence="10"/>
+    <!-- "Tasking Board", not "Daily Roster": next to Resources > Allocations, the word
+         "daily" did not say which of the two this was. This is what each person is
+         doing RIGHT NOW (data model v2 4.5, one row per person per day); Allocations is
+         who is on which project and since when. -->
+    <menuitem id="menu_epo_roster" name="Tasking Board" parent="menu_epo_work"
+              action="action_epo_roster" sequence="10"/>
+    <menuitem id="menu_epo_entries" name="Submissions" parent="menu_epo_work"
+              action="action_epo_entry" sequence="30"/>
+
+    <!-- ========== the GPM's workbench ========== -->
+    <!-- One entry, not a folder of one: documents, training, forms, assessment and
+         onboarding all live on the project's own tabs, so there is nothing else to
+         hang here. The actions still exist for direct links. -->
+    <menuitem id="menu_epo_projects_root" name="Projects" parent="menu_epo_root"
+              action="action_epo_project" sequence="20"/>
+    <!-- No Folders menu: the cabinet is a tree the project form already shows, on its
+         Folders / Knowledge / Management tabs. A raw admin list of every folder in the
+         database is redundant for daily work, so action_epo_folder stays available for
+         a direct link but is not surfaced here. -->
+
+    <!-- ========== assessment ========== -->
+    <menuitem id="menu_epo_assessment_root" name="Assessment" parent="menu_epo_root"
+              sequence="25"/>
+    <menuitem id="menu_epo_assessment" name="Linked Papers"
+              parent="menu_epo_assessment_root" action="action_ethara_assessment"
+              sequence="10" groups="ethara_project_os.group_epo_manager"/>
+
+    <!-- ========== staffing ========== -->
+    <menuitem id="menu_epo_resources" name="Resources" parent="menu_epo_root"
+              sequence="30"/>
+    <menuitem id="menu_epo_allocations" name="Allocations" parent="menu_epo_resources"
+              action="action_epo_allocation" sequence="10"/>
+    <menuitem id="menu_epo_phases" name="Time by Phase" parent="menu_epo_resources"
+              action="action_epo_phase" sequence="20"/>
+
+
+    <!-- ========== configuration ========== -->
+    <menuitem id="menu_epo_config_root" name="Configuration" parent="menu_epo_root"
+              sequence="90" groups="ethara_project_os.group_epo_pod_lead"/>
+    <menuitem id="menu_epo_config" name="Settings" parent="menu_epo_config_root"
+              action="action_epo_config_settings" sequence="10"
+              groups="ethara_project_os.group_epo_admin"/>
+    <!-- No Role Grants menu. Roles belong to api.role (api_auth_gateway), and this
+         module only maps that onto its four groups — see models/epo_role_map.py. The
+         grant model survives as a fallback until api.role carries the four levels, and
+         is reachable from the employee form's Project OS tab in the meantime. -->
+    <menuitem id="menu_epo_audit" name="Audit Log" parent="menu_epo_config_root"
+              action="action_epo_audit" sequence="30"
+              groups="ethara_project_os.group_epo_admin"/>
+
+</odoo>

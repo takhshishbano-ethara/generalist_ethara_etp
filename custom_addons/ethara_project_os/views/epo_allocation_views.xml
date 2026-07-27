@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================= allocations ================= -->
+    <record id="view_epo_allocation_list" model="ir.ui.view">
+        <field name="name">epo.allocation.list</field>
+        <field name="model">epo.allocation</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="not is_open"
+                  decoration-info="is_open and current_phase != 'tasking'">
+                <field name="employee_id"/>
+                <field name="pod_id" optional="show"/>
+                <field name="project_id"/>
+                <field name="role_on_project"/>
+                <field name="date_from"/>
+                <field name="date_to"/>
+                <field name="allocation_pct" string="%"/>
+                <field name="current_phase"/>
+                <field name="days_total" string="Days"/>
+                <field name="days_onboarding" string="Onboard"/>
+                <field name="days_training" string="Train"/>
+                <field name="days_tasking" string="Task"/>
+                <field name="days_to_productive" string="To productive"/>
+                <field name="submission_count" string="Submissions"/>
+                <field name="override_reason" string="Override" optional="hide"/>
+                <field name="is_open" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_allocation_form" model="ir.ui.view">
+        <field name="name">epo.allocation.form</field>
+        <field name="model">epo.allocation</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_release" type="object" string="Release"
+                            class="btn-primary" invisible="not is_open"
+                            confirm="Releasing closes the membership today. Every phase and every submission stays on record."/>
+                </header>
+                <sheet>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="not override_reason">
+                        Allocated below this project's minimum score, deliberately:
+                        <field name="override_reason" readonly="1"/>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="employee_id" readonly="id"/>
+                            <field name="project_id" readonly="id"/>
+                            <field name="role_on_project"/>
+                            <field name="allocation_pct"/>
+                            <field name="source"/>
+                        </group>
+                        <group>
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                            <field name="is_open"/>
+                            <field name="current_phase" readonly="1"/>
+                            <field name="onboarding_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="The bar that applied when they joined">
+                        <group>
+                            <field name="min_score_applied" readonly="1"/>
+                            <field name="score_at_allocation" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="allocated_by_id" readonly="1"/>
+                            <field name="released_by_id" readonly="1"
+                                   invisible="is_open"/>
+                        </group>
+                    </group>
+                    <group string="Time on this project">
+                        <group>
+                            <field name="days_total"/>
+                            <field name="days_onboarding"/>
+                            <field name="days_training"/>
+                        </group>
+                        <group>
+                            <field name="days_assessment"/>
+                            <field name="days_tasking"/>
+                            <field name="days_to_productive"/>
+                            <field name="submission_count"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Phase log" name="phases">
+                            <div class="text-muted mb-2">
+                                Maintained from the daily roster — every stretch of
+                                onboarding, training, assessment and tasking, with its day
+                                count. Nobody types this in twice.
+                            </div>
+                            <field name="phase_ids" readonly="1">
+                                <list>
+                                    <field name="phase"/>
+                                    <field name="date_from"/>
+                                    <field name="date_to"/>
+                                    <field name="duration_days" sum="Days"/>
+                                    <field name="note"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Note" name="note">
+                            <field name="note"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_allocation_search" model="ir.ui.view">
+        <field name="name">epo.allocation.search</field>
+        <field name="model">epo.allocation</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <field name="pod_id"/>
+                <filter name="open" string="Currently on a project"
+                        domain="[('date_to', '=', False)]"/>
+                <filter name="ramping" string="Still ramping up"
+                        domain="[('date_to', '=', False),
+                                 ('current_phase', 'in',
+                                  ['onboarding', 'sop', 'training', 'assessment'])]"/>
+                <filter name="overridden" string="Allocated below the bar"
+                        domain="[('override_reason', '!=', False)]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_pod" string="Pod"
+                            context="{'group_by': 'pod_id'}"/>
+                    <filter name="group_phase" string="Phase"
+                            context="{'group_by': 'current_phase'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_allocation" model="ir.actions.act_window">
+        <field name="name">Allocations</field>
+        <field name="res_model">epo.allocation</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_open': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Put somebody on a project</p>
+            <p>The allocation is the membership: who is on what, since when, at what
+               percentage. The phase log underneath records how their time was actually
+               spent.</p>
+        </field>
+    </record>
+
+    <!-- ================= phases ================= -->
+    <record id="view_epo_phase_list" model="ir.ui.view">
+        <field name="name">epo.allocation.phase.list</field>
+        <field name="model">epo.allocation.phase</field>
+        <field name="arch" type="xml">
+            <list create="false">
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <field name="phase"/>
+                <field name="date_from"/>
+                <field name="date_to"/>
+                <field name="duration_days" sum="Days"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_phase_search" model="ir.ui.view">
+        <field name="name">epo.allocation.phase.search</field>
+        <field name="model">epo.allocation.phase</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <filter name="open" string="Currently in this phase"
+                        domain="[('date_to', '=', False)]"/>
+                <group>
+                    <filter name="group_phase" string="Phase"
+                            context="{'group_by': 'phase'}"/>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_employee" string="Person"
+                            context="{'group_by': 'employee_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_phase" model="ir.actions.act_window">
+        <field name="name">Time by Phase</field>
+        <field name="res_model">epo.allocation.phase</field>
+        <field name="view_mode">list</field>
+        <field name="context">{'search_default_group_phase': 1}</field>
+    </record>
+
+    <!-- ================= onboarding ================= -->
+    <record id="view_epo_onboarding_list" model="ir.ui.view">
+        <field name="name">epo.onboarding.list</field>
+        <field name="model">epo.onboarding</field>
+        <field name="arch" type="xml">
+            <list decoration-success="unlocked" decoration-warning="not unlocked">
+                <field name="employee_id"/>
+                <field name="pod_id"/>
+                <field name="project_id"/>
+                <field name="sop_done"/>
+                <field name="training_done"/>
+                <field name="assessment_passed"/>
+                <field name="assessment_score"/>
+                <field name="unlocked"/>
+                <field name="blockers"/>
+                <field name="unlocked_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_onboarding_form" model="ir.ui.view">
+        <field name="name">epo.onboarding.form</field>
+        <field name="model">epo.onboarding</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_mark_sop" type="object" string="Mark SOP read"
+                            invisible="sop_done"/>
+                    <button name="action_mark_training" type="object"
+                            string="Mark training attended" invisible="training_done"/>
+                    <button name="action_verify_assessment" type="object"
+                            string="Verify assessment" class="btn-primary"
+                            groups="ethara_project_os.group_epo_pod_lead"
+                            invisible="assessment_passed"
+                            confirm="Confirm you have read the result in the external application. This is recorded against your name."/>
+                    <button name="action_unverify_assessment" type="object"
+                            string="Withdraw verification"
+                            groups="ethara_project_os.group_epo_manager"
+                            invisible="not assessment_passed"/>
+                    <button name="action_waive" type="object" string="Waive"
+                            groups="ethara_project_os.group_epo_manager"
+                            invisible="unlocked"
+                            context="{'epo_reason': 'Waived from the backend'}"
+                            confirm="A waiver lets this person start work without evidence they are ready. It is written to the audit log. Continue?"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-success" role="alert" invisible="not unlocked">
+                        Cleared to task.
+                    </div>
+                    <div class="alert alert-warning" role="alert" invisible="unlocked">
+                        Outstanding: <field name="blockers" readonly="1"/>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="project_id"/>
+                            <field name="pod_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="sop_done"/>
+                            <field name="sop_done_at"/>
+                            <field name="training_done"/>
+                            <field name="training_done_at"/>
+                        </group>
+                    </group>
+                    <group string="Assessment">
+                        <group>
+                            <field name="assessment_passed" readonly="1"/>
+                            <field name="assessment_score"
+                                   readonly="assessment_passed"
+                                   help="The percentage you read in the external application. Type it here, then press Verify — it is what the project minimum score is checked against at allocation."/>
+                        </group>
+                        <group>
+                            <field name="assessment_verified_by" readonly="1"/>
+                            <field name="assessment_verified_at" readonly="1"/>
+                            <field name="unlocked_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Waiver" invisible="not waived_by_id">
+                        <field name="waived_by_id" readonly="1"/>
+                        <field name="waived_at" readonly="1"/>
+                        <field name="waiver_reason" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_onboarding_search" model="ir.ui.view">
+        <field name="name">epo.onboarding.search</field>
+        <field name="model">epo.onboarding</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <filter name="pending" string="Still ramping up"
+                        domain="[('unlocked', '=', False)]"/>
+                <filter name="cleared" string="Cleared to task"
+                        domain="[('unlocked', '=', True)]"/>
+                <filter name="waived" string="Waived"
+                        domain="[('waived_by_id', '!=', False)]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_pod" string="Pod"
+                            context="{'group_by': 'pod_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_onboarding" model="ir.actions.act_window">
+        <field name="name">Onboarding</field>
+        <field name="res_model">epo.onboarding</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_pending': 1}</field>
+    </record>
+
+</odoo>

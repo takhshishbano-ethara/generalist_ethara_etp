@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Order matters: carry the roster forward first, then stamp leave onto it.
+             There is no assessment cron any more — v2 §4.6.2 makes the paper a plain
+             link-out, so Odoo never calls out and never grades. -->
+
+        <record id="cron_roster_carry_forward" model="ir.cron">
+            <field name="name">Project OS: carry the roster forward</field>
+            <field name="model_id" ref="model_epo_roster_day"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_carry_forward()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall" eval="(DateTime.now().replace(hour=0, minute=20, second=0) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="cron_leave_roster_sync" model="ir.cron">
+            <field name="name">Project OS: stamp approved leave onto today's roster</field>
+            <field name="model_id" ref="model_hr_leave"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_epo_sync_roster()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall" eval="(DateTime.now().replace(hour=0, minute=40, second=0) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="cron_roster_lock" model="ir.cron">
+            <field name="name">Project OS: lock roster days past the payroll window</field>
+            <field name="model_id" ref="model_epo_roster_day"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_lock_closed_days(int(env['ir.config_parameter'].sudo().get_param('epo.roster.lock_days', 7)))</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall" eval="(DateTime.now().replace(hour=2, minute=0, second=0) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

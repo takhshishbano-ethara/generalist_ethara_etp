@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================= form templates ================= -->
+    <record id="view_epo_template_list" model="ir.ui.view">
+        <field name="name">epo.form.template.list</field>
+        <field name="model">epo.form.template</field>
+        <field name="arch" type="xml">
+            <list decoration-success="state == 'published'"
+                  decoration-muted="state == 'archived'">
+                <field name="project_id"/>
+                <field name="form_type"/>
+                <field name="name"/>
+                <field name="version"/>
+                <field name="state" widget="badge"/>
+                <field name="entry_count"/>
+                <field name="published_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_template_form" model="ir.ui.view">
+        <field name="name">epo.form.template.form</field>
+        <field name="model">epo.form.template</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_publish" type="object" string="Publish"
+                            class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_new_version" type="object" string="New version"
+                            invisible="state != 'published'"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-info" role="alert"
+                         invisible="state != 'published'">
+                        Published and in use — its structure is frozen. Use
+                        <b>New version</b> to change it: the clone arrives carrying every
+                        section and field, and this version and the answers given against
+                        it stay exactly as they are.
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Form title"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="project_id"/>
+                            <field name="form_type"/>
+                        </group>
+                        <group>
+                            <field name="version" readonly="1"/>
+                            <field name="parent_id" readonly="1"
+                                   invisible="not parent_id"/>
+                            <field name="published_by_id" readonly="1"
+                                   invisible="not published_by_id"/>
+                            <field name="entry_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="description" placeholder="What is this form for?"/>
+                    <notebook>
+                        <page string="Sections" name="sections">
+                            <field name="section_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="help_text"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Fields" name="fields">
+                            <field name="field_ids" readonly="state != 'draft'"
+                                   context="{'default_template_id': id}">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="section_id"/>
+                                    <field name="name"/>
+                                    <field name="field_type"/>
+                                    <field name="is_required"/>
+                                    <field name="options_json"
+                                           string="Options (JSON array)"/>
+                                    <field name="grid_rows_json" optional="hide"/>
+                                    <field name="grid_cols_json" optional="hide"/>
+                                    <field name="value_count" string="Answers"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_template_search" model="ir.ui.view">
+        <field name="name">epo.form.template.search</field>
+        <field name="model">epo.form.template</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="project_id"/>
+                <filter name="published" string="Published"
+                        domain="[('state', '=', 'published')]"/>
+                <filter name="draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+                <filter name="stagelist" string="Stagelist"
+                        domain="[('form_type', '=', 'stagelist')]"/>
+                <filter name="feedback" string="Feedback"
+                        domain="[('form_type', '=', 'feedback')]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_type" string="Type"
+                            context="{'group_by': 'form_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_template" model="ir.actions.act_window">
+        <field name="name">Forms</field>
+        <field name="res_model">epo.form.template</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- ================= submissions ================= -->
+    <record id="view_epo_entry_list" model="ir.ui.view">
+        <field name="name">epo.form.entry.list</field>
+        <field name="model">epo.form.entry</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="state == 'void'" create="false">
+                <field name="submitted_at"/>
+                <field name="employee_id"/>
+                <field name="pod_id" optional="show"/>
+                <field name="project_id"/>
+                <field name="form_type"/>
+                <field name="template_version" string="v"/>
+                <field name="business_date"/>
+                <field name="state" widget="badge"/>
+                <field name="public_ref" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_epo_entry_form" model="ir.ui.view">
+        <field name="name">epo.form.entry.form</field>
+        <field name="model">epo.form.entry</field>
+        <field name="arch" type="xml">
+            <form create="false">
+                <header>
+                    <button name="action_submit" type="object" string="Submit"
+                            class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_void" type="object" string="Void"
+                            invisible="state != 'submitted'"
+                            groups="ethara_project_os.group_epo_admin"
+                            context="{'epo_reason': 'Voided from the backend'}"
+                            confirm="Voiding removes this submission from every count. It stays readable forever. Continue?"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="state != 'void'">
+                        Voided: <field name="void_reason" readonly="1"/>
+                        (<field name="voided_by_id" readonly="1"/>,
+                        <field name="voided_at" readonly="1"/>)
+                    </div>
+                    <group>
+                        <group>
+                            <field name="employee_id" readonly="1"/>
+                            <field name="project_id" readonly="1"/>
+                            <field name="form_type" readonly="1"/>
+                            <field name="pod_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="template_id" readonly="1"/>
+                            <field name="template_version" readonly="1"/>
+                            <field name="business_date" readonly="1"/>
+                            <field name="submitted_at" readonly="1"/>
+                            <field name="public_ref" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="value_ids" readonly="1">
+                        <list>
+                            <field name="field_id"/>
+                            <field name="field_type"/>
+                            <field name="value_text"/>
+                            <field name="value_number"/>
+                            <field name="value_date"/>
+                            <field name="value_json"/>
+                            <field name="attachment_id"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_epo_entry_search" model="ir.ui.view">
+        <field name="name">epo.form.entry.search</field>
+        <field name="model">epo.form.entry</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="project_id"/>
+                <field name="public_ref"/>
+                <filter name="stagelist" string="Stagelist"
+                        domain="[('form_type', '=', 'stagelist')]"/>
+                <filter name="feedback" string="Feedback"
+                        domain="[('form_type', '=', 'feedback')]"/>
+                <filter name="submitted" string="Submitted"
+                        domain="[('state', '=', 'submitted')]"/>
+                <filter name="voided" string="Voided" domain="[('state', '=', 'void')]"/>
+                <filter name="today" string="Today"
+                        domain="[('business_date', '=', context_today().strftime('%Y-%m-%d'))]"/>
+                <group>
+                    <filter name="group_project" string="Project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter name="group_employee" string="Person"
+                            context="{'group_by': 'employee_id'}"/>
+                    <filter name="group_pod" string="Pod"
+                            context="{'group_by': 'pod_id'}"/>
+                    <filter name="group_date" string="Date"
+                            context="{'group_by': 'business_date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_epo_entry" model="ir.actions.act_window">
+        <field name="name">Submissions</field>
+        <field name="res_model">epo.form.entry</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_submitted': 1}</field>
+    </record>
+
+</odoo>
