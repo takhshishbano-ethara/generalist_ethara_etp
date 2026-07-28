@@ -372,12 +372,25 @@ class ProjectProject(models.Model):
                     'out of it. Archive it instead.', project.name))
 
     # ------------------------------------------------------------------
+    # Document one2manys held back until the folder skeleton exists. See create().
+    _DEFERRED_DOC_FIELDS = ('knowledge_doc_ids', 'management_doc_ids', 'document_ids')
+
     @api.model_create_multi
     def create(self, vals_list):
+        deferred = []
         for vals in vals_list:
             if not vals.get('is_project_os'):
+                deferred.append(None)
                 continue
             vals['code'] = self._normalise_code(vals.get('code')) or self._next_code()
+            # Documents cannot be created in the same super().create() as the project.
+            # That call processes the one2many, so epo.document.create() runs BEFORE
+            # _build_skeleton below — it finds no folder for the picked Type, leaves
+            # folder_id unset, and Postgres rejects the row on its NOT NULL. Filling
+            # the Knowledge tab on a project being saved for the first time is exactly
+            # that path. Hold the documents back and write them once the cabinet exists.
+            held = {key: vals.pop(key) for key in self._DEFERRED_DOC_FIELDS if key in vals}
+            deferred.append(held or None)
         projects = super().create(vals_list)
         for project in projects.filtered('is_project_os'):
             # Every project gets the same filing cabinet on day one, so a Tasker never
@@ -388,6 +401,11 @@ class ProjectProject(models.Model):
                 summary=_('Project created: %(name)s (%(code)s)',
                           name=project.name, code=project.code),
                 record=project)
+        # After the skeleton, so the documents have somewhere to go — and after the
+        # project_created event, so the timeline reads in the order things happened.
+        for project, held in zip(projects, deferred):
+            if held:
+                project.write(held)
         return projects
 
     def write(self, vals):

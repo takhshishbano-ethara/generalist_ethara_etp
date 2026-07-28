@@ -157,15 +157,21 @@
                                 <list editable="bottom">
                                     <field name="sequence" widget="handle"/>
                                     <!-- One column, not two. Type is what a person picks;
-                                         it files the document in this project's matching
-                                         folder. Folder itself is kept only as a hidden
-                                         fallback for documents sitting in a folder someone
-                                         created by hand, which has no type. -->
+                                         epo.document.create() files the document in this
+                                         project's matching folder.
+
+                                         No Folder column. `folder_id` is required on the
+                                         model but is only resolved server-side at create,
+                                         so as a column it sat empty and invalid while you
+                                         typed — and being `optional="hide"` it failed
+                                         silently: the row would not commit, "Add a line"
+                                         did nothing, and no field turned red. For the four
+                                         fixed types Type determines the folder exactly, so
+                                         the column bought nothing. A document in a folder a
+                                         PM created has no type at all and is managed from
+                                         Project OS > Knowledge > Documents, where folder_id
+                                         is a first-class field. -->
                                     <field name="category" string="Type" required="1"/>
-                                    <field name="folder_id" string="Folder" optional="hide"
-                                           domain="[('project_id', '=', parent.id),
-                                                    ('root', '=', 'knowledge')]"
-                                           options="{'no_create': True, 'no_open': True}"/>
                                     <field name="name"/>
                                     <field name="doc_type"/>
                                     <field name="url" widget="url"/>
@@ -187,11 +193,11 @@
                             <field name="management_doc_ids" context="{'epo_category_root': 'management'}">
                                 <list editable="bottom">
                                     <field name="sequence" widget="handle"/>
+                                    <!-- No Folder column, for the same reason as the
+                                         Knowledge tab above. Management nests freely, so
+                                         documents in a PM-created subfolder have no type
+                                         and belong in the Documents view rather than here. -->
                                     <field name="category" string="Type" required="1"/>
-                                    <field name="folder_id" string="Folder" optional="hide"
-                                           domain="[('project_id', '=', parent.id),
-                                                    ('root', '=', 'management')]"
-                                           options="{'no_create': True, 'no_open': True}"/>
                                     <field name="name"/>
                                     <field name="doc_type"/>
                                     <field name="url" widget="url"/>
@@ -265,7 +271,12 @@
                                  buttons are the prototype's kickoff Build buttons
                                  (public/js/app.js buildSL / buildFB); they reuse an
                                  existing draft rather than making a second one. -->
-                            <div class="mb-3" invisible="not id">
+                            <!-- PM and up. A Pod Lead reaches this tab (the Projects
+                                 menu is open to them) but only has read on
+                                 epo.form.template, so an ungated button would hand them
+                                 an AccessError instead of a form. -->
+                            <div class="mb-3" invisible="not id"
+                                 groups="ethara_project_os.group_epo_pm">
                                 <button name="action_build_form" type="object"
                                         class="btn btn-primary btn-sm"
                                         context="{'epo_form_type': 'stagelist'}"
