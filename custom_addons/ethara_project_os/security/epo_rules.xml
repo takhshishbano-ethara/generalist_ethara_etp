@@ -22,7 +22,7 @@
              Pattern per model, three rules:
                · member  → own rows only
                · pod lead → own rows + their pod's rows
-               · manager → everything (GPM and, by implication, Admin)
+               · manager → everything (PM and, by implication, Admin)
 
              A rule with global="False" (the default for group-attached
              rules) is OR-ed across the groups a user belongs to. Because
@@ -36,7 +36,7 @@
             <field name="name">Entries: own submissions</field>
             <field name="model_id" ref="model_epo_form_entry"/>
             <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_entry_pod_lead" model="ir.rule">
             <field name="name">Entries: my pod</field>
@@ -51,7 +51,7 @@
             <field name="name">Entries: org-wide</field>
             <field name="model_id" ref="model_epo_form_entry"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== answers follow their entry ========== -->
@@ -59,7 +59,7 @@
             <field name="name">Answers: own</field>
             <field name="model_id" ref="model_epo_form_value"/>
             <field name="domain_force">[('entry_id.employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_value_pod_lead" model="ir.rule">
             <field name="name">Answers: my pod</field>
@@ -74,7 +74,7 @@
             <field name="name">Answers: org-wide</field>
             <field name="model_id" ref="model_epo_form_value"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== roster ========== -->
@@ -82,7 +82,7 @@
             <field name="name">Roster: own day</field>
             <field name="model_id" ref="model_epo_roster_day"/>
             <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_roster_pod_lead" model="ir.rule">
             <field name="name">Roster: my pod</field>
@@ -97,7 +97,7 @@
             <field name="name">Roster: org-wide</field>
             <field name="model_id" ref="model_epo_roster_day"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== allocations and their phases ========== -->
@@ -105,7 +105,7 @@
             <field name="name">Allocations: own</field>
             <field name="model_id" ref="model_epo_allocation"/>
             <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_allocation_pod_lead" model="ir.rule">
             <field name="name">Allocations: my pod</field>
@@ -120,14 +120,14 @@
             <field name="name">Allocations: org-wide</field>
             <field name="model_id" ref="model_epo_allocation"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <record id="rule_phase_member" model="ir.rule">
             <field name="name">Phases: own</field>
             <field name="model_id" ref="model_epo_allocation_phase"/>
             <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_phase_pod_lead" model="ir.rule">
             <field name="name">Phases: my pod</field>
@@ -142,7 +142,7 @@
             <field name="name">Phases: org-wide</field>
             <field name="model_id" ref="model_epo_allocation_phase"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== onboarding ========== -->
@@ -150,7 +150,7 @@
             <field name="name">Onboarding: own</field>
             <field name="model_id" ref="model_epo_onboarding"/>
             <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_onboarding_pod_lead" model="ir.rule">
             <field name="name">Onboarding: my pod</field>
@@ -165,7 +165,7 @@
             <field name="name">Onboarding: org-wide</field>
             <field name="model_id" ref="model_epo_onboarding"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
 
@@ -180,7 +180,7 @@
             <field name="domain_force">['|',
                 ('employee_id.user_id', '=', user.id),
                 ('employee_id', '=', False)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_timeline_pod_lead" model="ir.rule">
             <field name="name">Timeline: my pod</field>
@@ -195,19 +195,19 @@
             <field name="name">Timeline: org-wide</field>
             <field name="model_id" ref="model_epo_timeline_event"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
 
 
         <!-- ========== role grants ==========
-             Who holds which role is HR-adjacent: a pod member reading the whole
+             Who holds which role is HR-adjacent: a Tasker reading the whole
              grant table learns who was demoted last month. Own grants only. -->
         <record id="rule_role_own" model="ir.rule">
             <field name="name">Role grants: own</field>
             <field name="model_id" ref="model_epo_role_assignment"/>
             <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_role_pod_lead" model="ir.rule">
             <field name="name">Role grants: my pod</field>
@@ -222,7 +222,7 @@
             <field name="name">Role grants: org-wide</field>
             <field name="model_id" ref="model_epo_role_assignment"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== form templates ==========
@@ -233,7 +233,7 @@
             <field name="name">Forms: projects I am on</field>
             <field name="model_id" ref="model_epo_form_template"/>
             <field name="domain_force">[('project_id.allocation_ids.employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_template_pod_lead" model="ir.rule">
             <field name="name">Forms: my pod's projects</field>
@@ -248,12 +248,12 @@
             <field name="name">Forms: all</field>
             <field name="model_id" ref="model_epo_form_template"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== folders and documents ==========
              Knowledge is readable by anyone who can see the project.
-             Management is commercial paperwork — GPM and Admin only, enforced
+             Management is commercial paperwork — PM and Admin only, enforced
              here as well as in the API so a report or an XML-RPC call cannot
              reach round the controller. -->
         <record id="rule_folder_knowledge_only" model="ir.rule">
@@ -262,7 +262,7 @@
             <field name="domain_force">[
                 ('root', '=', 'knowledge'),
                 ('project_id.allocation_ids.employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_folder_pod_lead" model="ir.rule">
             <field name="name">Folders: knowledge, on my pod's projects</field>
@@ -277,7 +277,7 @@
             <field name="name">Folders: all</field>
             <field name="model_id" ref="model_epo_folder"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- Knowledge is project IP — a client's SOP and task videos describe how
@@ -289,7 +289,7 @@
             <field name="domain_force">[
                 ('root', '=', 'knowledge'),
                 ('project_id.allocation_ids.employee_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_document_pod_lead" model="ir.rule">
             <field name="name">Documents: knowledge, on my pod's projects</field>
@@ -304,11 +304,11 @@
             <field name="name">Documents: all</field>
             <field name="model_id" ref="model_epo_document"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== projects ==========
-             Setup-state projects are a GPM's workbench. A pod member or a
+             Setup-state projects are a PM's workbench. A Tasker or a
              lead sees a project once it is live; the knowledge folder is
              further narrowed by allocation at the API layer.
 
@@ -325,13 +325,13 @@
             <field name="model_id" ref="project.model_project_project"/>
             <field name="domain_force">['|', ('is_project_os', '=', False),
                                              ('ethara_state', '!=', 'setup')]</field>
-            <field name="groups" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_tasker'))]"/>
         </record>
         <record id="rule_project_manager" model="ir.rule">
             <field name="name">Projects: all states</field>
             <field name="model_id" ref="project.model_project_project"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="groups" eval="[(4, ref('group_epo_pm'))]"/>
         </record>
 
         <!-- ========== audit log: admin only ========== -->

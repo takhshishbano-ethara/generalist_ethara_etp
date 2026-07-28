@@ -2,7 +2,7 @@
 <odoo>
     <data noupdate="1">
 
-        <!-- Sent to a pod member the moment they are put on a project.
+        <!-- Sent to a Tasker the moment they are put on a project.
 
              It exists because that is the moment they need to know something and
              nobody has told them: the onboarding gate has just opened in front of
@@ -45,15 +45,15 @@
         </tr>
         <tr>
             <td style="padding:4px 16px 4px 0;color:#6b7280">Your role on it</td>
-            <td style="padding:4px 0"><t t-out="dict(object._fields['role_on_project'].selection).get(object.role_on_project) or ''">Pod Member</t></td>
+            <td style="padding:4px 0"><t t-out="dict(object._fields['role_on_project'].selection).get(object.role_on_project) or ''">Tasker</t></td>
         </tr>
         <tr t-if="object.allocation_pct &lt; 100">
             <td style="padding:4px 16px 4px 0;color:#6b7280">Allocation</td>
             <td style="padding:4px 0"><t t-out="'%.0f' % object.allocation_pct">50</t>% of your time</td>
         </tr>
         <tr>
-            <td style="padding:4px 16px 4px 0;color:#6b7280">Project owner (GPM)</td>
-            <td style="padding:4px 0"><t t-out="object.project_id.gpm_id.name or '—'">Gita</t></td>
+            <td style="padding:4px 16px 4px 0;color:#6b7280">Project owner (PM)</td>
+            <td style="padding:4px 0"><t t-out="object.project_id.pm_id.name or '—'">Gita</t></td>
         </tr>
     </table>
 

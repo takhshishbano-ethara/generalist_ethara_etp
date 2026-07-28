@@ -2,9 +2,9 @@
 
 Role shapes, end to end:
 
-* **PM** — reads their own onboarding, their own form, submits entries.
+* **Tasker** — reads their own onboarding, their own form, submits entries.
 * **PL** — reads and edits their pod's roster, reviews their pod's submissions.
-* **GPM** — allocates people to projects, sees everything, org-wide counts.
+* **PM** — allocates people to projects, sees everything, org-wide counts.
 * **Admin** — everything, plus the void and unlock paths.
 """
 
@@ -17,7 +17,7 @@ from .utils import need_int, opt_int, payload, respond, route
 class ProjectOsWork(http.Controller):
 
     # ------------------------------------------------------------------
-    # onboarding — the pod member's path to being allowed to task
+    # onboarding — the Tasker's path to being allowed to task
     # ------------------------------------------------------------------
     @route('/api/project-os/me/onboarding', ['GET'])
     def my_onboarding(self, ctx):
@@ -53,7 +53,7 @@ class ProjectOsWork(http.Controller):
             ctx.employee.id, allocation.project_id.id)
 
     @route('/api/project-os/onboarding/<int:onboarding_id>/waive', ['POST'],
-           min_role='gpm')
+           min_role='pm')
     def waive_onboarding(self, ctx, onboarding_id):
         """Let one person start on one project without finishing the gate.
 
@@ -368,7 +368,7 @@ class ProjectOsWork(http.Controller):
         return respond(message='Unlocked.')
 
     # ------------------------------------------------------------------
-    # allocation — the GPM's staffing action
+    # allocation — the PM's staffing action
     # ------------------------------------------------------------------
     @route('/api/project-os/allocations', ['GET'], min_role='pl')
     def allocations(self, ctx):
@@ -382,11 +382,11 @@ class ProjectOsWork(http.Controller):
         return respond([_allocation_dict(a) for a in allocations])
 
     @route('/api/project-os/projects/<int:project_id>/candidates', ['GET'],
-           min_role='gpm')
+           min_role='pm')
     def candidates(self, ctx, project_id):
         """The staffing shortlist: taskers at or above this project's minimum score.
 
-        The GPM sets the bar on the project first; this returns only the people who
+        The PM sets the bar on the project first; this returns only the people who
         clear it, each with the five facts a staffing call turns on — **name, seat,
         score, current project, leave**.
 
@@ -395,7 +395,7 @@ class ProjectOsWork(http.Controller):
         shortlist reads as "nobody clears 80" rather than "the filter is broken" — the
         one thing a silent filter can never distinguish.
 
-        ``?min_score=`` previews a different bar without saving it, so a GPM can see
+        ``?min_score=`` previews a different bar without saving it, so a PM can see
         what lowering it to 70 would actually buy before committing.
         """
         project = ctx.env['project.project'].browse(project_id).exists()
@@ -404,7 +404,7 @@ class ProjectOsWork(http.Controller):
 
         params = request.params
         include_below = str(params.get('include_below_bar', '')) in ('1', 'true', 'True')
-        # A preview never writes: the bar itself is the GPM's decision, made on the
+        # A preview never writes: the bar itself is the PM's decision, made on the
         # project record, not a query string.
         bar = None
         preview = params.get('min_score')
@@ -432,7 +432,7 @@ class ProjectOsWork(http.Controller):
             'candidates': rows,
         })
 
-    @route('/api/project-os/allocations', ['POST'], min_role='gpm')
+    @route('/api/project-os/allocations', ['POST'], min_role='pm')
     def allocate(self, ctx):
         body = payload()
         allocation = ctx.env['epo.allocation'].create({
@@ -440,7 +440,7 @@ class ProjectOsWork(http.Controller):
             'employee_id': need_int(body, 'employee_id'),
             'date_from': body.get('date_from') or ctx.today(),
             'allocation_pct': body.get('allocation_pct', 100.0),
-            'role_on_project': body.get('role_on_project') or 'pm',
+            'role_on_project': body.get('role_on_project') or 'tasker',
             'note': body.get('note') or False,
             # Below the project's minimum score is allowed, but only deliberately:
             # somebody has to be first on a project, and a new joiner has no score.
@@ -448,7 +448,7 @@ class ProjectOsWork(http.Controller):
         })
         return respond(_allocation_dict(allocation), message='Allocated.')
 
-    @route('/api/project-os/allocations/bulk', ['POST'], min_role='gpm')
+    @route('/api/project-os/allocations/bulk', ['POST'], min_role='pm')
     def allocate_bulk(self, ctx):
         body = payload()
         project_id = need_int(body, 'project_id')
@@ -460,7 +460,7 @@ class ProjectOsWork(http.Controller):
             employee_ids=employee_ids,
             date_from=body.get('date_from'),
             allocation_pct=body.get('allocation_pct', 100.0),
-            role_on_project=body.get('role_on_project') or 'pm',
+            role_on_project=body.get('role_on_project') or 'tasker',
             override_reason=body.get('override_reason') or None,
         )
         return respond({
@@ -471,7 +471,7 @@ class ProjectOsWork(http.Controller):
                    + (f' {len(skipped)} were already on it.' if skipped else ''))
 
     @route('/api/project-os/allocations/<int:allocation_id>/release', ['POST'],
-           min_role='gpm')
+           min_role='pm')
     def release(self, ctx, allocation_id):
         allocation = ctx.env['epo.allocation'].browse(allocation_id).exists()
         if not allocation:

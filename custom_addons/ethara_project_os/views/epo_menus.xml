@@ -4,9 +4,9 @@
     <!-- The backend menu is an operations console, not the product.
 
          The four roles work in a separate frontend against /api/project-os/*. What is
-         here is for the people who have to fix things: a GPM correcting a record, a
+         here is for the people who have to fix things: a PM correcting a record, a
          lead checking a roster, an Admin reading the audit log. Every screen is gated
-         so a pod member never lands in it.
+         so a Tasker never lands in it.
 
          No web_icon: there is no icon asset in this module, and pointing at a missing
          file gives a broken image on the Apps screen rather than the default. -->
@@ -25,7 +25,7 @@
     <menuitem id="menu_epo_entries" name="Submissions" parent="menu_epo_work"
               action="action_epo_entry" sequence="30"/>
 
-    <!-- ========== the GPM's workbench ========== -->
+    <!-- ========== the PM's workbench ========== -->
     <!-- One entry, not a folder of one: documents, training, forms, assessment and
          onboarding all live on the project's own tabs, so there is nothing else to
          hang here. The actions still exist for direct links. -->
@@ -41,7 +41,7 @@
               sequence="25"/>
     <menuitem id="menu_epo_assessment" name="Linked Papers"
               parent="menu_epo_assessment_root" action="action_ethara_assessment"
-              sequence="10" groups="ethara_project_os.group_epo_manager"/>
+              sequence="10" groups="ethara_project_os.group_epo_pm"/>
 
     <!-- ========== staffing ========== -->
     <menuitem id="menu_epo_resources" name="Resources" parent="menu_epo_root"

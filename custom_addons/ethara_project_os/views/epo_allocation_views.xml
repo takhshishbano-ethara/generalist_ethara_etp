@@ -236,10 +236,10 @@
                             confirm="Confirm you have read the result in the external application. This is recorded against your name."/>
                     <button name="action_unverify_assessment" type="object"
                             string="Withdraw verification"
-                            groups="ethara_project_os.group_epo_manager"
+                            groups="ethara_project_os.group_epo_pm"
                             invisible="not assessment_passed"/>
                     <button name="action_waive" type="object" string="Waive"
-                            groups="ethara_project_os.group_epo_manager"
+                            groups="ethara_project_os.group_epo_pm"
                             invisible="unlocked"
                             context="{'epo_reason': 'Waived from the backend'}"
                             confirm="A waiver lets this person start work without evidence they are ready. It is written to the audit log. Continue?"/>

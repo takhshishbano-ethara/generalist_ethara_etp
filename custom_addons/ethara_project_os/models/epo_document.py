@@ -4,7 +4,7 @@ The Knowledge and Management folders are an S3 layout. A document is either an o
 in the bucket or an external link — there is no third case:
 
 * **s3** — every uploaded file, without exception. The key mirrors the visible path, so
-  an operator browsing the bucket sees the same shape as a GPM browsing the folders.
+  an operator browsing the bucket sees the same shape as a PM browsing the folders.
   No bucket configured means no upload: refused with a message saying so, rather than
   quietly written somewhere else.
 * **link** — the document *is* a URL. Nothing is stored.
@@ -17,7 +17,7 @@ Three rules that matter more than the storage choice:
    exactly the failure this design exists to avoid.
 2. **A document must carry the payload its type implies** — a 'file' with no file is a
    broken link in somebody's face at 2am.
-3. **Links must be http(s).** A ``javascript:`` URL rendered into a GPM's browser is a
+3. **Links must be http(s).** A ``javascript:`` URL rendered into a PM's browser is a
    privilege escalation, not a typo.
 """
 
@@ -31,6 +31,8 @@ import uuid
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+
+from .epo_folder import FOLDER_SLUGS, KNOWLEDGE_TREE, MANAGEMENT_TREE
 
 _logger = logging.getLogger(__name__)
 
@@ -49,10 +51,22 @@ class EpoDocument(models.Model):
     project_id = fields.Many2one(
         'project.project', related='folder_id.project_id', store=True, index=True)
     root = fields.Selection(related='folder_id.root', store=True, index=True)
-    category = fields.Char(
-        related='folder_id.slug', store=True, index=True,
-        help='The system folder this document sits in (sop, client_documents, …). '
-             'Empty inside a folder a GPM created.')
+    # The document's type — SOP / Common Errors / Task Videos / Other — and the field a
+    # person actually picks. The folder remains the single source of truth on disk; this
+    # reads it and, when set, moves the document to the matching folder of its own
+    # project. Two directions, one fact, so the two can never disagree.
+    #
+    # It was `related='folder_id.slug'` and therefore READ-ONLY, which made it useless:
+    # the column sat blank until you found the folder picker, and the folder picker shows
+    # "Knowledge / SOP" rather than "SOP". One editable column replaces both.
+    #
+    # The stored values are unchanged (`sop`, `common_errors`, …), so _recompute_gate's
+    # `category == 'sop'`, every search filter and every migration are untouched.
+    category = fields.Selection(
+        selection='_selection_category', string='Type', store=True, index=True,
+        readonly=False, compute='_compute_category', inverse='_inverse_category',
+        help='Which of the fixed folders this document sits in. Empty inside a folder a '
+             'PM created, because that is not one of the fixed types.')
 
     name = fields.Char(required=True)
     description = fields.Text()
@@ -67,6 +81,55 @@ class EpoDocument(models.Model):
         compute='_compute_storage', store=True, readonly=True,
         help='New uploads are always S3. "Legacy" only appears on rows written before '
              'the bucket became mandatory; they still download correctly.')
+
+    @api.model
+    def _selection_category(self):
+        """The types offered, narrowed to the tab being edited.
+
+        A Selection takes no ``domain``, so the Knowledge grid would otherwise offer
+        Client Documents and filing a document there would make it vanish from the tab it
+        was created in. The one2many passes ``epo_category_root`` and this narrows to that
+        side; with no context the full set is returned, which is what keeps the stored
+        value valid everywhere else (the ORM validates writes against this same list).
+        """
+        root = self.env.context.get('epo_category_root')
+        if root == 'knowledge':
+            return [(slug, label) for slug, label, _m in KNOWLEDGE_TREE]
+        if root == 'management':
+            return [(slug, label) for slug, label, _m in MANAGEMENT_TREE]
+        return FOLDER_SLUGS
+
+    @api.depends('folder_id.slug')
+    def _compute_category(self):
+        for doc in self:
+            doc.category = doc.folder_id.slug or False
+
+    def _inverse_category(self):
+        """Picking a type files the document in that folder.
+
+        Only ever moves within the document's own project — `_folder_for` searches by
+        project_id — so choosing a type can never fling a document into another
+        project's folder. A type with no matching folder (or a document not yet attached
+        to a project) is left alone rather than guessed at; the folder is required, so
+        the create path below has already resolved one by this point.
+        """
+        for doc in self:
+            if not doc.category or doc.folder_id.slug == doc.category:
+                continue
+            folder = self._folder_for(doc.project_id.id, doc.category)
+            if folder:
+                doc.folder_id = folder
+
+    @api.model
+    def _folder_for(self, project_id, slug):
+        """The one system folder of `project_id` carrying `slug`, or an empty recordset."""
+        if not project_id or not slug:
+            return self.env['epo.folder']
+        return self.env['epo.folder'].search([
+            ('project_id', '=', project_id),
+            ('slug', '=', slug),
+            ('active', '=', True),
+        ], limit=1)
 
     # --- payloads ------------------------------------------------------
     url = fields.Char(help='For a link document, and for nothing else.')
@@ -139,6 +202,18 @@ class EpoDocument(models.Model):
     # ------------------------------------------------------------------
     @api.model_create_multi
     def create(self, vals_list):
+        # Resolve the folder from the picked type. The inverse above cannot do this at
+        # create time: it needs the project, and `project_id` is a stored related on
+        # `folder_id`, which is precisely what is still missing. The one2many on the
+        # project form supplies `project_id` in the vals, so use that.
+        for vals in vals_list:
+            if vals.get('folder_id') or not vals.get('category'):
+                continue
+            project_id = (vals.get('project_id')
+                          or self.env.context.get('default_project_id'))
+            folder = self._folder_for(project_id, vals['category'])
+            if folder:
+                vals['folder_id'] = folder.id
         staged = [vals.pop('file_data', None) for vals in vals_list]
         # The row must exist before its bytes can be keyed to it, so the
         # "a file document has a file" check is deferred to just after storage.
@@ -193,7 +268,7 @@ class EpoDocument(models.Model):
     def _s3_connector(self):
         """The configured bucket, or an empty recordset when none is set up.
 
-        Never raises: a missing bucket must degrade to Odoo storage, not block a GPM
+        Never raises: a missing bucket must degrade to Odoo storage, not block a PM
         from uploading an SOP."""
         if 's3.connector' not in self.env:
             return None
@@ -297,6 +372,33 @@ class EpoDocument(models.Model):
                     'url': f'/web/content/{self.attachment_id.id}?download=true',
                     'filename': self.file_name or self.name}
         raise UserError(_('"%s" has no stored file.', self.name))
+
+    def read_bytes(self):
+        """The raw bytes of this document, or ``None`` when there are none to read.
+
+        ``download_target`` mints a presigned URL for a browser; this is for handing the
+        content to another module in-process — the assessment app's prompt resources
+        want a Binary, not a link.
+
+        Returns ``None`` for a link document: there is no file, and the caller has to
+        decide what to do about that rather than be handed empty bytes.
+        """
+        self.ensure_one()
+        if self.doc_type == 'link':
+            return None
+        if self.s3_key:
+            connector = self._s3_connector()
+            if not connector:
+                raise UserError(_(
+                    '"%s" lives in S3 but no bucket is configured any more, so its '
+                    'contents cannot be read.', self.name))
+            client = connector._get_s3_client()
+            obj = client.get_object(
+                Bucket=self.s3_bucket or connector.name, Key=self.s3_key)
+            return obj['Body'].read()
+        if self.attachment_id:
+            return base64.b64decode(self.attachment_id.datas or b'')
+        return None
 
     def to_dict(self):
         self.ensure_one()

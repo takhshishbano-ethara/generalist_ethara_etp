@@ -39,15 +39,15 @@ except Exception: print('')" 2>/dev/null)
 }
 
 echo "── signing in ──"
-GPM=$(token gita@demo.ethara)
+PM=$(token gita@demo.ethara)
 PL=$(token piyush@demo.ethara)
-PM=$(token mira@demo.ethara)
-for pair in "GPM:$GPM" "PL:$PL" "PM:$PM"; do
+Tasker=$(token mira@demo.ethara)
+for pair in "PM:$PM" "PL:$PL" "Tasker:$Tasker"; do
   name=${pair%%:*}; tok=${pair#*:}
   [ -n "$tok" ] && echo "  $name ok" || { echo "  $name FAILED to sign in"; exit 1; }
 done
 
-PROJECT=$(curl -s -H "access-token: $GPM" "$BASE/api/project-os/projects" \
+PROJECT=$(curl -s -H "access-token: $PM" "$BASE/api/project-os/projects" \
           | python3 -c "
 import json,sys
 for p in json.load(sys.stdin)['data']:
@@ -55,12 +55,12 @@ for p in json.load(sys.stdin)['data']:
 echo "  demo project id: ${PROJECT:-not found}"
 
 echo
-echo "── the pod member's day ──"
-call "who am I"                     "$PM"  GET  "/me"
-call "my onboarding"                "$PM"  GET  "/me/onboarding"
-call "the form I have to fill"      "$PM"  GET  "/me/form?form_type=stagelist"
-call "my submission counts"         "$PM"  GET  "/counts?form_type=stagelist"
-call "the knowledge folder"         "$PM"  GET  "/projects/$PROJECT/folders"
+echo "── the Tasker's day ──"
+call "who am I"                     "$Tasker"  GET  "/me"
+call "my onboarding"                "$Tasker"  GET  "/me/onboarding"
+call "the form I have to fill"      "$Tasker"  GET  "/me/form?form_type=stagelist"
+call "my submission counts"         "$Tasker"  GET  "/counts?form_type=stagelist"
+call "the knowledge folder"         "$Tasker"  GET  "/projects/$PROJECT/folders"
 
 echo
 echo "── the pod lead's board ──"
@@ -69,25 +69,25 @@ call "who is still ramping up"      "$PL"  GET  "/onboarding?pending_only=1"
 call "my pod's submissions"         "$PL"  GET  "/submissions?limit=5"
 
 echo
-echo "── the GPM's workbench ──"
-call "every project"                "$GPM" GET  "/projects"
-call "one project in detail"        "$GPM" GET  "/projects/$PROJECT"
-call "who can I staff"              "$GPM" GET  "/projects/$PROJECT/candidates"
-call "current allocations"          "$GPM" GET  "/allocations"
-call "org-wide analytics"           "$GPM" GET  "/analytics/overview"
+echo "── the PM's workbench ──"
+call "every project"                "$PM" GET  "/projects"
+call "one project in detail"        "$PM" GET  "/projects/$PROJECT"
+call "who can I staff"              "$PM" GET  "/projects/$PROJECT/candidates"
+call "current allocations"          "$PM" GET  "/allocations"
+call "org-wide analytics"           "$PM" GET  "/analytics/overview"
 
 echo
 echo "── history, both readings ──"
-EMP=$(curl -s -H "access-token: $PM" "$BASE/api/project-os/me" | jq_get data employee id)
-call "one person's whole history"   "$GPM" GET  "/employees/$EMP/history"
-call "one project's whole history"  "$GPM" GET  "/projects/$PROJECT/history"
+EMP=$(curl -s -H "access-token: $Tasker" "$BASE/api/project-os/me" | jq_get data employee id)
+call "one person's whole history"   "$PM" GET  "/employees/$EMP/history"
+call "one project's whole history"  "$PM" GET  "/projects/$PROJECT/history"
 
 echo
 echo "── refusals (these SHOULD fail) ──"
-call "PM creating a project → 403"  "$PM"  POST "/projects" '{"name":"Nope"}'
-call "PM reading candidates → 403"  "$PM"  GET  "/projects/$PROJECT/candidates"
-call "allocate with no id → 400"    "$GPM" POST "/allocations" '{}'
-call "limit=abc → 400"              "$GPM" GET  "/submissions?limit=abc"
+call "Tasker creating a project → 403"  "$Tasker"  POST "/projects" '{"name":"Nope"}'
+call "Tasker reading candidates → 403"  "$Tasker"  GET  "/projects/$PROJECT/candidates"
+call "allocate with no id → 400"    "$PM" POST "/allocations" '{}'
+call "limit=abc → 400"              "$PM" GET  "/submissions?limit=abc"
 call "no token at all → 401"        ""     GET  "/me"
 
 rm -f /tmp/epo_out

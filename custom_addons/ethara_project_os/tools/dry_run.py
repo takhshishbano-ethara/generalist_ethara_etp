@@ -32,17 +32,17 @@ atlas = P.search([('code', '=', 'DEMO-ATLAS')])
 tool = P.search([('code', '=', 'DEMO-TOOL')])
 
 head('1 · PEOPLE AND ROLES')
-for role in ('gpm', 'pl', 'pm'):
+for role in ('pm', 'pl', 'tasker'):
     people = env['hr.employee'].search([('epo_role', '=', role)])
     print(f'  {role.upper():4} {len(people)}: ' + ', '.join(people.mapped('name')))
 gita = env['hr.employee'].search([('name', '=', 'Gita Rao')])
 mira = env['hr.employee'].search([('name', '=', 'Mira Shah')])
 check('a role grant produced a working login level',
-      gita.user_id.has_group('ethara_project_os.group_epo_manager'))
-check('the ladder holds — GPM implies pod lead',
+      gita.user_id.has_group('ethara_project_os.group_epo_pm'))
+check('the ladder holds — PM implies pod lead',
       gita.user_id.has_group('ethara_project_os.group_epo_pod_lead'))
-check('a pod member is not a manager',
-      not mira.user_id.has_group('ethara_project_os.group_epo_manager'))
+check('a Tasker is not a manager',
+      not mira.user_id.has_group('ethara_project_os.group_epo_pm'))
 
 head('2 · PROJECTS AND THE GO-LIVE GATE')
 for project in (mm7, atlas, tool):
@@ -72,7 +72,7 @@ check('the S3 prefix mirrors the visible path',
       env['epo.folder']._get(mm7, 'sop').s3_prefix.endswith('knowledge/sop'),
       env['epo.folder']._get(mm7, 'sop').s3_prefix)
 member_tree = env['epo.folder'].tree_for(mm7, user=mira.user_id)
-check('a pod member sees no Management branch at all',
+check('a Tasker sees no Management branch at all',
       [n['slug'] for n in member_tree] == ['knowledge'])
 check('and cannot read a client document',
       not env['epo.document'].with_user(mira.user_id).search_count(
@@ -143,7 +143,7 @@ check('nobody exceeds 100% of capacity',
       all(sum(env['epo.allocation'].search([
           ('employee_id', '=', e.id), ('date_to', '=', False)]).mapped(
               'allocation_pct')) <= 100
-          for e in env['hr.employee'].search([('epo_role', '=', 'pm')])))
+          for e in env['hr.employee'].search([('epo_role', '=', 'tasker')])))
 
 head('7 · SUBMISSIONS — THE LEDGER')
 Entry = env['epo.form.entry']
@@ -173,14 +173,14 @@ check('answers are stored against the fields of that form',
 
 head('8 · SCOPING — WHAT EACH ROLE ACTUALLY SEES')
 piyush = env['hr.employee'].search([('name', '=', 'Piyush Nair')])
-print(f'  {"model":26}{"total":>7}{"member":>8}{"lead":>7}{"gpm":>7}')
+print(f'  {"model":26}{"total":>7}{"member":>8}{"lead":>7}{'pm':>7}')
 for model in ('epo.form.entry', 'epo.document', 'epo.folder',
               'epo.role.assignment', 'epo.form.template'):
     counts = [env[model].sudo().search_count([])]
     for user in (mira.user_id, piyush.user_id, gita.user_id):
         counts.append(env[model].with_user(user).search_count([]))
     print(f'  {model:26}{counts[0]:>7}{counts[1]:>8}{counts[2]:>7}{counts[3]:>7}')
-check('a pod member sees fewer submissions than the GPM',
+check('a Tasker sees fewer submissions than the PM',
       env['epo.form.entry'].with_user(mira.user_id).search_count([]) <
       env['epo.form.entry'].with_user(gita.user_id).search_count([]))
 check('a pod lead sees their pod but not the whole org',

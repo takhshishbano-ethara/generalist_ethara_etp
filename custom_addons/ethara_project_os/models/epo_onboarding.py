@@ -3,11 +3,11 @@
 Two rules carried over from the prototype, both deliberate:
 
 * **A stage with no content auto-passes.** A project with no mandatory training and no
-  assessment gates on the SOP click alone. The gate must never block on a stage the GPM
+  assessment gates on the SOP click alone. The gate must never block on a stage the PM
   never set up — that is how a whole pod ends up unable to start work on a Monday.
 * **Assessment completion is asserted by a human** (data model v2 §4.6.3). The paper is
   sat in an external application that Odoo never talks to, so nobody here can grade it.
-  A PM or Pod Lead reads the external result and ticks it. That makes this the one place
+  A Tasker or Pod Lead reads the external result and ticks it. That makes this the one place
   in the module where readiness is claimed rather than evidenced — so the toggle is
   group-restricted, stamped with who and when, and posted to the chatter (§11.2).
 
@@ -46,7 +46,7 @@ class EpoOnboarding(models.Model):
     # nothing to derive it from. Restricted to Pod Lead and above by action_verify().
     assessment_passed = fields.Boolean(
         default=False, tracking=True, string='Assessment passed',
-        help='Ticked by a PM or Pod Lead after reading the result in the external '
+        help='Ticked by a Tasker or Pod Lead after reading the result in the external '
              'assessment application. Odoo does not grade, so this is an assertion — '
              'which is why it records who made it and when.')
     assessment_verified_by = fields.Many2one(
@@ -99,7 +99,7 @@ class EpoOnboarding(models.Model):
 
     def _missing_steps(self):
         """The stages still outstanding. A stage with no content auto-passes: the gate
-        must never block on something the GPM never set up."""
+        must never block on something the PM never set up."""
         self.ensure_one()
         if self.waived_by_id:
             return []
@@ -221,7 +221,7 @@ class EpoOnboarding(models.Model):
         if not (self.env.su
                 or self.env.user.has_group('ethara_project_os.group_epo_pod_lead')):
             raise UserError(_(
-                'Only a Pod Lead, GPM or Admin may verify an assessment result.'))
+                'Only a Pod Lead, PM or Admin may verify an assessment result.'))
         # Context wins (that is the API path); otherwise take whatever the verifier
         # typed into assessment_score on the form, so the header button needs no wizard.
         ctx_score = self.env.context.get('epo_score')
@@ -253,8 +253,8 @@ class EpoOnboarding(models.Model):
         """Undo a verification — a wrong tick has to be correctable, and clearing it
         must close the gate again rather than leave somebody tasking on a mistake."""
         if not (self.env.su
-                or self.env.user.has_group('ethara_project_os.group_epo_manager')):
-            raise UserError(_('Only a GPM or Admin may withdraw a verification.'))
+                or self.env.user.has_group('ethara_project_os.group_epo_pm')):
+            raise UserError(_('Only a PM or Admin may withdraw a verification.'))
         for rec in self:
             rec.write({'assessment_passed': False,
                        'assessment_verified_by': False,
@@ -280,14 +280,14 @@ class EpoOnboarding(models.Model):
         return True
 
     def action_waive(self):
-        """Skip the gate for one person on one project. GPM or Admin only, reason
+        """Skip the gate for one person on one project. PM or Admin only, reason
         mandatory, and it is written to the audit log as well as the timeline — a waiver
         is the one place where somebody starts work without evidence they are ready."""
         # env.su covers migrations and internal automation running as superuser;
-        # every human path still needs the GPM group.
+        # every human path still needs the PM group.
         if not (self.env.su
-                or self.env.user.has_group('ethara_project_os.group_epo_manager')):
-            raise UserError(_('Only a GPM or an Admin may waive onboarding.'))
+                or self.env.user.has_group('ethara_project_os.group_epo_pm')):
+            raise UserError(_('Only a PM or an Admin may waive onboarding.'))
         reason = self.env.context.get('epo_reason')
         if not reason:
             raise UserError(_('A waiver needs a reason.'))
@@ -308,11 +308,11 @@ class EpoOnboarding(models.Model):
         return True
 
     def to_dict(self):
-        """The pod member's onboarding screen, in one payload."""
+        """The Tasker's onboarding screen, in one payload."""
         self.ensure_one()
         project = self.project_id
         # The SOP step shows the SOP folder, not the whole Knowledge side. Before the
-        # folders existed this listed every knowledge document, so a pod member clicking
+        # folders existed this listed every knowledge document, so a Tasker clicking
         # "SOP" also got task videos and common errors with no way to tell them apart.
         sop_folder = self.env['epo.folder']._get(project, 'sop')
         docs = sop_folder.document_ids.filtered('active')
@@ -350,7 +350,7 @@ class EpoOnboarding(models.Model):
                 'verified_by': self.assessment_verified_by.name or '',
                 'verified_at': str(self.assessment_verified_at or ''),
                 'score': self.assessment_score or None,
-                # Where the tasker goes to sit it. Odoo never sees the result — a PM
+                # Where the tasker goes to sit it. Odoo never sees the result — a Tasker
                 # reads it there and ticks the box here.
                 'link': assessment.to_dict() if assessment else None,
             },

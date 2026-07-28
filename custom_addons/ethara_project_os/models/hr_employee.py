@@ -50,8 +50,8 @@ class HrEmployee(models.Model):
     epo_role_assignment_ids = fields.One2many(
         'epo.role.assignment', 'employee_id', string='Role Grants')
     epo_role = fields.Selection(
-        [('pm', 'PM — Pod Member'), ('pl', 'PL — Pod Lead'),
-         ('gpm', 'GPM'), ('admin', 'Admin')],
+        [('tasker', 'Tasker'), ('pl', 'PL — Pod Lead'),
+         ('pm', 'PM'), ('admin', 'Admin')],
         string='Project OS Role', compute='_compute_epo_role', store=True, index=True,
         help='The strongest role currently granted. Derived from the effective-dated '
              'grants, never set by hand.')
@@ -144,7 +144,7 @@ class HrEmployee(models.Model):
     def _epo_best_assessment_score(self):
         """The best score this person has been verified at, across every project.
 
-        Odoo does not grade — a PM reads the external result and records what they saw
+        Odoo does not grade — a Tasker reads the external result and records what they saw
         on the onboarding record (v2 §4.6.3). This reads those.
 
         ``None`` when nobody has ever recorded a score, which is deliberately different
@@ -219,13 +219,13 @@ class HrEmployee(models.Model):
     def _epo_scope_employee_ids(self):
         """The employee ids this employee is allowed to see, by their role.
 
-        PM    → themselves
+        Tasker    → themselves
         PL    → themselves + everyone in the pods they lead (+ direct reports)
-        GPM   → everyone
+        PM   → everyone
         Admin → everyone
         """
         self.ensure_one()
-        if self.epo_role in ('gpm', 'admin'):
+        if self.epo_role in ('pm', 'admin'):
             return self.env['hr.employee'].sudo().search([]).ids
         if self.epo_role == 'pl':
             pods = self.env['epo.pod'].sudo().search([('lead_employee_id', '=', self.id)])

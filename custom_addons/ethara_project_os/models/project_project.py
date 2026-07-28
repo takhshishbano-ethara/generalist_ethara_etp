@@ -36,6 +36,7 @@ recomputed by subquery on every list; at roster scale the prototype's EXISTS-per
 was a sequential scan per project card on every page load.
 """
 
+import base64
 import re
 from datetime import timedelta
 
@@ -45,7 +46,7 @@ from odoo.exceptions import UserError, ValidationError
 ETHARA_STATES = [('setup', 'Setup'), ('active', 'Active'), ('archived', 'Archived')]
 
 # How far ahead the staffing screen looks for approved leave. Two weeks is the window a
-# GPM is actually deciding over — further out and every candidate carries a note that
+# PM is actually deciding over — further out and every candidate carries a note that
 # has nothing to do with the decision in front of them.
 CANDIDATE_LEAVE_HORIZON_DAYS = 14
 
@@ -83,18 +84,32 @@ class ProjectProject(models.Model):
 
     min_assessment_score = fields.Float(
         string='Minimum score', default=0.0, tracking=True,
-        help='The bar a pod member must already clear to be put on this project, as a '
-             'percentage. Set by the PM. 0 means no bar — anybody can be allocated.\n'
+        help='The bar a Tasker must already clear to be put on this project, as a '
+             'percentage. Set by the Tasker. 0 means no bar — anybody can be allocated.\n'
              'This sits ABOVE the assessment paper\'s own pass mark: a paper may pass '
              'at 60 while this project only takes people who scored 80 somewhere.')
 
-    gpm_id = fields.Many2one(
-        'hr.employee', string='GPM Owner', tracking=True, ondelete='restrict',
+    pm_id = fields.Many2one(
+        'hr.employee', string='PM Owner', tracking=True, ondelete='restrict',
         help='The programme-management owner accountable for delivery. Distinct from '
              'the native user_id, which is the Odoo project manager.')
     created_by_emp_id = fields.Many2one(
         'hr.employee', string='Created By', readonly=True, copy=False,
         ondelete='restrict', default=lambda s: s._default_creator())
+    # --- what we sent to the assessment app -----------------------------
+    # The push is a project-level act and can happen before any paper exists, so it is
+    # recorded here rather than on ethara.assessment — which needs a real URL and
+    # therefore cannot be created until the far side has finished.
+    etp_prompt_id = fields.Many2one(
+        'etp.assessment.prompt', string='Assessment prompt', readonly=True, copy=False,
+        ondelete='set null',
+        help='The prompt created in the assessment app from this project\'s SOP and '
+             'training. Everything after that — extracting skills, choosing them, '
+             'generating and approving questions — happens over there.')
+    assessment_sent_at = fields.Datetime(readonly=True, copy=False)
+    assessment_sent_by_id = fields.Many2one(
+        'res.users', string='Sent by', readonly=True, copy=False, ondelete='restrict')
+
     activated_at = fields.Datetime(readonly=True, copy=False)
     archived_at = fields.Datetime(readonly=True, copy=False)
 
@@ -161,8 +176,16 @@ class ProjectProject(models.Model):
         '(lower(code)) WHERE code IS NOT NULL', 'That project code is already in use.')
     # Both gate constraints are satisfied trivially by every project that is not in this
     # pipeline: ethara_state defaults to 'setup' and stays there.
+    # COALESCE is not decoration. `NULL AND NULL` is NULL in SQL and a CHECK PASSES on
+    # NULL, so without it an active project could be stored with no SOP and no
+    # stagelist — the one thing this constraint exists to forbid. Both columns are
+    # nullable, so that was reachable from any raw write or import.
+    # migrations/19.0.1.3.1 backfills and recomputes the flags first, because Odoo logs
+    # and swallows a constraint it cannot apply (registry.py:706) — one bad row would
+    # otherwise leave the gate with no constraint at all.
     _epo_active_requires_gate = models.Constraint(
-        "CHECK (ethara_state <> 'active' OR (has_sop AND has_stagelist))",
+        "CHECK (ethara_state <> 'active' "
+        "OR (COALESCE(has_sop, false) AND COALESCE(has_stagelist, false)))",
         'A project can only go active with an SOP and a published stagelist.')
     _epo_activated_stamped = models.Constraint(
         "CHECK (ethara_state = 'setup' OR activated_at IS NOT NULL)",
@@ -357,7 +380,7 @@ class ProjectProject(models.Model):
             vals['code'] = self._normalise_code(vals.get('code')) or self._next_code()
         projects = super().create(vals_list)
         for project in projects.filtered('is_project_os'):
-            # Every project gets the same filing cabinet on day one, so a PM never
+            # Every project gets the same filing cabinet on day one, so a Tasker never
             # faces an empty screen and a tasker always knows where to look.
             self.env['epo.folder']._build_skeleton(project)
             self.env['epo.timeline.event'].log(
@@ -401,9 +424,9 @@ class ProjectProject(models.Model):
                    min_score=None):
         """The staffing screen: which taskers clear this project's bar.
 
-        The GPM sets ``min_assessment_score`` first; this answers "so who does that
+        The PM sets ``min_assessment_score`` first; this answers "so who does that
         leave me?". **Only people at or above the bar come back** — that is the point of
-        setting one, and a screen listing forty names the GPM cannot pick is not a
+        setting one, and a screen listing forty names the PM cannot pick is not a
         shortlist.
 
         Pass ``include_below_bar`` to get the rest anyway, each carrying the reason it
@@ -416,7 +439,7 @@ class ProjectProject(models.Model):
         until Friday is a different answer from somebody who is free today, and the
         screen has to be able to say so.
 
-        ``min_score`` previews a different bar without saving it, so a GPM can see what
+        ``min_score`` previews a different bar without saving it, so a PM can see what
         lowering it to 70 would buy before committing. The stored bar is the one that
         governs the allocation itself; this only changes what the screen shows.
         """
@@ -475,14 +498,14 @@ class ProjectProject(models.Model):
         self.ensure_one()
         Employee = self.env['hr.employee']
         employees = (Employee.browse(employee_ids) if employee_ids
-                     else Employee.search([('epo_role', '=', 'pm')]))
+                     else Employee.search([('epo_role', '=', 'tasker')]))
         return employees.filtered('active')
 
     def _candidate_leave(self, employees):
         """``{employee_id: (on_leave_today, "human note")}`` for the staffing screen.
 
         Read from ``hr.leave`` rather than today's roster, because the roster only
-        knows about today and tomorrow. A GPM staffing a project on Friday needs to see
+        knows about today and tomorrow. A PM staffing a project on Friday needs to see
         that somebody is off all next week — which is exactly the fact the roster
         cannot hold yet.
         """
@@ -511,6 +534,58 @@ class ProjectProject(models.Model):
                                              **{'from': start, 'to': end or start}))
         return out
 
+    def action_build_form(self):
+        """Open this project's stagelist or feedback form for building.
+
+        The form builder needs a saved record: Publish and New version are object
+        methods, the Fields tab has to point sections at real ids, and the Odoo x2many
+        dialog cannot give any of that to a line that only exists in memory. So this
+        opens the template full page instead of in a popup, and creates the draft on
+        the way if there is none — the same "Build" button the prototype's kickoff
+        stepper had (public/js/app.js, buildSL / buildFB).
+
+        Reaching an existing draft rather than always creating is what keeps the
+        one-published-per-(project, form_type) index from being hit by a PM who clicks
+        twice.
+        """
+        self.ensure_one()
+        form_type = self.env.context.get('epo_form_type') or 'stagelist'
+        Template = self.env['epo.form.template']
+        template = Template.search([
+            ('project_id', '=', self.id),
+            ('form_type', '=', form_type),
+            ('state', '=', 'draft'),
+        ], order='version desc', limit=1)
+        if not template:
+            template = Template.search([
+                ('project_id', '=', self.id),
+                ('form_type', '=', form_type),
+                ('state', '=', 'published'),
+            ], limit=1)
+        if not template:
+            template = Template.create({
+                'project_id': self.id,
+                'form_type': form_type,
+                'name': '%s — %s' % (
+                    self.name,
+                    _('Stagelist') if form_type == 'stagelist' else _('Feedback')),
+            })
+            # A form with no section has nowhere to hang its first field, and the
+            # Fields tab's section picker would open empty. The API's POST /templates
+            # seeds the same first section (controllers/projects.py).
+            self.env['epo.form.section'].create({
+                'template_id': template.id, 'name': _('Section 1'), 'sequence': 10})
+        return {
+            'type': 'ir.actions.act_window',
+            'name': template.name,
+            'res_model': 'epo.form.template',
+            'res_id': template.id,
+            'view_mode': 'form',
+            'views': [(self.env.ref(
+                'ethara_project_os.view_epo_template_form').id, 'form')],
+            'target': 'current',
+        }
+
     def action_open_history(self):
         """Stat button: this project's whole history, the same rows the API serves at
         GET /projects/<id>/history."""
@@ -532,6 +607,105 @@ class ProjectProject(models.Model):
             'view_mode': 'list,form',
             'domain': [('project_id', '=', self.id)],
             'context': {'default_project_id': self.id},
+        }
+
+    # Our knowledge categories → the buckets the assessment app files sources under.
+    # Anything without a mapping goes to 'other'; theirs is sop / vendor / client / other.
+    _ASSESSMENT_RESOURCE_CATEGORY = {'sop': 'sop', 'client_documents': 'client'}
+
+    def action_send_to_assessment(self):
+        """Send this project's SOP and training to the assessment app.
+
+        This is the whole of our side. We create a prompt over there and attach the
+        source material; extracting skills, choosing which to test, generating and
+        approving the questions all happen in that app, driven by a person. Creating a
+        resource there triggers its own text extraction, so there is nothing to poll.
+
+        Link documents cannot be attached — the far side requires a file — so their URLs
+        are passed as notes instead, and the summary says how many went each way rather
+        than pretending everything was sent.
+        """
+        self.ensure_one()
+        if not self.is_project_os:
+            raise UserError(_('Only a Project OS project has knowledge to send.'))
+        if 'etp.assessment.prompt' not in self.env:
+            raise UserError(_(
+                'The assessment app is not installed, so there is nowhere to send this.'))
+
+        documents = self.document_ids.filtered(
+            lambda d: d.active and d.root == 'knowledge')
+        trainings = self.training_ids.filtered('active')
+        if not documents and not trainings:
+            raise UserError(_(
+                'There is nothing to send yet — add an SOP to the knowledge folder '
+                'first, and any training material.'))
+
+        # sudo: a PM is authorised to do this, but the prompt lives in another app with
+        # its own groups. The button is already gated to PM by the view.
+        Prompt = self.env['etp.assessment.prompt'].sudo()
+        Resource = self.env['etp.assessment.prompt.resource'].sudo()
+
+        # Read everything BEFORE creating anything over there: if a document cannot be
+        # read we want to know now, not after a half-populated prompt exists.
+        notes, payloads, skipped = [], [], []
+        for document in documents:
+            if document.doc_type == 'link':
+                notes.append('%s: %s' % (document.name, document.url))
+                continue
+            try:
+                raw = document.read_bytes()
+            except UserError as exc:
+                skipped.append('%s (%s)' % (document.name, exc))
+                continue
+            if not raw:
+                skipped.append(_('%s (no file stored)') % document.name)
+                continue
+            payloads.append({
+                'name': document.file_name or document.name,
+                'category': self._ASSESSMENT_RESOURCE_CATEGORY.get(
+                    document.category, 'other'),
+                'file': base64.b64encode(raw),
+            })
+
+        for training in trainings:
+            if training.url:
+                notes.append('%s (%s training): %s' % (
+                    training.name, training.mode, training.url))
+            elif training.notes:
+                notes.append('%s (%s training): %s' % (
+                    training.name, training.mode, training.notes))
+
+        prompt = Prompt.create({
+            'name': '%s — %s' % (self.code or self.id, self.name),
+            'source_text': '\n'.join(notes) or False,
+        })
+        # Now the prompt exists, the files can be hung off it. Creating a resource
+        # triggers their own text extraction, so this is the whole handover.
+        for payload in payloads:
+            Resource.create(dict(payload, prompt_id=prompt.id))
+        attached = len(payloads)
+
+        self.sudo().write({
+            'etp_prompt_id': prompt.id,
+            'assessment_sent_at': fields.Datetime.now(),
+            'assessment_sent_by_id': self.env.user.id,
+        })
+        self.env['epo.timeline.event'].log(
+            event_type='assessment_sent', project_id=self.id,
+            summary=_('SOP and training sent to the assessment app'),
+            payload={'prompt': prompt.name, 'files': attached,
+                     'links_as_notes': len(notes)}, record=self)
+
+        message = _('Sent to the assessment app as "%(name)s": %(files)s file(s) '
+                    'attached, %(notes)s link(s) passed as notes.',
+                    name=prompt.name, files=attached, notes=len(notes))
+        if skipped:
+            message += _('\nNot sent: %s') % '; '.join(skipped)
+        return {
+            'type': 'ir.actions.client', 'tag': 'display_notification',
+            'params': {'title': _('Sent'), 'message': message,
+                       'type': 'warning' if skipped else 'success',
+                       'sticky': bool(skipped)},
         }
 
     def action_rebuild_folders(self):

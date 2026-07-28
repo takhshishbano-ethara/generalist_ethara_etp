@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Menu-permission tree consumed by the etp-flutter app.
+        Each api.role.line.menu_name must exactly match a key in the app's
+        sidebar registry (dashboard_shell.dart). The Flutter sidebar renders an
+        item only when its permission node has is_visible=true AND the id is a
+        known registry key. is_visible is true for a line when that line is in
+        the logged-in user's role.line_ids (see get_the_menuitem_list).
+
+        The role -> line links, endpoint grants and user assignments are applied
+        by api.role._sync_pod_role_config() (see data/pod_roles_sync.xml) so they
+        reproduce on both install and upgrade.
+    -->
+    <data>
+        <!-- ===================== Top-level items ===================== -->
+        <record id="line_dashboard" model="api.role.line">
+            <field name="menu_name">dashboard</field>
+            <field name="sequence">10</field>
+        </record>
+        <record id="line_projects" model="api.role.line">
+            <field name="menu_name">projects</field>
+            <field name="sequence">20</field>
+        </record>
+        <record id="line_employees" model="api.role.line">
+            <field name="menu_name">employees</field>
+            <field name="sequence">30</field>
+        </record>
+        <record id="line_nomination" model="api.role.line">
+            <field name="menu_name">nomination</field>
+            <field name="sequence">40</field>
+        </record>
+        <record id="line_bench" model="api.role.line">
+            <field name="menu_name">bench</field>
+            <field name="sequence">50</field>
+        </record>
+        <record id="line_tags" model="api.role.line">
+            <field name="menu_name">tags</field>
+            <field name="sequence">60</field>
+        </record>
+        <record id="line_blocker" model="api.role.line">
+            <field name="menu_name">blocker</field>
+            <field name="sequence">70</field>
+        </record>
+        <record id="line_myblocker" model="api.role.line">
+            <field name="menu_name">myblocker</field>
+            <field name="sequence">80</field>
+        </record>
+        <record id="line_analytics" model="api.role.line">
+            <field name="menu_name">analytics</field>
+            <field name="sequence">90</field>
+        </record>
+        <record id="line_admin" model="api.role.line">
+            <field name="menu_name">admin</field>
+            <field name="sequence">100</field>
+        </record>
+        <record id="line_mytask" model="api.role.line">
+            <field name="menu_name">mytask</field>
+            <field name="sequence">110</field>
+        </record>
+        <record id="line_alltasks" model="api.role.line">
+            <field name="menu_name">alltasks</field>
+            <field name="sequence">120</field>
+        </record>
+        <record id="line_taskreview" model="api.role.line">
+            <field name="menu_name">taskreview</field>
+            <field name="sequence">130</field>
+        </record>
+        <record id="line_leave_management" model="api.role.line">
+            <field name="menu_name">leave management</field>
+            <field name="sequence">140</field>
+        </record>
+        <record id="line_emp_reimbursement" model="api.role.line">
+            <field name="menu_name">emp_reimbursement</field>
+            <field name="sequence">150</field>
+        </record>
+        <record id="line_employee" model="api.role.line">
+            <field name="menu_name">Employee</field>
+            <field name="sequence">160</field>
+        </record>
+        <record id="line_attendance" model="api.role.line">
+            <field name="menu_name">attendance</field>
+            <field name="sequence">170</field>
+        </record>
+        <record id="line_team_overview" model="api.role.line">
+            <field name="menu_name">team_overview</field>
+            <field name="sequence">180</field>
+        </record>
+        <record id="line_kaiju" model="api.role.line">
+            <field name="menu_name">kaiju</field>
+            <field name="sequence">190</field>
+        </record>
+        <record id="line_role_management" model="api.role.line">
+            <field name="menu_name">role_management</field>
+            <field name="sequence">200</field>
+        </record>
+        <record id="line_approval_and_reject" model="api.role.line">
+            <field name="menu_name">approval_and_reject</field>
+            <field name="sequence">210</field>
+        </record>
+        <record id="line_budget_consolidation" model="api.role.line">
+            <field name="menu_name">budget_consolidation</field>
+            <field name="sequence">220</field>
+        </record>
+        <record id="line_kensei" model="api.role.line">
+            <field name="menu_name">kensei</field>
+            <field name="sequence">230</field>
+        </record>
+        <record id="line_rl_training" model="api.role.line">
+            <field name="menu_name">rl_training</field>
+            <field name="sequence">240</field>
+        </record>
+        <record id="line_vesta" model="api.role.line">
+            <field name="menu_name">vesta</field>
+            <field name="sequence">250</field>
+        </record>
+        <record id="line_rl_dashboard" model="api.role.line">
+            <field name="menu_name">rl_dashboard</field>
+            <field name="sequence">260</field>
+        </record>
+        <record id="line_ethara_repos_dashboard" model="api.role.line">
+            <field name="menu_name">ethara_repos_dashboard</field>
+            <field name="sequence">270</field>
+        </record>
+        <record id="line_argus" model="api.role.line">
+            <field name="menu_name">argus</field>
+            <field name="sequence">280</field>
+        </record>
+        <record id="line_leviathan" model="api.role.line">
+            <field name="menu_name">leviathan</field>
+            <field name="sequence">290</field>
+        </record>
+        <record id="line_etp_assessment" model="api.role.line">
+            <field name="menu_name">etp_assessment</field>
+            <field name="sequence">300</field>
+        </record>
+        <record id="line_janus_showcase" model="api.role.line">
+            <field name="menu_name">janus_showcase</field>
+            <field name="sequence">310</field>
+        </record>
+        <record id="line_aurora_showcase" model="api.role.line">
+            <field name="menu_name">aurora_showcase</field>
+            <field name="sequence">320</field>
+        </record>
+        <record id="line_huskarl_showcase" model="api.role.line">
+            <field name="menu_name">huskarl_showcase</field>
+            <field name="sequence">330</field>
+        </record>
+        <record id="line_kaiju_showcase" model="api.role.line">
+            <field name="menu_name">kaiju_showcase</field>
+            <field name="sequence">340</field>
+        </record>
+        <record id="line_kraken_showcase" model="api.role.line">
+            <field name="menu_name">kraken_showcase</field>
+            <field name="sequence">350</field>
+        </record>
+        <record id="line_nokor_showcase" model="api.role.line">
+            <field name="menu_name">nokor_showcase</field>
+            <field name="sequence">360</field>
+        </record>
+        <record id="line_pax_showcase" model="api.role.line">
+            <field name="menu_name">pax_showcase</field>
+            <field name="sequence">370</field>
+        </record>
+        <record id="line_tesseract_showcase" model="api.role.line">
+            <field name="menu_name">tesseract_showcase</field>
+            <field name="sequence">380</field>
+        </record>
+        <record id="line_valkyrie_showcase" model="api.role.line">
+            <field name="menu_name">valkyrie_showcase</field>
+            <field name="sequence">390</field>
+        </record>
+
+        <!-- ===================== Children of "nomination" ===================== -->
+        <record id="line_child3" model="api.role.line">
+            <field name="menu_name">child3</field>
+            <field name="sequence">10</field>
+            <field name="parent_id" ref="line_nomination"/>
+        </record>
+        <record id="line_child2" model="api.role.line">
+            <field name="menu_name">child2</field>
+            <field name="sequence">20</field>
+            <field name="parent_id" ref="line_nomination"/>
+        </record>
+
+        <!-- ===================== Children of "Employee" ===================== -->
+        <record id="line_onboarding" model="api.role.line">
+            <field name="menu_name">Onboarding</field>
+            <field name="sequence">10</field>
+            <field name="parent_id" ref="line_employee"/>
+        </record>
+        <record id="line_documents" model="api.role.line">
+            <field name="menu_name">Documents</field>
+            <field name="sequence">20</field>
+            <field name="parent_id" ref="line_employee"/>
+        </record>
+        <record id="line_contract" model="api.role.line">
+            <field name="menu_name">contract</field>
+            <field name="sequence">30</field>
+            <field name="parent_id" ref="line_employee"/>
+        </record>
+    </data>
+</odoo>

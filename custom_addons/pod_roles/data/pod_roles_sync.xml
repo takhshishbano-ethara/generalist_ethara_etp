@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Runs on every install AND upgrade (that is what an <function> tag does).
+        Applies the role menu links, endpoint grants and user assignments via
+        api.role._sync_pod_role_config(), keeping the whole configuration
+        reproducible from the module alone. Loaded last so the api.role,
+        api.role.line and api.endpoint records already exist.
+    -->
+    <function model="api.role" name="_sync_pod_role_config"/>
+</odoo>

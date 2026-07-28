@@ -139,7 +139,7 @@ class ProjectOsHistory(http.Controller):
                 'current': r.is_current, 'granted_by': r.granted_by_id.display_name or '',
                 'reason': r.reason or '',
             } for r in roles],
-            # Odoo does not grade — these are the verifications a PM recorded after
+            # Odoo does not grade — these are the verifications a Tasker recorded after
             # reading each result in the external application.
             'assessments': [{
                 'project': v.project_id.name,
@@ -201,7 +201,7 @@ class ProjectOsHistory(http.Controller):
             'project': {
                 'id': project.id, 'name': project.name, 'code': project.code or '',
                 'state': project.ethara_state, 'type': project.ethara_project_type,
-                'gpm': project.gpm_id.display_name or '',
+                'pm': project.pm_id.display_name or '',
                 'created': str(project.create_date or ''),
                 'activated_at': str(project.activated_at or ''),
                 'archived_at': str(project.archived_at or ''),
@@ -230,7 +230,7 @@ class ProjectOsHistory(http.Controller):
         })
 
     # ------------------------------------------------------------------
-    # the board a GPM opens first
+    # the board a PM opens first
     # ------------------------------------------------------------------
     @route('/api/project-os/analytics/overview', ['GET'], min_role='pl')
     def overview(self, ctx):

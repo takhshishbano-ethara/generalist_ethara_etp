@@ -12,7 +12,7 @@ screens are the numbers the system actually computes.
 
 What it sets up
 ---------------
-* two pods with leads, one GPM, six pod members;
+* two pods with leads, one PM, six Taskers;
 * **Multimango Batch 7** — live, fully staffed, ten days of roster history, submissions;
 * **Atlas Annotation** — live with a minimum score of 80, so the candidate list has
   people on both sides of the bar;
@@ -86,23 +86,23 @@ class EpoDemo(models.AbstractModel):
         bravo = Pod.create({'name': 'Bravo', 'code': 'POD-B', 'floor': '3',
                             'zone': 'South', 'seat_range': 'B01-B20', 'capacity': 20})
 
-        gpm = self._person('Gita Rao', 'gpm')
+        pm = self._person('Gita Rao', 'pm')
         lead_a = self._person('Piyush Nair', 'pl', alpha, 'A01')
         lead_b = self._person('Anjali Menon', 'pl', bravo, 'B01')
         alpha.lead_employee_id = lead_a
         bravo.lead_employee_id = lead_b
 
         members = [
-            self._person('Mira Shah', 'pm', alpha, 'A02'),
-            self._person('Noor Iqbal', 'pm', alpha, 'A03'),
-            self._person('Ravi Kumar', 'pm', alpha, 'A04'),
-            self._person('Sana Desai', 'pm', bravo, 'B02'),
-            self._person('Tarun Bose', 'pm', bravo, 'B03'),
-            self._person('Uma Pillai', 'pm', bravo, 'B04'),
+            self._person('Mira Shah', 'tasker', alpha, 'A02'),
+            self._person('Noor Iqbal', 'tasker', alpha, 'A03'),
+            self._person('Ravi Kumar', 'tasker', alpha, 'A04'),
+            self._person('Sana Desai', 'tasker', bravo, 'B02'),
+            self._person('Tarun Bose', 'tasker', bravo, 'B03'),
+            self._person('Uma Pillai', 'tasker', bravo, 'B04'),
         ]
         for member in members:
             member.parent_id = lead_a if member.epo_pod_id == alpha else lead_b
-        return {'gpm': gpm, 'lead_a': lead_a, 'lead_b': lead_b,
+        return {'pm': pm, 'lead_a': lead_a, 'lead_b': lead_b,
                 'members': members, 'alpha': alpha, 'bravo': bravo}
 
     # ------------------------------------------------------------------
@@ -165,7 +165,7 @@ class EpoDemo(models.AbstractModel):
         return template
 
     def _verified(self, employee, project, score, days_ago=20):
-        """A PM read the external result and recorded it (v2 §4.6.3)."""
+        """A Tasker read the external result and recorded it (v2 §4.6.3)."""
         when = fields.Datetime.now() - timedelta(days=days_ago)
         record = self.env['epo.onboarding'].sudo()._get(employee.id, project.id)
         record.sudo().write({
@@ -183,7 +183,7 @@ class EpoDemo(models.AbstractModel):
         project = self.env['project.project'].create({
             'name': 'Multimango Batch 7', 'code': 'DEMO-MM7',
             'ethara_project_type': 'external', 'platform': 'Multimango',
-            'is_project_os': True,             'gpm_id': people['gpm'].id, 'date_start': today - timedelta(days=30),
+            'is_project_os': True,             'pm_id': people['pm'].id, 'date_start': today - timedelta(days=30),
             'description': 'Annotation work on the Multimango platform, batch 7.'})
 
         self._doc(project, 'sop', 'SOP v3 — annotation',
@@ -201,7 +201,7 @@ class EpoDemo(models.AbstractModel):
             'project_id': project.id, 'name': 'Batch 7 kickoff walkthrough',
             'mode': 'recorded', 'url': 'https://videos.ethara.test/mm7/kickoff',
             'duration_mins': 45, 'is_mandatory': True,
-            'trainer_id': people['gpm'].id,
+            'trainer_id': people['pm'].id,
             'notes': 'Watch before your first task.'})
 
         self.env['ethara.assessment'].create({
@@ -341,7 +341,7 @@ class EpoDemo(models.AbstractModel):
         project = self.env['project.project'].create({
             'name': 'Atlas Annotation', 'code': 'DEMO-ATLAS',
             'ethara_project_type': 'external', 'platform': 'Atlas',
-            'is_project_os': True,             'gpm_id': people['gpm'].id, 'min_assessment_score': 80.0,
+            'is_project_os': True,             'pm_id': people['pm'].id, 'min_assessment_score': 80.0,
             'date_start': today - timedelta(days=5),
             'description': 'Specialist work — only takes people who have scored 80.'})
         self._doc(project, 'sop', 'SOP — Atlas span labelling',
@@ -354,7 +354,7 @@ class EpoDemo(models.AbstractModel):
             'project_id': project.id, 'name': 'Atlas span labelling — live session',
             'mode': 'online', 'scheduled_at': fields.Datetime.now() + timedelta(days=2),
             'url': 'https://meet.ethara.test/atlas-intro', 'duration_mins': 60,
-            'is_mandatory': True, 'trainer_id': people['gpm'].id})
+            'is_mandatory': True, 'trainer_id': people['pm'].id})
         self._stagelist(project).action_publish()
 
         # Mira cleared the bar on Batch 7 and splits her time across the two. Her
@@ -381,7 +381,7 @@ class EpoDemo(models.AbstractModel):
             'name': 'Internal Tooling Revamp', 'code': 'DEMO-TOOL',
             'ethara_project_type': 'internal', 'platform': 'Internal',
             'is_project_os': True,
-            'gpm_id': people['gpm'].id,
+            'pm_id': people['pm'].id,
             'description': 'Left in setup on purpose: it shows what the go-live gate '
                            'blocks on before a project can take anybody.'})
         self._doc(project, 'task_videos', 'Old walkthrough (pre-revamp)',

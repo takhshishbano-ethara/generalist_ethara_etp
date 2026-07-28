@@ -1,7 +1,7 @@
 # Ethara Project OS — Workflow
 
-How work actually moves through the system, from a GPM having an idea for a project to a
-pod member submitting their thousandth stagelist row.
+How work actually moves through the system, from a PM having an idea for a project to a
+Tasker submitting their thousandth stagelist row.
 
 Read this alongside [README.md](README.md), which covers *what* each part is. This
 document covers *when* each part happens and *who* does it.
@@ -16,9 +16,9 @@ built by running these very steps.
 
 ```mermaid
 flowchart TD
-    START([GPM has work to run]) --> CREATE
+    START([PM has work to run]) --> CREATE
 
-    subgraph P1["PHASE 1 · KICKOFF — GPM"]
+    subgraph P1["PHASE 1 · KICKOFF — PM"]
         direction TB
         CREATE["<b>1. Create project</b><br/>a row in project.project<br/>is_project_os = true"]
         CREATE --> CODE["code generated<br/>EPR/2026/0007"]
@@ -39,16 +39,16 @@ flowchart TD
     GATE{"<b>GO-LIVE GATE</b><br/>a database CHECK,<br/>not an API check"}
     GATE -->|"both true"| LIVE["<b>ethara_state = active</b><br/>the project can take people"]
     GATE -->|"either missing"| BLOCKED["stays in setup<br/>gate_blockers names what is missing"]
-    BLOCKED -.->|"GPM fills the gap"| KN
+    BLOCKED -.->|"PM fills the gap"| KN
 
     LIVE --> CAND
 
-    subgraph P2["PHASE 2 · STAFFING — GPM then PL"]
+    subgraph P2["PHASE 2 · STAFFING — PM then PL"]
         direction TB
         CAND["<b>8. Check the candidates</b><br/>filtered by the project's<br/>min_assessment_score"]
         CAND --> ALLOC["<b>Allocate</b><br/>bar and score snapshotted<br/>onto the allocation"]
         ALLOC --> ONB0["onboarding record opens<br/>first phase starts"]
-        ALLOC --> MAIL["email to the pod member<br/>project, pod lead, steps left"]
+        ALLOC --> MAIL["email to the Tasker<br/>project, pod lead, steps left"]
         ONB0 --> ROSTER["<b>9. Daily roster</b> — PL<br/>tasking · onboarding · training<br/>assessment · leave · bench"]
         ROSTER --> PHASE["phase log accumulates<br/>nobody types a duration"]
     end
@@ -64,7 +64,7 @@ flowchart TD
     end
     LVR -.->|"no tasking allocation<br/>that day"| ROSTER
 
-    subgraph P3["PHASE 3 · ONBOARDING — pod member"]
+    subgraph P3["PHASE 3 · ONBOARDING — Tasker"]
         direction TB
         ONB["<b>10. SOP → Training → Assessment</b>"]
         ONB --> SOPD["SOP read"]
@@ -79,7 +79,7 @@ flowchart TD
 
     OPEN --> TASK
 
-    subgraph P4["PHASE 4 · TASKING — pod member"]
+    subgraph P4["PHASE 4 · TASKING — Tasker"]
         direction TB
         TASK["<b>11. Fill the stagelist</b>"]
         TASK --> FB["<b>12. Log client feedback</b>"]
@@ -91,13 +91,13 @@ flowchart TD
     subgraph P5["PHASE 5 · REVIEW"]
         direction TB
         REVIEW["<b>13. PL reviews the pod</b>"]
-        REVIEW --> ANALYTICS["<b>14. Analytics</b> — GPM<br/>every number an aggregate<br/>over the ledger and the phase log"]
+        REVIEW --> ANALYTICS["<b>14. Analytics</b> — PM<br/>every number an aggregate<br/>over the ledger and the phase log"]
         ANALYTICS --> HIST["<b>History</b><br/>by person, or by project<br/>the same rows, two lenses"]
     end
 
     HIST --> RELEASE
 
-    subgraph P6["PHASE 6 · WINDING DOWN — GPM"]
+    subgraph P6["PHASE 6 · WINDING DOWN — PM"]
         direction TB
         RELEASE["<b>15. Release people</b><br/>phases close, numbers trimmed<br/>nothing deleted"]
         RELEASE --> ARCH{"anyone still<br/>allocated?"}
@@ -195,7 +195,7 @@ number that is still moving. The two thresholds are different questions — the 
 
 ---
 
-## Phase 1 — Kickoff (GPM)
+## Phase 1 — Kickoff (PM)
 
 ### 1. Create the project
 
@@ -309,7 +309,7 @@ etp.assessment.evaluator          epo.assessment.result
 `pending` is never imported: scoring is still running, and the gate must not decide on a
 number that is still moving.
 
-**The candidate ↔ pod member match.** The assessment app scores `hr.applicant`; Project
+**The candidate ↔ Tasker match.** The assessment app scores `hr.applicant`; Project
 OS staffs `hr.employee`. The link uses `hr.applicant.employee_id` when it is set, and
 falls back to matching the applicant's email against `work_email` — every fallback is
 logged, because a score that gates staffing has to be traceable to the person it belongs
@@ -353,7 +353,7 @@ no answerable fields.
 
 ---
 
-## Phase 2 — Staffing (GPM → PL)
+## Phase 2 — Staffing (PM → PL)
 
 ### 8. Allocate people
 
@@ -372,7 +372,7 @@ project's bar is checked against `hr.employee._epo_best_assessment_score()` — 
 person's **best graded score across every project**, which is exactly what the results
 pull keeps up to date. Set `min_assessment_score` to 0 for no bar.
 
-First, who is even eligible? The GPM sets a minimum score on the project; the candidate
+First, who is even eligible? The PM sets a minimum score on the project; the candidate
 list answers "so who does that leave me?":
 
 ```http
@@ -396,7 +396,7 @@ Per person this creates:
   project's bar and the person's score snapshotted onto it;
 * an **onboarding** record — the gate, starting closed;
 * the first **phase** — `onboarding`, open-ended;
-* an **email to the pod member** naming the project, their pod lead, and the steps left.
+* an **email to the Tasker** naming the project, their pod lead, and the steps left.
 
 **Refused:** allocating to a project still in `setup`; the same person twice over
 overlapping dates; a combined allocation over 100% across concurrent projects; **anybody
@@ -440,7 +440,7 @@ stamped onto the days it covers, and an attendance check-in sets `present`.
 
 ---
 
-## Phase 3 — Onboarding (PM)
+## Phase 3 — Onboarding (Tasker)
 
 ### 10. SOP → Training → Assessment
 
@@ -469,13 +469,13 @@ Grading happens in the source system. If it is unreachable the attempt is stored
 `submitted` and a job grades it within the half hour — nobody loses their work to
 someone else's downtime.
 
-**Escape hatch:** `POST /onboarding/<id>/waive` — GPM only, reason mandatory, written to
+**Escape hatch:** `POST /onboarding/<id>/waive` — PM only, reason mandatory, written to
 the audit log. It is the one place somebody starts work with no evidence they are ready,
 so it leaves the loudest trail in the system.
 
 ---
 
-## Phase 4 — Tasking (PM)
+## Phase 4 — Tasking (Tasker)
 
 ### 11–12. Fill the stagelist and the feedback form
 
@@ -521,11 +521,11 @@ GET /api/project-os/submissions/<id>          → the answers, with the form tha
 GET /api/project-os/onboarding?pending_only=1 → who is still ramping up
 ```
 
-Everything is scoped automatically: a PL sees their pod, a GPM sees the org, a PM sees
+Everything is scoped automatically: a PL sees their pod, a PM sees the org, a Tasker sees
 themselves. Not by a filter the client sends — by record rules that hold even if the
 request arrives some other way.
 
-### 14. Analytics (GPM)
+### 14. Analytics (PM)
 
 ```http
 GET /api/project-os/analytics/overview?date_from=2026-07-01
@@ -555,7 +555,7 @@ Same rows, two lenses:
 
 ---
 
-## Phase 6 — Winding down (GPM)
+## Phase 6 — Winding down (PM)
 
 ### 15. Release people
 
@@ -584,7 +584,7 @@ can be reopened, which is recorded as `project_reopened`.
 
 ## Who can do what
 
-| Action | PM | PL | GPM | Admin |
+| Action | Tasker | PL | PM | Admin |
 |---|:--:|:--:|:--:|:--:|
 | fill the stagelist / feedback form | ✓ | ✓ | ✓ | ✓ |
 | complete their own onboarding | ✓ | ✓ | ✓ | ✓ |
@@ -612,7 +612,7 @@ reviewed?" always has an answer.
 | carry the roster forward | 00:20 daily | otherwise the board is empty every morning and the system looks broken |
 | stamp approved leave onto the roster | 00:40 daily | leave approved weeks ago still has to land on the right day |
 | grade pending assessments | every 30 min | picks up attempts the source system could not grade in the moment |
-| pull assessment results | every 15 min | a decided attempt opens the onboarding gate; waiting 6 h for it is a pod member sitting on their hands |
+| pull assessment results | every 15 min | a decided attempt opens the onboarding gate; waiting 6 h for it is a Tasker sitting on their hands |
 | refresh assessment snapshots | every 6 h | keeps title, question count and pass mark in step with the paper |
 | lock roster days past payroll | 02:00 daily | stops accidental retro-edits after payroll closes |
 

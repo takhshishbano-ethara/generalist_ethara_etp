@@ -25,14 +25,21 @@
              THE FOUR ROLES.
 
              A strict ladder: each higher role implies the one below, so a
-             GPM can do everything a Pod Lead can and an Admin everything a
-             GPM can. The record rules in epo_rules.xml then *narrow* what
+             PM can do everything a Pod Lead can and an Admin everything a
+             PM can. The record rules in epo_rules.xml then *narrow* what
              each level may see:
 
-               PM    → self only
-               PL    → self + their pod
-               GPM   → org-wide
-               Admin → everything, including audit and correction
+               Tasker → self only
+               PL     → self + their pod
+               PM     → org-wide
+               Admin  → everything, including audit and correction
+
+             The names match pod_roles, which is the api.role registry these
+             groups are derived from — see models/epo_role_map.py. Note that
+             "PM" here is Programme Manager, the level ABOVE Pod Lead. Until
+             19.0.1.5.0 that level was called GPM and "PM" meant the bottom
+             level (now Tasker); anything still using the old vocabulary is
+             reading these upside down.
 
              The group is the enforcement. A person's operational role is
              also written to epo.role.assignment, which is effective-dated,
@@ -40,8 +47,8 @@
              group membership could never give.
              ============================================================ -->
 
-        <record id="group_epo_member" model="res.groups">
-            <field name="name">PM — Pod Member</field>
+        <record id="group_epo_tasker" model="res.groups">
+            <field name="name">Tasker</field>
             <field name="privilege_id" ref="res_groups_privilege_epo"/>
             <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
             <field name="comment">Fills the stagelist and the feedback form for the project they are allocated to, after completing onboarding. Sees only their own records.</field>
@@ -50,12 +57,12 @@
         <record id="group_epo_pod_lead" model="res.groups">
             <field name="name">PL — Pod Lead</field>
             <field name="privilege_id" ref="res_groups_privilege_epo"/>
-            <field name="implied_ids" eval="[(4, ref('group_epo_member'))]"/>
+            <field name="implied_ids" eval="[(4, ref('group_epo_tasker'))]"/>
             <field name="comment">Owns the daily roster of their pod: status, project, presence. Approves their pod's leave and reviews their pod's submissions.</field>
         </record>
 
-        <record id="group_epo_manager" model="res.groups">
-            <field name="name">GPM — General Program Management</field>
+        <record id="group_epo_pm" model="res.groups">
+            <field name="name">PM — Programme Manager</field>
             <field name="privilege_id" ref="res_groups_privilege_epo"/>
             <field name="implied_ids" eval="[(4, ref('group_epo_pod_lead'))]"/>
             <field name="comment">Creates projects, fills the knowledge folder, sets training, links the external assessment, builds and publishes forms, allocates people, reads org-wide analytics.</field>
@@ -64,7 +71,7 @@
         <record id="group_epo_admin" model="res.groups">
             <field name="name">Admin — Full Control</field>
             <field name="privilege_id" ref="res_groups_privilege_epo"/>
-            <field name="implied_ids" eval="[(4, ref('group_epo_manager'))]"/>
+            <field name="implied_ids" eval="[(4, ref('group_epo_pm'))]"/>
             <field name="comment">Full control. The only role that may void submissions, unlock payroll-locked roster days, waive onboarding and read the audit log.</field>
         </record>
 

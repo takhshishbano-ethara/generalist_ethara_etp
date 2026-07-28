@@ -336,7 +336,7 @@
                     <div class="alert alert-info" role="alert">
                         The paper is authored and sat in an external application. Odoo
                         stores the link and nothing else — no questions, no attempts, no
-                        scoring. A PM or Pod Lead reads the result there and verifies it
+                        scoring. A Tasker or Pod Lead reads the result there and verifies it
                         on the tasker's <b>Onboarding</b> record, which records who did
                         it and when.
                     </div>

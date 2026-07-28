@@ -36,16 +36,16 @@ class EpoRoleAssignment(models.Model):
         'hr.employee', required=True, ondelete='restrict', index=True, tracking=True)
     user_id = fields.Many2one(related='employee_id.user_id', store=True, string='Login')
     role = fields.Selection(
-        [('pm', 'PM — Pod Member'),
+        [('tasker', 'Tasker'),
          ('pl', 'PL — Pod Lead'),
-         ('gpm', 'GPM — General Program Management'),
+         ('pm', 'PM — Programme Manager'),
          ('admin', 'Admin')],
         required=True, tracking=True)
 
     scope_pod_id = fields.Many2one(
         'epo.pod', string='Pod Scope', ondelete='restrict',
-        help='Only meaningful for a Pod Lead: which pod they lead. GPM and Admin are '
-             'org-wide by definition; a Pod Member is scoped to themselves.')
+        help='Only meaningful for a Pod Lead: which pod they lead. PM and Admin are '
+             'org-wide by definition; a Tasker is scoped to themselves.')
 
     date_from = fields.Date(required=True, default=fields.Date.context_today, tracking=True)
     date_to = fields.Date(tracking=True, help='Empty means the grant is current.')

@@ -3,7 +3,7 @@
 The Odoo 19 backend for the project side of the pod organisation — the production
 build of the `ethara-project-os` prototype.
 
-A GPM stands up a project (knowledge folder → training → assessment → stagelist →
+A PM stands up a project (knowledge folder → training → assessment → stagelist →
 feedback form), allocates people to it, and Pod Leads run the daily roster while Pod
 Members task against it. Every read and write is scoped by role, and every number on
 every screen is a live aggregate — there is not a single counter column in the module.
@@ -14,8 +14,8 @@ every screen is a live aggregate — there is not a single counter column in the
 
 **This module is the API. The frontend is a separate app that talks to it.**
 
-**This module ships no Odoo UI for the four roles.** The pod member's day, the pod
-lead's roster board and the GPM's kickoff screens are all served by `/api/project-os/*`
+**This module ships no Odoo UI for the four roles.** The Tasker's day, the pod
+lead's roster board and the PM's kickoff screens are all served by `/api/project-os/*`
 and rendered by a frontend of your choosing (React / Next / Vue / plain JS — the
 prototype was vanilla JS and that worked fine).
 
@@ -55,7 +55,7 @@ full test suite with no views at all — that was verified, not assumed.
    drop headers containing underscores, which produces a 401 with no clue why. The API
    accepts `access-token`, `x-access-token` and `Authorization: Bearer`.
 3. **Read the role from `GET /api/project-os/me`** and render the shell from it. The
-   role is `pm` | `pl` | `gpm` | `admin`. Never trust it for authorisation — the server
+   role is `tasker` | `pl` | `pm` | `admin`. Never trust it for authorisation — the server
    enforces scope on every call regardless of what the client believes.
 
 Every response has the same shape, so one client-side wrapper handles all of them:
@@ -98,16 +98,16 @@ and either works.
 |---|---|
 | login | `POST /api/v1/auth_token` |
 | app shell | `GET /me` |
-| pod member — main | `GET /me`, `GET /me/onboarding` |
-| pod member — onboarding | `GET /me/onboarding`, `POST /me/onboarding/sop`, `POST /me/onboarding/training`, `GET+POST /me/assessment` |
-| pod member — stagelist / feedback | `GET /me/form?form_type=…`, `POST /entries` |
-| pod member — knowledge | `GET /projects/<id>/folders`, `GET /documents/<id>/download` |
+| Tasker — main | `GET /me`, `GET /me/onboarding` |
+| Tasker — onboarding | `GET /me/onboarding`, `POST /me/onboarding/sop`, `POST /me/onboarding/training`, `GET+POST /me/assessment` |
+| Tasker — stagelist / feedback | `GET /me/form?form_type=…`, `POST /entries` |
+| Tasker — knowledge | `GET /projects/<id>/folders`, `GET /documents/<id>/download` |
 | pod lead — my pod | `GET /roster`, `PATCH /roster/<employee_id>` |
 | pod lead — review | `GET /counts`, `GET /submissions`, `GET /submissions/<id>` |
-| GPM — projects | `GET/POST /projects`, `GET /projects/<id>` |
-| GPM — kickoff | `GET/POST /projects/<id>/folders`, `POST /folders/<id>/documents`, `POST /projects/<id>/training`, `POST /projects/<id>/assessment`, `PUT /templates/<id>`, `POST /templates/<id>/publish`, `POST /projects/<id>/activate` |
-| GPM — allocation | `GET /allocations`, `POST /allocations/bulk`, `POST /allocations/<id>/release` |
-| GPM — analytics | `GET /analytics/overview`, `GET /counts` |
+| PM — projects | `GET/POST /projects`, `GET /projects/<id>` |
+| PM — kickoff | `GET/POST /projects/<id>/folders`, `POST /folders/<id>/documents`, `POST /projects/<id>/training`, `POST /projects/<id>/assessment`, `PUT /templates/<id>`, `POST /templates/<id>/publish`, `POST /projects/<id>/activate` |
+| PM — allocation | `GET /allocations`, `POST /allocations/bulk`, `POST /allocations/<id>/release` |
+| PM — analytics | `GET /analytics/overview`, `GET /counts` |
 | anyone — history | `GET /employees/<id>/history`, `GET /projects/<id>/history` |
 
 ---
@@ -137,12 +137,12 @@ hooks.py         pre/post-init DDL the ORM cannot express
 
 | Role | Group | Sees | Does |
 |---|---|---|---|
-| **PM** — Pod Member | `group_epo_member` | themselves | completes onboarding, fills the stagelist and the feedback form |
+| **Tasker** — Tasker | `group_epo_tasker` | themselves | completes onboarding, fills the stagelist and the feedback form |
 | **PL** — Pod Lead | `group_epo_pod_lead` | their pod | owns the daily roster, approves leave, reviews their pod's submissions |
-| **GPM** — General Program Management | `group_epo_manager` | org-wide | creates projects, fills knowledge/training/assessment, builds and publishes forms, allocates people, waives onboarding |
+| **PM** — General Program Management | `group_epo_pm` | org-wide | creates projects, fills knowledge/training/assessment, builds and publishes forms, allocates people, waives onboarding |
 | **Admin** | `group_epo_admin` | everything | voids submissions, unlocks payroll-closed roster days, reads the audit log |
 
-The groups are a ladder — each implies the one below, so a GPM can do anything a Pod
+The groups are a ladder — each implies the one below, so a PM can do anything a Pod
 Lead can. The *record rules* then narrow what each level may read.
 
 Access is granted through **`epo.role.assignment`**, not by editing groups by hand.
@@ -235,17 +235,17 @@ system uses — it goes on the delivery report, in the channel name, on the invo
 
 ### The folders
 
-Created with the project, identically every time, so a GPM never faces an empty screen
-and a pod member always knows where to look:
+Created with the project, identically every time, so a PM never faces an empty screen
+and a Tasker always knows where to look:
 
 ```
 EXT-2026-0007/
-├── Knowledge/                 ← what a pod member reads before tasking
+├── Knowledge/                 ← what a Tasker reads before tasking
 │   ├── SOP/                   ← mandatory: no SOP, no go-live
 │   ├── Common Errors/
 │   ├── Task Videos/
 │   └── Other/
-└── Management/                ← what the GPM keeps about the engagement
+└── Management/                ← what the PM keeps about the engagement
     └── Client Documents/      ← contracts, briefs, sign-offs — nests freely below
 ```
 
@@ -256,11 +256,11 @@ The two sides behave differently on purpose:
 | shape | **fixed** — four folders, on every project | **free** — nest to any depth |
 | why | so "read the SOP" means the same thing everywhere, and the go-live gate has a stable question to ask | one engagement has a single MSA, the next has forty files across six phases |
 | new subfolders | refused (put extra material in *Other*) | allowed |
-| who can read it | anyone allocated to the project | **GPM and Admin only** |
+| who can read it | anyone allocated to the project | **PM and Admin only** |
 
 Management is hidden by `ir.rule`, not by the API — a Pod Lead calling
 `GET /projects/<id>/folders` does not see a Management branch at all, and fetching the
-folder by id returns 403. Client contracts are not a pod member's business, and the
+folder by id returns 403. Client contracts are not a Tasker's business, and the
 honest way to say so is to leave them out of the tree rather than show a folder that
 errors when opened.
 
@@ -281,12 +281,12 @@ external link — there is no third case, and no second storage path:
 
 There is deliberately no fallback. Storing some documents in Odoo and some in S3 would
 put two files in the same folder in two different places, and "where is this file?"
-would stop having one answer. The trade-off is real and accepted: a GPM cannot upload
+would stop having one answer. The trade-off is real and accepted: a PM cannot upload
 an SOP until the bucket is set up. Links need no storage at all, so a project can still
 be documented while that is being sorted out.
 
 The S3 key mirrors the visible path, so an operator browsing the bucket sees the same
-shape as a GPM browsing the UI:
+shape as a PM browsing the UI:
 
 ```
 project-os/ext-2026-0007/knowledge/sop/9f2c1ab77e04-induction-v3.pdf
@@ -312,7 +312,7 @@ A project can demand a higher score than the assessment paper's own pass mark �
 paper passes at 60, this client's work only takes people who scored 80 somewhere.
 
 ```
-project.min_assessment_score = 80      set by the GPM, 0 = no bar
+project.min_assessment_score = 80      set by the PM, 0 = no bar
 
 GET /projects/<id>/candidates
   ✓ Mira    best score 88   eligible
@@ -322,7 +322,7 @@ GET /projects/<id>/candidates
 ```
 
 The list returns **everybody**, not just the eligible — a staffing screen that silently
-omits people cannot tell the GPM the difference between "nobody qualifies" and "the
+omits people cannot tell the PM the difference between "nobody qualifies" and "the
 filter is broken". `considered_count` and `eligible_count` come back alongside it.
 
 The bar is checked when somebody is **put on the project**, not later once they have
@@ -347,10 +347,10 @@ retroactively unseats somebody who is already doing the work.
 
 ### The joining email
 
-Being allocated sends the pod member an email, because that is the moment they need to
+Being allocated sends the Tasker an email, because that is the moment they need to
 know something and nobody has told them: the onboarding gate has just appeared in front
 of them and until they clear it the stagelist stays locked. It names the project and
-code, **their pod lead**, the pod, their role on it, the GPM who owns it, and the exact
+code, **their pod lead**, the pod, their role on it, the PM who owns it, and the exact
 steps left — skipping training or assessment if the project has none.
 
 A missing work email, or a mail server having a bad afternoon, is logged and swallowed:
@@ -374,7 +374,7 @@ everybody already tasking.
 Allocation requires a live project. Submission requires an allocation *and* a completed
 onboarding. A stage with **no content auto-passes** — a project with no mandatory
 training and no assessment gates on the SOP click alone, so the gate never blocks on
-something the GPM never set up.
+something the PM never set up.
 
 ---
 
@@ -427,54 +427,54 @@ client and the web SPA. Every response is
 ### Identity
 | Method | Path | Min role |
 |---|---|---|
-| GET | `/me` | PM |
+| GET | `/me` | Tasker |
 
 ### Projects and content
 | Method | Path | Min role |
 |---|---|---|
-| GET | `/projects` | PM (scoped: live projects they are on) |
-| GET | `/projects/<id>` | PM |
-| POST | `/projects` | GPM |
-| PATCH | `/projects/<id>` | GPM |
-| POST | `/projects/<id>/activate` | GPM |
-| POST | `/projects/<id>/archive` | GPM |
-| GET | `/projects/<id>/folders?with_documents=1` | PM (Management hidden below GPM) |
-| POST | `/projects/<id>/folders` | GPM |
-| GET | `/folders/<id>` | PM (403 on Management below GPM) |
-| PATCH | `/folders/<id>` | GPM (system folders refused) |
-| DELETE | `/folders/<id>` | GPM (must be empty and non-system) |
-| GET | `/folders/<id>/documents` | PM |
-| POST | `/folders/<id>/documents` | GPM (multipart, base64 or URL) |
-| GET | `/documents/<id>/download` | PM — mints a short-lived link |
-| DELETE | `/documents/<id>` | GPM |
-| GET | `/projects/<id>/knowledge` | PM — flat, grouped by folder, for onboarding |
-| GET/POST | `/projects/<id>/training` | PM read / GPM write |
-| DELETE | `/training/<id>` | GPM |
-| POST | `/projects/<id>/assessment` | GPM (link an external paper) |
-| POST | `/assessments/<id>/sync` | GPM |
+| GET | `/projects` | Tasker (scoped: live projects they are on) |
+| GET | `/projects/<id>` | Tasker |
+| POST | `/projects` | PM |
+| PATCH | `/projects/<id>` | PM |
+| POST | `/projects/<id>/activate` | PM |
+| POST | `/projects/<id>/archive` | PM |
+| GET | `/projects/<id>/folders?with_documents=1` | Tasker (Management hidden below PM) |
+| POST | `/projects/<id>/folders` | PM |
+| GET | `/folders/<id>` | Tasker (403 on Management below PM) |
+| PATCH | `/folders/<id>` | PM (system folders refused) |
+| DELETE | `/folders/<id>` | PM (must be empty and non-system) |
+| GET | `/folders/<id>/documents` | Tasker |
+| POST | `/folders/<id>/documents` | PM (multipart, base64 or URL) |
+| GET | `/documents/<id>/download` | Tasker — mints a short-lived link |
+| DELETE | `/documents/<id>` | PM |
+| GET | `/projects/<id>/knowledge` | Tasker — flat, grouped by folder, for onboarding |
+| GET/POST | `/projects/<id>/training` | Tasker read / PM write |
+| DELETE | `/training/<id>` | PM |
+| POST | `/projects/<id>/assessment` | PM (link an external paper) |
+| POST | `/assessments/<id>/sync` | PM |
 | GET | `/projects/<id>/assessment/results` | PL (scoped) |
-| POST | `/assessment-results/<id>/retake` | GPM (reason required) |
+| POST | `/assessment-results/<id>/retake` | PM (reason required) |
 
 ### Forms
 | Method | Path | Min role |
 |---|---|---|
-| GET | `/projects/<id>/templates` | PM |
-| GET | `/templates/<id>` | PM |
-| POST | `/templates` | GPM |
-| PUT | `/templates/<id>` | GPM (**draft only** — 409 on a published form) |
-| POST | `/templates/<id>/publish` | GPM |
-| POST | `/templates/<id>/new-version` | GPM |
+| GET | `/projects/<id>/templates` | Tasker |
+| GET | `/templates/<id>` | Tasker |
+| POST | `/templates` | PM |
+| PUT | `/templates/<id>` | PM (**draft only** — 409 on a published form) |
+| POST | `/templates/<id>/publish` | PM |
+| POST | `/templates/<id>/new-version` | PM |
 
-### The pod member's day
+### The Tasker's day
 | Method | Path | Min role |
 |---|---|---|
-| GET | `/me/onboarding` | PM |
-| POST | `/me/onboarding/sop` | PM |
-| POST | `/me/onboarding/training` | PM |
-| GET | `/me/assessment` | PM (questions, never the key) |
-| POST | `/me/assessment` | PM |
-| GET | `/me/form?form_type=stagelist\|feedback` | PM |
-| POST | `/entries` | PM |
+| GET | `/me/onboarding` | Tasker |
+| POST | `/me/onboarding/sop` | Tasker |
+| POST | `/me/onboarding/training` | Tasker |
+| GET | `/me/assessment` | Tasker (questions, never the key) |
+| POST | `/me/assessment` | Tasker |
+| GET | `/me/form?form_type=stagelist\|feedback` | Tasker |
+| POST | `/entries` | Tasker |
 
 ### Roster, allocation, review
 | Method | Path | Min role |
@@ -483,22 +483,22 @@ client and the web SPA. Every response is
 | PATCH | `/roster/<employee_id>` | PL |
 | POST | `/roster/<roster_id>/unlock` | Admin (reason required) |
 | GET | `/onboarding?project_id=&pending_only=` | PL |
-| POST | `/onboarding/<id>/waive` | GPM (reason required) |
+| POST | `/onboarding/<id>/waive` | PM (reason required) |
 | GET | `/allocations?project_id=&open_only=` | PL |
-| GET | `/projects/<id>/candidates` | GPM — who clears the bar, and why the rest do not |
-| POST | `/allocations` | GPM (`override_reason` to go below the bar) |
-| POST | `/allocations/bulk` | GPM |
-| POST | `/allocations/<id>/release` | GPM |
-| GET | `/submissions` | PM (scoped) |
-| GET | `/submissions/<id>` | PM (scoped) |
+| GET | `/projects/<id>/candidates` | PM — who clears the bar, and why the rest do not |
+| POST | `/allocations` | PM (`override_reason` to go below the bar) |
+| POST | `/allocations/bulk` | PM |
+| POST | `/allocations/<id>/release` | PM |
+| GET | `/submissions` | Tasker (scoped) |
+| GET | `/submissions/<id>` | Tasker (scoped) |
 | POST | `/submissions/<id>/void` | Admin (reason required) |
-| GET | `/counts?form_type=` | PM (scoped) |
+| GET | `/counts?form_type=` | Tasker (scoped) |
 
 ### History and analytics
 | Method | Path | Min role |
 |---|---|---|
-| GET | `/employees/<id>/history` | PM (scoped) — a person's full history |
-| GET | `/projects/<id>/history` | PM (scoped) — a project's full history |
+| GET | `/employees/<id>/history` | Tasker (scoped) — a person's full history |
+| GET | `/projects/<id>/history` | Tasker (scoped) — a project's full history |
 | GET | `/timeline?employee_id=&project_id=&category=` | PL |
 | GET | `/analytics/overview?date_from=&date_to=` | PL |
 
@@ -511,7 +511,7 @@ Scope is enforced by `ir.rule`, so it holds for the REST API, the backend UI, XM
 and reports alike. Verified by asserting what the ORM returns for a real pod-member
 user, not by reading the controllers:
 
-| | pod member | pod lead | GPM / Admin |
+| | Tasker | pod lead | PM / Admin |
 |---|---|---|---|
 | their own submissions | ✓ | ✓ | ✓ |
 | their pod's submissions | — | ✓ | ✓ |
@@ -601,7 +601,7 @@ odoo-bin -d <db> -i ethara_project_os --with-demo    # a worked example
 odoo-bin -d <db> -i ethara_project_os                # nothing but the module
 ```
 
-You get a small but complete organisation: two pods with leads, one GPM, six pod
+You get a small but complete organisation: two pods with leads, one PM, six pod
 members, and three projects that between them show every state the system has —
 
 | | |
@@ -610,8 +610,8 @@ members, and three projects that between them show every state the system has �
 | **Atlas Annotation** | live with a minimum score of 80, so the candidate list has people on both sides of the bar — including one allocated below it with a recorded reason. |
 | **Internal Tooling Revamp** | deliberately stuck in setup, showing its go-live blockers. |
 
-Everyone logs in with password `demo1234` — `gita@demo.ethara` (GPM),
-`piyush@demo.ethara` (PL), `mira@demo.ethara` (PM).
+Everyone logs in with password `demo1234` — `gita@demo.ethara` (PM),
+`piyush@demo.ethara` (PL), `mira@demo.ethara` (Tasker).
 
 It is built by **calling the real business logic**, not by inserting rows: projects go
 through the go-live gate, people through the onboarding gate, the roster drives the

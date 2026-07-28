@@ -49,9 +49,9 @@ class EpoAllocation(models.Model):
     pod_id = fields.Many2one(
         'epo.pod', related='employee_id.epo_pod_id', store=True, index=True)
     role_on_project = fields.Selection(
-        [('pm', 'Pod Member'), ('pl', 'Pod Lead'), ('gpm', 'GPM'),
+        [('tasker', 'Tasker'), ('pl', 'Pod Lead'), ('pm', 'PM'),
          ('trainer', 'Trainer'), ('reviewer', 'Reviewer')],
-        default='pm', required=True,
+        default='tasker', required=True,
         help='What they do on THIS project — independent of their org role.')
 
     date_from = fields.Date(
@@ -72,7 +72,7 @@ class EpoAllocation(models.Model):
         help='Their best graded score when they joined, for the same reason.')
     override_reason = fields.Text(
         readonly=True,
-        help='Set when a GPM allocated somebody below the bar anyway. Mandatory in '
+        help='Set when a PM allocated somebody below the bar anyway. Mandatory in '
              'that case, and written to the audit log.')
 
     allocated_by_id = fields.Many2one('res.users', ondelete='restrict', readonly=True,
@@ -90,7 +90,7 @@ class EpoAllocation(models.Model):
     current_phase = fields.Selection(
         PHASES, compute='_compute_current_phase', store=True, index=True,
         string='Current phase',
-        help='The phase the open phase segment is in. Stored so a GPM can filter and '
+        help='The phase the open phase segment is in. Stored so a PM can filter and '
              'group by "who is still ramping up".')
 
     # --- the time answer ----------------------------------------------
@@ -102,7 +102,7 @@ class EpoAllocation(models.Model):
     days_to_productive = fields.Integer(
         compute='_compute_phase_stats', string='Days to productive',
         help='Calendar days from joining the project to the first day of tasking. The '
-             'number a GPM actually plans with.')
+             'number a PM actually plans with.')
     submission_count = fields.Integer(compute='_compute_phase_stats', string='Submissions')
 
     _range_sane = models.Constraint(
@@ -194,8 +194,9 @@ class EpoAllocation(models.Model):
 
     @api.constrains('employee_id', 'allocation_pct', 'date_from', 'date_to')
     def _check_capacity(self):
-        """Part-time across two projects is legitimate; over 100% is someone being
-        promised to two places at once."""
+        """Part-time across two projects is legitimate; over the ceiling is someone
+        being promised to two places at once."""
+        ceiling = self._epo_capacity_ceiling()
         for rec in self:
             overlapping = self.search([
                 ('id', '!=', rec.id),
@@ -204,18 +205,38 @@ class EpoAllocation(models.Model):
                 '|', ('date_to', '=', False), ('date_to', '>=', rec.date_from),
             ])
             total = sum(overlapping.mapped('allocation_pct')) + rec.allocation_pct
-            if total > 100.0:
+            # Reads the configured ceiling. It previously hardcoded 100 while the
+            # settings screen offered an editable maximum, so changing that setting
+            # did nothing at all.
+            if total > ceiling:
                 raise ValidationError(_(
                     '%(name)s would be allocated %(total).0f%% of capacity over that '
-                    'period. Reduce a percentage or close the other allocation first.',
-                    name=rec.employee_id.display_name, total=total))
+                    'period, and the maximum is %(max).0f%%. Reduce a percentage or '
+                    'close the other allocation first.',
+                    name=rec.employee_id.display_name, total=total, max=ceiling))
+
+    @api.model
+    def _epo_capacity_ceiling(self):
+        """The maximum combined allocation percentage, from settings.
+
+        Defaults to 100 and is clamped to a sane range: a ceiling of 0 would make every
+        allocation impossible, and a misconfigured setting must not be able to lock the
+        whole organisation out of being staffed.
+        """
+        raw = self.env['ir.config_parameter'].sudo().get_param(
+            'epo.allocation.max_pct', 100)
+        try:
+            ceiling = float(raw)
+        except (TypeError, ValueError):
+            return 100.0
+        return ceiling if 1.0 <= ceiling <= 1000.0 else 100.0
 
     @api.constrains('employee_id', 'project_id', 'min_score_applied')
     def _check_meets_minimum_score(self):
         """A project's minimum score is a staffing rule, so it is checked when somebody
         is put on the project — not later, when they have already started reading the SOP.
 
-        A GPM can still allocate below the bar (a new joiner has no score at all, and
+        A PM can still allocate below the bar (a new joiner has no score at all, and
         somebody has to be first), but only with a reason, and the reason is audited.
         """
         for rec in self:
@@ -283,7 +304,7 @@ class EpoAllocation(models.Model):
                             'score': alloc.score_at_allocation})
 
     def _notify_allocated(self):
-        """Tell the pod member they are on a project, and who their lead is.
+        """Tell the Tasker they are on a project, and who their lead is.
 
         Sent on joining because that is the moment they need to know: the onboarding
         gate is now open in front of them and nobody has told them yet. Failure to send
@@ -356,8 +377,8 @@ class EpoAllocation(models.Model):
 
     @api.model
     def allocate_many(self, project_id, employee_ids, date_from=None, allocation_pct=100.0,
-                      role_on_project='pm', source='bulk', override_reason=None):
-        """Bulk allocation — the GPM's "put these twelve people on this project" action.
+                      role_on_project='tasker', source='bulk', override_reason=None):
+        """Bulk allocation — the PM's "put these twelve people on this project" action.
 
         Already-allocated people are skipped rather than raising, so one stale checkbox
         does not abort the whole batch."""
@@ -379,7 +400,7 @@ class EpoAllocation(models.Model):
                 skipped.append(_('%(name)s — already on this project',
                                  name=employee.display_name))
                 continue
-            # One person who no longer qualifies must not abort the batch. A GPM
+            # One person who no longer qualifies must not abort the batch. A PM
             # selecting twelve people from a list that went stale while they read it
             # should get eleven allocations and a note, not an error and nothing.
             try:

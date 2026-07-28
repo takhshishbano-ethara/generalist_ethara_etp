@@ -398,8 +398,8 @@
                 <filter name="unscored" string="Never assessed"
                         domain="[('epo_best_assessment_score', '=', 0)]"/>
                 <separator/>
-                <filter name="members" string="Pod Members"
-                        domain="[('epo_role', '=', 'pm')]"/>
+                <filter name="members" string="Taskers"
+                        domain="[('epo_role', '=', 'tasker')]"/>
                 <filter name="leads" string="Pod Leads"
                         domain="[('epo_role', '=', 'pl')]"/>
                 <group>

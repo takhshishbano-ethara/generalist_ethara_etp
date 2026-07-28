@@ -128,14 +128,20 @@ class EpoRosterDay(models.Model):
                 'Cannot filter "cleared to task" with the operator "%s".', operator))
         wanted = bool(value) if operator == '=' else not bool(value)
 
-        cleared = self.env['epo.onboarding'].sudo().search([('unlocked', '=', True)])
-        pairs = {(r.employee_id.id, r.project_id.id) for r in cleared}
-        rows = self.sudo().search([('project_id', '!=', False)])
-        matching = [
-            r.id for r in rows
-            if ((r.employee_id.id, r.project_id.id) in pairs) is wanted
-        ]
-        return [('id', 'in', matching)]
+        # One query, resolved in the database. The previous version searched EVERY
+        # roster row and filtered in Python: this table is one row per person per day
+        # forever, so that grew without bound and ran on each click of the filter.
+        self.env['epo.onboarding'].flush_model(['unlocked', 'employee_id', 'project_id'])
+        self.env.cr.execute("""
+            SELECT r.id
+              FROM epo_roster_day r
+              LEFT JOIN epo_onboarding o
+                     ON o.employee_id = r.employee_id
+                    AND o.project_id  = r.project_id
+             WHERE r.project_id IS NOT NULL
+               AND COALESCE(o.unlocked, false) = %s
+        """, (wanted,))
+        return [('id', 'in', [row[0] for row in self.env.cr.fetchall()])]
 
     # ------------------------------------------------------------------
     # guards
@@ -275,7 +281,16 @@ class EpoRosterDay(models.Model):
         """Clone yesterday's roster into today for every active employee that does not
         have a row yet. Without this the roster is empty every morning and the whole
         system looks broken until someone fills it in by hand — the prototype's most
-        visible operational gap."""
+        visible operational gap.
+
+        Honours the `epo.roster.carry_forward` setting. It previously did not: the
+        switch existed on the settings screen and this method ignored it, so unticking
+        it changed nothing and the screen was lying."""
+        enabled = self.env['ir.config_parameter'].sudo().get_param(
+            'epo.roster.carry_forward', 'True')
+        if str(enabled).strip().lower() in ('false', '0', 'none', ''):
+            _logger.info('Project OS: roster carry-forward is switched off, skipping.')
+            return 0
         today = fields.Date.context_today(self)
         yesterday = today - timedelta(days=1)
         existing = set(self.search([('business_date', '=', today)]).mapped('employee_id').ids)

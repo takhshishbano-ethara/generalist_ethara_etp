@@ -1,11 +1,11 @@
-"""GPM-facing API: the project, its content and its forms.
+"""PM-facing API: the project, its content and its forms.
 
 Everything here is the kickoff path — create a project, fill its knowledge folder, set
 training, link the (externally authored) assessment, build the stagelist and the
 feedback form, publish, go live.
 
-Read endpoints are open to any role but scoped: a pod member sees the projects they are
-allocated to and nothing else. Write endpoints need GPM or Admin.
+Read endpoints are open to any role but scoped: a Tasker sees the projects they are
+allocated to and nothing else. Write endpoints need PM or Admin.
 """
 
 import base64
@@ -29,7 +29,7 @@ def _project_dict(project, detailed=False):
         # than under the name an existing client already reads.
         'state': project.ethara_state,
                         'description': project.description or '',
-        'gpm': project.gpm_id.display_name or '',
+        'pm': project.pm_id.display_name or '',
         'date_start': str(project.date_start or ''),
         'date_end': str(project.date or ''),
         'has_sop': project.has_sop,
@@ -82,14 +82,14 @@ def _os_project(ctx, project_id):
 
 
 def _folder_guard(ctx, folder):
-    """Management is commercial paperwork: contracts, briefs, sign-offs. A pod member
+    """Management is commercial paperwork: contracts, briefs, sign-offs. A Tasker
     or a pod lead has no business in it, so the answer is a plain 403 rather than a
     filtered list that quietly hides half the folder."""
     if not folder:
         return respond(message='No such folder.', status=404)
     if folder.root == 'management' and not ctx.is_manager:
         return respond(
-            message='Management documents are visible to GPM and Admin only.',
+            message='Management documents are visible to PM and Admin only.',
             status=403)
     try:
         ctx.assert_can_see_project(folder.project_id.id)
@@ -158,8 +158,8 @@ class ProjectOsProjects(http.Controller):
         # projects that run through the Project OS pipeline.
         domain = [('is_project_os', '=', True)]
         if not ctx.is_manager:
-            # A pod member or lead sees live projects they are attached to. Setup-state
-            # projects are a GPM's workbench, not a public list.
+            # A Tasker or lead sees live projects they are attached to. Setup-state
+            # projects are a PM's workbench, not a public list.
             domain += [('id', 'in', ctx.accessible_project_ids),
                        ('ethara_state', '=', 'active')]
         projects = ctx.env['project.project'].search(domain)
@@ -173,7 +173,7 @@ class ProjectOsProjects(http.Controller):
             return respond(message='No such project.', status=404)
         return respond(_project_dict(project, detailed=True))
 
-    @route('/api/project-os/projects', ['POST'], min_role='gpm')
+    @route('/api/project-os/projects', ['POST'], min_role='pm')
     def create_project(self, ctx):
         body = payload()
         project = ctx.env['project.project'].create({
@@ -185,14 +185,14 @@ class ProjectOsProjects(http.Controller):
             'ethara_project_type': body.get('project_type') or 'external',
             'platform': body.get('platform') or 'Multimango',
             'description': body.get('description') or False,
-            'gpm_id': body.get('gpm_id') or ctx.employee.id,
+            'pm_id': body.get('pm_id') or ctx.employee.id,
             'min_assessment_score': body.get('min_assessment_score', 0.0),
             'date_start': body.get('date_start') or False,
             'date': body.get('date_end') or False,
         })
         return respond(_project_dict(project, detailed=True), message='Project created.')
 
-    @route('/api/project-os/projects/<int:project_id>', ['PATCH', 'PUT'], min_role='gpm')
+    @route('/api/project-os/projects/<int:project_id>', ['PATCH', 'PUT'], min_role='pm')
     def update_project(self, ctx, project_id):
         project = _os_project(ctx, project_id)
         if not project:
@@ -202,14 +202,14 @@ class ProjectOsProjects(http.Controller):
         writable = {
             'name': 'name', 'code': 'code',
             'project_type': 'ethara_project_type', 'platform': 'platform',
-            'description': 'description', 'gpm_id': 'gpm_id',
+            'description': 'description', 'pm_id': 'pm_id',
             'date_start': 'date_start', 'date_end': 'date',
             'min_assessment_score': 'min_assessment_score',
         }
         project.write({writable[k]: v for k, v in body.items() if k in writable})
         return respond(_project_dict(project, detailed=True), message='Saved.')
 
-    @route('/api/project-os/projects/<int:project_id>/activate', ['POST'], min_role='gpm')
+    @route('/api/project-os/projects/<int:project_id>/activate', ['POST'], min_role='pm')
     def activate_project(self, ctx, project_id):
         project = _os_project(ctx, project_id)
         if not project:
@@ -217,7 +217,7 @@ class ProjectOsProjects(http.Controller):
         project.action_activate()
         return respond(_project_dict(project), message='Project is live.')
 
-    @route('/api/project-os/projects/<int:project_id>/archive', ['POST'], min_role='gpm')
+    @route('/api/project-os/projects/<int:project_id>/archive', ['POST'], min_role='pm')
     def archive_project(self, ctx, project_id):
         project = _os_project(ctx, project_id)
         if not project:
@@ -234,7 +234,7 @@ class ProjectOsProjects(http.Controller):
 
         A file browser needs the shape before it can draw anything, and one round trip
         per folder would make it crawl. Management folders are omitted entirely for a
-        pod member or a lead — showing a folder that errors when opened is worse than
+        Tasker or a lead — showing a folder that errors when opened is worse than
         not showing it.
         """
         ctx.assert_can_see_project(project_id)
@@ -249,7 +249,7 @@ class ProjectOsProjects(http.Controller):
                 project, user=ctx.user, with_documents=with_docs),
         })
 
-    @route('/api/project-os/projects/<int:project_id>/folders', ['POST'], min_role='gpm')
+    @route('/api/project-os/projects/<int:project_id>/folders', ['POST'], min_role='pm')
     def create_folder(self, ctx, project_id):
         """Add a subfolder. Management nests freely; Knowledge is a fixed shape, so the
         model refuses a new folder there and says why."""
@@ -283,7 +283,7 @@ class ProjectOsProjects(http.Controller):
             'children': [c.to_dict() for c in folder.child_ids.filtered('active')],
         })
 
-    @route('/api/project-os/folders/<int:folder_id>', ['PATCH'], min_role='gpm')
+    @route('/api/project-os/folders/<int:folder_id>', ['PATCH'], min_role='pm')
     def update_folder(self, ctx, folder_id):
         folder = ctx.env['epo.folder'].browse(folder_id).exists()
         if not folder:
@@ -299,7 +299,7 @@ class ProjectOsProjects(http.Controller):
         folder.write(vals)
         return respond(folder.to_dict(), message='Saved.')
 
-    @route('/api/project-os/folders/<int:folder_id>', ['DELETE'], min_role='gpm')
+    @route('/api/project-os/folders/<int:folder_id>', ['DELETE'], min_role='pm')
     def delete_folder(self, ctx, folder_id):
         folder = ctx.env['epo.folder'].browse(folder_id).exists()
         if not folder:
@@ -320,7 +320,7 @@ class ProjectOsProjects(http.Controller):
             return error
         return respond([d.to_dict() for d in folder.document_ids.filtered('active')])
 
-    @route('/api/project-os/folders/<int:folder_id>/documents', ['POST'], min_role='gpm')
+    @route('/api/project-os/folders/<int:folder_id>/documents', ['POST'], min_role='pm')
     def add_document(self, ctx, folder_id):
         """Upload a file or record a link.
 
@@ -380,7 +380,7 @@ class ProjectOsProjects(http.Controller):
             return request.redirect(target['url'], local=False)
         return respond(target)
 
-    @route('/api/project-os/documents/<int:document_id>', ['DELETE'], min_role='gpm')
+    @route('/api/project-os/documents/<int:document_id>', ['DELETE'], min_role='pm')
     def delete_document(self, ctx, document_id):
         document = ctx.env['epo.document'].browse(document_id).exists()
         if not document:
@@ -420,7 +420,7 @@ class ProjectOsProjects(http.Controller):
             'trainer': t.trainer_id.display_name or '',
         } for t in sessions])
 
-    @route('/api/project-os/projects/<int:project_id>/training', ['POST'], min_role='gpm')
+    @route('/api/project-os/projects/<int:project_id>/training', ['POST'], min_role='pm')
     def add_training(self, ctx, project_id):
         body = payload()
         session = ctx.env['epo.training'].create({
@@ -436,7 +436,7 @@ class ProjectOsProjects(http.Controller):
         })
         return respond({'id': session.id}, message='Training saved.')
 
-    @route('/api/project-os/training/<int:training_id>', ['DELETE'], min_role='gpm')
+    @route('/api/project-os/training/<int:training_id>', ['DELETE'], min_role='pm')
     def remove_training(self, ctx, training_id):
         session = ctx.env['epo.training'].browse(training_id).exists()
         if not session:
@@ -447,12 +447,12 @@ class ProjectOsProjects(http.Controller):
     # ------------------------------------------------------------------
     # assessment — linked, not built
     # ------------------------------------------------------------------
-    @route('/api/project-os/projects/<int:project_id>/assessment', ['POST'], min_role='gpm')
+    @route('/api/project-os/projects/<int:project_id>/assessment', ['POST'], min_role='pm')
     def link_assessment(self, ctx, project_id):
         """Point the project at the external application where the paper lives.
 
         v2 §4.6.2: a link and nothing else. No questions are imported, no attempts are
-        stored, and nothing is graded here — a PM reads the result over there and
+        stored, and nothing is graded here — a Tasker reads the result over there and
         verifies it on the tasker's onboarding record.
         """
         body = payload()
@@ -495,7 +495,7 @@ class ProjectOsProjects(http.Controller):
         ctx.assert_can_see_project(template.project_id.id)
         return respond(template.schema())
 
-    @route('/api/project-os/templates', ['POST'], min_role='gpm')
+    @route('/api/project-os/templates', ['POST'], min_role='pm')
     def create_template(self, ctx):
         body = payload()
         template = ctx.env['epo.form.template'].create({
@@ -508,7 +508,7 @@ class ProjectOsProjects(http.Controller):
             'template_id': template.id, 'name': 'Section 1', 'sequence': 10})
         return respond(template.schema(), message='Draft created.')
 
-    @route('/api/project-os/templates/<int:template_id>', ['PUT'], min_role='gpm')
+    @route('/api/project-os/templates/<int:template_id>', ['PUT'], min_role='pm')
     def save_template(self, ctx, template_id):
         """Replace the structure of a DRAFT form.
 
@@ -555,7 +555,7 @@ class ProjectOsProjects(http.Controller):
                 seq_field += 10
         return respond(template.schema(), message='Saved.')
 
-    @route('/api/project-os/templates/<int:template_id>/publish', ['POST'], min_role='gpm')
+    @route('/api/project-os/templates/<int:template_id>/publish', ['POST'], min_role='pm')
     def publish_template(self, ctx, template_id):
         template = ctx.env['epo.form.template'].browse(template_id).exists()
         if not template:
@@ -567,7 +567,7 @@ class ProjectOsProjects(http.Controller):
         }, message='Published.')
 
     @route('/api/project-os/templates/<int:template_id>/new-version', ['POST'],
-           min_role='gpm')
+           min_role='pm')
     def new_version(self, ctx, template_id):
         template = ctx.env['epo.form.template'].browse(template_id).exists()
         if not template:

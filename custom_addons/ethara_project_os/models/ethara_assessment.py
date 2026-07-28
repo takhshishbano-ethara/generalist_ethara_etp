@@ -10,7 +10,7 @@ and no scoring, and §4.6.2's dropped-model list is deliberate:
 * ``ethara.assessment.attempt`` — gone. Odoo does not grade, so it does not store
   attempts.
 
-The verdict arrives by a human instead. A PM or Pod Lead reads the external result and
+The verdict arrives by a human instead. A Tasker or Pod Lead reads the external result and
 ticks ``assessment_passed`` on the onboarding record; that toggle is group-restricted and
 audited through ``mail.thread`` (§4.6.3, §11.2). It is the one place in the module where
 somebody's readiness is asserted rather than evidenced, which is exactly why it leaves a
@@ -71,7 +71,7 @@ class EtharaAssessment(models.Model):
 
     @api.constrains('url')
     def _check_url(self):
-        """A ``javascript:`` URL rendered into a PM's browser is a privilege escalation,
+        """A ``javascript:`` URL rendered into a Tasker's browser is a privilege escalation,
         not a typo — and this link is handed to every tasker on the project."""
         for record in self:
             if not URL_RE.match(record.url or ''):

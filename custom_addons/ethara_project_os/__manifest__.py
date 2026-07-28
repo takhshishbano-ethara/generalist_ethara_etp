@@ -1,6 +1,6 @@
 {
     "name": "Ethara Project OS",
-    "version": "19.0.1.3.0",
+    "version": "19.0.1.5.1",
     "category": "Operations",
     "summary": "Project lifecycle OS: kickoff → SOP/training/assessment → stagelist/feedback → allocation → tasking",
     "description": """
@@ -14,13 +14,13 @@ Four roles (login-scoped)
 -------------------------
 * **Admin** — full control. The only role that may void a submission, unlock a
   payroll-locked roster day, waive onboarding or read the audit log.
-* **GPM** (General Program Management) — owns projects: creates them, fills the
+* **PM** (General Program Management) — owns projects: creates them, fills the
   knowledge folder (SOP / Common Errors / Task Videos), sets training, links the
   externally-built assessment, builds and publishes the stagelist + feedback forms,
   allocates people, reads org-wide analytics.
 * **PL** (Pod Lead) — owns the daily roster of their pod: status, project, presence;
   approves their pod's leave; reviews their pod's submissions.
-* **PM** (Pod Member) — completes onboarding (SOP → Training → Assessment), then fills
+* **Tasker** (Tasker) — completes onboarding (SOP → Training → Assessment), then fills
   the stagelist and the feedback form for the project they are allocated to.
 
 What it stores
@@ -56,6 +56,10 @@ What it stores
         # and scopes everything it owns with is_project_os, because three other modules
         # own rows on that table too.
         "project",
+        # We CALL the assessment app, we never modify it: the project pushes its SOP and
+        # training into an etp.assessment.prompt and reads back what results. Extracting
+        # skills, choosing them and generating questions all happen over there.
+        "etp_assessment",
     ],
     # No UI for the four roles: that is a separate frontend talking to
     # /api/project-os/*. What stays here is the operations surface Odoo is actually

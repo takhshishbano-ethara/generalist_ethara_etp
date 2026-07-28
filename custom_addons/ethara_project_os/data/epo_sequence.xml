@@ -14,7 +14,7 @@
              three modules that own rows on project.project keep their own numbering,
              and project_extension already has project_seq.
 
-             A PM may still type a code by hand when a client mandates one; it is
+             A Tasker may still type a code by hand when a client mandates one; it is
              uppercased and checked for uniqueness either way. -->
 
         <record id="seq_ethara_project_code" model="ir.sequence">

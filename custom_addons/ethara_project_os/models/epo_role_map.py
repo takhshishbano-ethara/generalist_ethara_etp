@@ -1,38 +1,37 @@
 """Where a Project OS role comes from — ``api.role``, not a registry of our own.
 
 This deployment already has a role registry: ``api.role``, shipped by
-``api_auth_gateway`` and assigned per user through ``res.users.user_role``. Modules
-consume it by mapping their own vocabulary onto its xml-ids — see
-``ethara_project/models/role_map.py``, which is the pattern this file follows.
+``api_auth_gateway`` and populated for the pod structure by ``pod_roles``. Users are
+assigned through ``res.users.user_role``. Modules consume it by mapping their own
+vocabulary onto its records — see ``ethara_project/models/role_map.py``, which is the
+pattern this file follows.
 
 Project OS therefore does **not** own a role table. It owns four Odoo groups (because
 ACLs and record rules can only be written against groups) and derives membership from
 whatever ``user_role`` says.
 
-Two things make the switchover safe:
+The four levels, weakest to strongest:
 
-* **Missing roles resolve to nothing, they do not raise.** The four Project OS roles do
-  not exist in ``api.role`` yet. Until they are created, every lookup here returns an
-  empty list and the derivation simply finds nobody — it does not crash, and it does not
-  strip anybody's access.
+    tasker → pl → pm → admin
+
+**On the vocabulary.** These names match ``pod_roles`` exactly, and that is deliberate.
+An earlier version of this module called the bottom level ``pm`` (for "pod member") and
+the programme-management level ``gpm``. The organisation then settled on *Tasker* for
+the bottom and *PM — Programme Manager* for the level above Pod Lead, which made the
+old names actively dangerous: ``pm`` meant the *weakest* level here and the
+*second-strongest* everywhere else. Anything that carried a role string across the
+boundary — an API response, a ``min_role`` check — could be read with exactly inverted
+privilege. The levels were renamed in 19.0.1.5.0 (``pm`` → ``tasker``, then ``gpm`` →
+``pm``, in that order; see that migration) so that one word means one thing everywhere.
+
+Two things make deriving from the registry safe:
+
+* **Missing roles resolve to nothing, they do not raise.** If a mapped ``api.role`` is
+  absent, the lookup returns an empty list and the derivation finds nobody — it does not
+  crash, and it does not strip anybody's access.
 * **``epo.role.assignment`` stays as the fallback.** While ``user_role`` yields no
-  Project OS level for somebody, their groups continue to come from their grant, exactly
-  as before. The moment a mapped ``api.role`` is set on their user, that wins. Nobody
-  loses access on the day this ships, and the grant model can be retired once the
-  registry is populated.
-
-To finish the migration, create these four ``api.role`` records in
-``api_auth_gateway`` — the names follow that module's existing ``role_<name>_<type>``
-convention — and set ``user_role`` on each user:
-
-    api_auth_gateway.role_tasker_technical     → PM  (pod member)
-    api_auth_gateway.role_pl_technical         → PL  (pod lead)
-    api_auth_gateway.role_gpm_technical        → GPM (general programme management)
-    api_auth_gateway.role_admin_technical      → Admin
-
-The stem / non-stem variants of tasker and PL are already there and are mapped too: one
-Project OS level legitimately covers several ``api.role`` records, which is why each
-entry is a tuple rather than a single id.
+  Project OS level for somebody, their groups continue to come from their grant. The
+  moment a mapped ``api.role`` is set on their user, that wins.
 """
 
 import logging
@@ -41,53 +40,58 @@ _logger = logging.getLogger(__name__)
 
 # Project OS level → the api.role xml-ids that mean it.
 #
-# `role_gpm_technical` does NOT exist yet; it is listed so that creating it is the only
-# step needed to finish the switchover. `role_tpm_technical` is deliberately NOT mapped
-# to GPM: TPM is a different job, and guessing here would hand project-creation and
-# allocation rights to the wrong people.
+# `pod_roles` is the intended source; the `api_auth_gateway` entries are the older
+# records that predate it and are kept so a deployment without `pod_roles` still maps.
+#
+# `role_tpm_technical` is deliberately NOT mapped: TPM is a different job, and guessing
+# here would hand project-creation and allocation rights to the wrong people.
 ROLE_XML_IDS = {
-    'pm': (
+    'tasker': (
+        'pod_roles.role_tasker',
         'api_auth_gateway.role_tasker_technical',
         'api_auth_gateway.role_tasker_stem',
         'api_auth_gateway.role_tasker_non_stem',
     ),
     'pl': (
+        'pod_roles.role_pl',
         'api_auth_gateway.role_pl_technical',
         'api_auth_gateway.role_pl_stem',
         'api_auth_gateway.role_pl_non_stem',
     ),
-    'gpm': (
-        'api_auth_gateway.role_gpm_technical',
+    'pm': (
+        'pod_roles.role_pm',
     ),
     'admin': (
+        'pod_roles.role_admin',
         'api_auth_gateway.role_admin_technical',
     ),
 }
 
 # Second way in, for roles created through the UI. A record made by hand has NO xml-id,
-# so the map above cannot see it — and "the roles will be added later" usually means
-# somebody adds them in Settings, not in a data file. Matching `user_type` as well means
-# either route works.
+# so the map above cannot see it. Matching `user_type` as well means either route works.
 #
 # Matched case-insensitively, exact string only. Deliberately NOT substring matching:
-# 'TPM' contains 'PM', and a substring rule would quietly map every TPM onto a Project
-# OS level nobody intended.
+# 'TPM' contains 'PM', and a substring rule would quietly map every TPM onto the
+# programme-management level. This is the rule that lets `pm` appear below safely.
+#
+# 'gpm' is retained on the `pm` level as a legacy alias: it is what this level was
+# called before 19.0.1.5.0, and an api.role record may still carry it.
 ROLE_USER_TYPES = {
-    'pm': ('tasker', 'tasker-stem', 'tasker-non-stem', 'pod_member', 'pod member'),
+    'tasker': ('tasker', 'tasker-stem', 'tasker-non-stem', 'pod_member', 'pod member'),
     'pl': ('pl', 'pl-stem', 'pl-non-stem', 'pod_lead', 'pod lead'),
-    'gpm': ('gpm', 'general program management', 'general programme management'),
+    'pm': ('pm', 'gpm', 'general program management', 'general programme management'),
     'admin': ('admin',),
 }
 
 # Ordered weakest → strongest, so "the highest level this user holds" has one answer.
-ROLE_RANK = ['pm', 'pl', 'gpm', 'admin']
+ROLE_RANK = ['tasker', 'pl', 'pm', 'admin']
 
 # Project OS level → the Odoo group that carries it. The groups are what the record
 # rules and ACLs are written against; nothing outside this module needs to know them.
 ROLE_GROUPS = {
-    'pm': 'ethara_project_os.group_epo_member',
+    'tasker': 'ethara_project_os.group_epo_tasker',
     'pl': 'ethara_project_os.group_epo_pod_lead',
-    'gpm': 'ethara_project_os.group_epo_manager',
+    'pm': 'ethara_project_os.group_epo_pm',
     'admin': 'ethara_project_os.group_epo_admin',
 }
 
@@ -135,10 +139,14 @@ def level_for_api_role(env, api_role):
 
 
 def registry_is_populated(env):
-    """Whether ``api.role`` yet carries any of the four levels.
+    """Whether ``api.role`` yet carries **every** one of the four levels.
 
-    While this is false the derivation has nothing to work with, and
-    ``epo.role.assignment`` remains the source of truth. Logged once per call site so a
-    half-finished migration is visible rather than silent.
+    While this is false, at least one level cannot be derived and
+    ``epo.role.assignment`` must remain available as the fallback — retiring the grant
+    model early would leave nobody able to hold the missing level.
+
+    Deliberately ``all`` and not ``any``: with ``any``, three of four levels resolving
+    was enough to report a ready registry while the programme-management level had no
+    record at all, which is precisely the state that broke project creation.
     """
-    return any(resolve_role_ids(env, level) for level in ROLE_RANK)
+    return all(resolve_role_ids(env, level) for level in ROLE_RANK)

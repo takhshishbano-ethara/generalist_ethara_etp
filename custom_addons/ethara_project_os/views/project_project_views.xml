@@ -20,7 +20,7 @@
                 <field name="code"/>
                 <field name="name"/>
                 <field name="ethara_project_type"/>
-                <field name="gpm_id" optional="show"/>
+                <field name="pm_id" optional="show"/>
                 <field name="ethara_state" widget="badge"/>
                 <field name="gate_blockers" string="Blocked by"/>
                 <field name="min_assessment_score" string="Min score" optional="hide"/>
@@ -74,12 +74,6 @@
                 <header>
                     <button name="action_activate" type="object" string="Activate"
                             class="btn-primary" invisible="ethara_state == 'active'"/>
-                    <button name="action_archive_project" type="object" string="Archive"
-                            invisible="ethara_state != 'active'"
-                            confirm="Everyone must be released first. Submissions and history survive."/>
-                    <button name="action_rebuild_folders" type="object"
-                            string="Rebuild folders"
-                            help="Re-create any missing system folders. Safe to run at any time."/>
                     <field name="ethara_state" widget="statusbar"
                            statusbar_visible="setup,active,archived"/>
                 </header>
@@ -119,7 +113,7 @@
                         <group>
                             <field name="is_project_os"/>
                             <field name="ethara_project_type"/>
-                            <field name="gpm_id"/>
+                            <field name="pm_id"/>
                         </group>
                         <group>
                             <field name="date_start"/>
@@ -133,10 +127,15 @@
                                    invisible="not archived_at"/>
                         </group>
                     </group>
-                    <group string="Brief">
-                        <field name="description" nolabel="1"
-                               placeholder="What this project is, in the GPM's words."/>
-                    </group>
+                    <!-- Full width, and NOT inside a <group>. A group reserves a label
+                         column even with nolabel="1", which left the textarea indented
+                         and pushed the heading below it. A <separator> plus the field
+                         directly in the sheet is the pattern used elsewhere in this
+                         codebase (see argus, aurora) and lands flush left. -->
+                    <separator string="Brief"/>
+                    <field name="description" nolabel="1"
+                           placeholder="What this project is, in the PM's words."
+                           style="min-height: 90px;"/>
                     <group string="Kickoff gate" invisible="not is_project_os">
                         <group>
                             <field name="has_sop" readonly="1"/>
@@ -154,10 +153,19 @@
                                 Task Videos · Other</b> — so "read the SOP" means the same
                                 thing everywhere. Pick the folder per document below.
                             </div>
-                            <field name="knowledge_doc_ids">
+                            <field name="knowledge_doc_ids" context="{'epo_category_root': 'knowledge'}">
                                 <list editable="bottom">
                                     <field name="sequence" widget="handle"/>
-                                    <field name="folder_id"/>
+                                    <!-- One column, not two. Type is what a person picks;
+                                         it files the document in this project's matching
+                                         folder. Folder itself is kept only as a hidden
+                                         fallback for documents sitting in a folder someone
+                                         created by hand, which has no type. -->
+                                    <field name="category" string="Type" required="1"/>
+                                    <field name="folder_id" string="Folder" optional="hide"
+                                           domain="[('project_id', '=', parent.id),
+                                                    ('root', '=', 'knowledge')]"
+                                           options="{'no_create': True, 'no_open': True}"/>
                                     <field name="name"/>
                                     <field name="doc_type"/>
                                     <field name="url" widget="url"/>
@@ -170,16 +178,20 @@
                             </field>
                         </page>
                         <page string="Management" name="management"
-                              groups="ethara_project_os.group_epo_manager">
+                              groups="ethara_project_os.group_epo_pm">
                             <div class="text-muted mb-2">
                                 Client documents and commercial paperwork. Not visible to
-                                Pod Leads or Pod Members — enforced by record rule, not
+                                Pod Leads or Taskers — enforced by record rule, not
                                 just by hiding this tab.
                             </div>
-                            <field name="management_doc_ids">
+                            <field name="management_doc_ids" context="{'epo_category_root': 'management'}">
                                 <list editable="bottom">
                                     <field name="sequence" widget="handle"/>
-                                    <field name="folder_id"/>
+                                    <field name="category" string="Type" required="1"/>
+                                    <field name="folder_id" string="Folder" optional="hide"
+                                           domain="[('project_id', '=', parent.id),
+                                                    ('root', '=', 'management')]"
+                                           options="{'no_create': True, 'no_open': True}"/>
                                     <field name="name"/>
                                     <field name="doc_type"/>
                                     <field name="url" widget="url"/>
@@ -206,8 +218,23 @@
                         </page>
                         <page string="Assessment" name="assessment">
                             <div class="text-muted mb-2">
+                                <button name="action_send_to_assessment" type="object"
+                                        string="Send SOP + training to assessment"
+                                        class="btn-primary btn-sm"
+                                        groups="ethara_project_os.group_epo_pm"
+                                        confirm="This creates a prompt in the assessment app from this project's knowledge folder and training. Skills, questions and the paper itself are then built over there."/>
+                                <span class="ms-2" invisible="not etp_prompt_id">
+                                    Sent as <field name="etp_prompt_id" readonly="1"
+                                                   class="oe_inline"/>
+                                    on <field name="assessment_sent_at" readonly="1"
+                                              class="oe_inline"/>
+                                    by <field name="assessment_sent_by_id" readonly="1"
+                                              class="oe_inline"/>
+                                </span>
+                            </div>
+                            <div class="text-muted mb-2">
                                 The paper lives in an external application. Odoo stores
-                                the link only — a PM reads the result there and verifies
+                                the link only — a Tasker reads the result there and verifies
                                 it on the tasker's Onboarding record.
                             </div>
                             <field name="ethara_assessment_ids">
@@ -221,8 +248,36 @@
                             </field>
                         </page>
                         <page string="Forms" name="forms">
+                            <div class="text-muted mb-2">
+                                The two forms this project runs on: the
+                                <b>Stagelist</b> a Tasker fills per task, and the
+                                <b>Feedback Taker</b> that records what the client said
+                                on their platform. A published stagelist is half the
+                                kickoff gate — until one exists the project cannot go
+                                live.
+                            </div>
+                            <!-- Build full page, never in a popup. Publish and New
+                                 version are object methods and the Fields tab points
+                                 sections at real ids — none of which an x2many dialog
+                                 can hand a line that exists only in memory. That is why
+                                 the old "Add a line" asked for a Project it should have
+                                 known: it was opening the standalone form. These two
+                                 buttons are the prototype's kickoff Build buttons
+                                 (public/js/app.js buildSL / buildFB); they reuse an
+                                 existing draft rather than making a second one. -->
+                            <div class="mb-3" invisible="not id">
+                                <button name="action_build_form" type="object"
+                                        class="btn btn-primary btn-sm"
+                                        context="{'epo_form_type': 'stagelist'}"
+                                        string="Build stagelist"/>
+                                <button name="action_build_form" type="object"
+                                        class="btn btn-secondary btn-sm ms-2"
+                                        context="{'epo_form_type': 'feedback'}"
+                                        string="Build feedback form"/>
+                            </div>
                             <field name="template_ids">
-                                <list decoration-success="state == 'published'"
+                                <list create="false" edit="false" delete="false"
+                                      decoration-success="state == 'published'"
                                       decoration-muted="state == 'archived'">
                                     <field name="form_type"/>
                                     <field name="name"/>
@@ -230,7 +285,38 @@
                                     <field name="state" widget="badge"/>
                                     <field name="entry_count"/>
                                     <field name="published_at"/>
+                                    <button name="action_open_builder" type="object"
+                                            icon="fa-external-link" title="Open"/>
                                 </list>
+                                <!-- The dialog a row opens is deliberately a summary,
+                                     not the builder: it exists so clicking a row does
+                                     not land somebody in the standalone form, Project
+                                     picker and all. -->
+                                <form>
+                                    <div class="alert alert-info" role="alert">
+                                        This is a summary. Sections, fields and
+                                        publishing live on the form's own page.
+                                    </div>
+                                    <group>
+                                        <group>
+                                            <field name="form_type" readonly="1"/>
+                                            <field name="name" readonly="1"/>
+                                            <field name="version" readonly="1"/>
+                                        </group>
+                                        <group>
+                                            <field name="state" readonly="1"/>
+                                            <field name="entry_count" readonly="1"/>
+                                            <field name="published_at" readonly="1"/>
+                                        </group>
+                                    </group>
+                                    <field name="description" readonly="1"
+                                           invisible="not description"/>
+                                    <footer>
+                                        <button name="action_open_builder" type="object"
+                                                string="Open form" class="btn-primary"/>
+                                        <button string="Close" special="cancel"/>
+                                    </footer>
+                                </form>
                             </field>
                         </page>
                         <page string="Team" name="team">
@@ -293,7 +379,7 @@
             <search>
                 <field name="name"/>
                 <field name="code"/>
-                <field name="gpm_id"/>
+                <field name="pm_id"/>
                 <filter name="live" string="Live" domain="[('ethara_state', '=', 'active')]"/>
                 <filter name="setup" string="In setup" domain="[('ethara_state', '=', 'setup')]"/>
                 <filter name="blocked" string="Blocked from go-live"
@@ -305,8 +391,8 @@
                 <group>
                     <filter name="group_state" string="Delivery state"
                             context="{'group_by': 'ethara_state'}"/>
-                    <filter name="group_gpm" string="GPM"
-                            context="{'group_by': 'gpm_id'}"/>
+                    <filter name="group_pm" string="PM"
+                            context="{'group_by': 'pm_id'}"/>
                     <filter name="group_type" string="Type"
                             context="{'group_by': 'ethara_project_type'}"/>
                 </group>
@@ -319,7 +405,7 @@
         <field name="res_model">project.project</field>
         <field name="view_mode">kanban,list,form</field>
         <!-- Scoped to the pipeline: the registry also holds budget-only projects, and
-             showing them here would offer a GPM an Activate button on a record that
+             showing them here would offer a PM an Activate button on a record that
              has no knowledge folder. -->
         <field name="domain">[('is_project_os', '=', True)]</field>
         <field name="context">{'search_default_live': 1, 'default_is_project_os': True}</field>

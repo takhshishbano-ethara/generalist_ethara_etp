@@ -1,15 +1,15 @@
 """The project's filing cabinet.
 
-Every project gets the same skeleton the moment it is created, so a GPM never faces an
-empty screen and a pod member always knows where to look:
+Every project gets the same skeleton the moment it is created, so a PM never faces an
+empty screen and a Tasker always knows where to look:
 
     <project code>/
-    ├── Knowledge/                  ← what a pod member reads before tasking
+    ├── Knowledge/                  ← what a Tasker reads before tasking
     │   ├── SOP/                    ← mandatory: the project cannot go live without it
     │   ├── Common Errors/
     │   ├── Task Videos/
     │   └── Other/
-    └── Management/                 ← what the GPM keeps about the engagement
+    └── Management/                 ← what the PM keeps about the engagement
         └── Client Documents/       ← contracts, briefs, sign-offs — free nesting below
 
 Two rules shape the design:
@@ -23,7 +23,7 @@ Two rules shape the design:
   depth, and any of them can hold files.
 
 The two sides also differ in *who may read them*: Knowledge is visible to anyone
-allocated to the project, Management is GPM and Admin only. A pod member browsing the
+allocated to the project, Management is PM and Admin only. A Tasker browsing the
 folder tree simply does not see it (:meth:`_visible_to`).
 """
 
@@ -31,7 +31,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
 # The skeleton created with every project. `slug` is the stable identifier code refers
-# to — the *name* is a label a GPM could in principle translate, the slug never changes.
+# to — the *name* is a label a PM could in principle translate, the slug never changes.
 KNOWLEDGE_TREE = [
     ('sop', 'SOP', True),
     ('common_errors', 'Common Errors', False),
@@ -41,6 +41,16 @@ KNOWLEDGE_TREE = [
 MANAGEMENT_TREE = [
     ('client_documents', 'Client Documents', False),
 ]
+
+# The slug is a CLOSED set — written only by _build_skeleton from the two trees above,
+# plus the two roots. The REST API never sets it, and a folder a PM creates has none.
+# Derived from the trees rather than typed out again, so adding a folder type in one
+# place cannot leave the other behind.
+FOLDER_SLUGS = (
+    [('knowledge', 'Knowledge'), ('management', 'Management')]
+    + [(slug, label) for slug, label, _mandatory in KNOWLEDGE_TREE]
+    + [(slug, label) for slug, label, _mandatory in MANAGEMENT_TREE]
+)
 
 
 class EpoFolder(models.Model):
@@ -62,10 +72,13 @@ class EpoFolder(models.Model):
     complete_name = fields.Char(
         compute='_compute_complete_name', store=True, recursive=True,
         string='Path')
-    slug = fields.Char(
-        index=True,
-        help='Stable identifier for a system folder (sop, client_documents, …). '
-             'Empty on folders a GPM created.')
+    # A Selection, not a Char, so the UI reads "Common Errors" rather than
+    # `common_errors` — and so epo.document.category can be related to it and read the
+    # same way. The stored values are unchanged; this is the label, not the data.
+    slug = fields.Selection(
+        FOLDER_SLUGS, index=True, string='Type',
+        help='Stable identifier for a system folder. Empty on folders a PM created, '
+             'because those are not one of the fixed types.')
     root = fields.Selection(
         [('knowledge', 'Knowledge'), ('management', 'Management')],
         required=True, index=True,
@@ -138,7 +151,7 @@ class EpoFolder(models.Model):
     @api.constrains('parent_id', 'project_id', 'root')
     def _check_tree(self):
         for folder in self:
-            if not folder._check_recursion():
+            if folder._has_cycle():
                 raise ValidationError(_('Folders cannot contain themselves.'))
             parent = folder.parent_id
             if parent and parent.project_id != folder.project_id:
@@ -229,12 +242,12 @@ class EpoFolder(models.Model):
     # visibility
     # ------------------------------------------------------------------
     def _visible_to(self, user):
-        """Knowledge is for everyone on the project; Management is GPM and Admin only.
+        """Knowledge is for everyone on the project; Management is PM and Admin only.
 
-        Client contracts and commercial paperwork are not a pod member's business, and
+        Client contracts and commercial paperwork are not a Tasker's business, and
         the honest way to express that is to leave them out of the tree entirely rather
         than show a folder that errors when opened."""
-        if user._epo_role() in ('gpm', 'admin'):
+        if user._epo_role() in ('pm', 'admin'):
             return self
         return self.filtered(lambda f: f.root == 'knowledge')
 

@@ -1,8 +1,8 @@
 """The form engine — one engine, two form types.
 
-The *stagelist* (what a pod member fills per task) and the *feedback taker* (what the
+The *stagelist* (what a Tasker fills per task) and the *feedback taker* (what the
 client said on their platform) are the same shape: sections of typed fields, built by a
-GPM with no code. Keeping them as one engine with a ``form_type`` discriminator is the
+PM with no code. Keeping them as one engine with a ``form_type`` discriminator is the
 prototype's strongest decision and it is preserved here.
 
 The prototype's worst defect is also fixed here. Its "save template" handler deleted
@@ -16,6 +16,8 @@ Three independent defences replace it:
 3. ``epo.form.value.field_id`` is ``ondelete='restrict'``: even a direct SQL-adjacent
    path cannot delete a field that has answers.
 """
+
+import json
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -163,7 +165,7 @@ class EpoFormTemplate(models.Model):
         version it was filled on.
 
         The sections and fields are copied explicitly: Odoo does not copy one2many
-        relations by default, so a plain ``copy()`` produced an *empty* draft and a GPM
+        relations by default, so a plain ``copy()`` produced an *empty* draft and a PM
         wanting to change one label had to rebuild the whole form from memory.
         """
         self.ensure_one()
@@ -189,6 +191,24 @@ class EpoFormTemplate(models.Model):
             'res_model': self._name,
             'res_id': clone.id,
             'view_mode': 'form',
+        }
+
+    def action_open_builder(self):
+        """Leave the project's Forms tab and open this form on its own page.
+
+        A form is built where Publish, New version and the section picker actually
+        work, which is nowhere near an x2many dialog.
+        """
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': self.name,
+            'res_model': self._name,
+            'res_id': self.id,
+            'view_mode': 'form',
+            'views': [(self.env.ref(
+                'ethara_project_os.view_epo_template_form').id, 'form')],
+            'target': 'current',
         }
 
     def _copy_structure_to(self, target):
@@ -310,6 +330,20 @@ class EpoFormField(models.Model):
     sequence = fields.Integer(default=10)
     value_count = fields.Integer(compute='_compute_value_count')
 
+    # The three _json columns are what the API serves and what the frontend builder
+    # writes. Nobody should have to type brackets and quotes into a cell to add a
+    # dropdown choice, so the backend edits these one-per-line mirrors instead — the
+    # same shape the prototype's builder used (public/js/app.js, "One option per line").
+    options_text = fields.Text(
+        string='Options', compute='_compute_line_text', inverse='_inverse_options_text',
+        help='One option per line.')
+    grid_rows_text = fields.Text(
+        string='Grid rows', compute='_compute_line_text',
+        inverse='_inverse_grid_rows_text', help='One row label per line.')
+    grid_cols_text = fields.Text(
+        string='Grid columns', compute='_compute_line_text',
+        inverse='_inverse_grid_cols_text', help='One column label per line.')
+
     _header_not_required = models.Constraint(
         "CHECK (field_type <> 'section_header' OR is_required = false)",
         'A section header is decoration — marking it required makes the form '
@@ -321,7 +355,6 @@ class EpoFormField(models.Model):
             rec.value_count = Value.search_count([('field_id', '=', rec.id)])
 
     def _json(self, raw):
-        import json
         try:
             parsed = json.loads(raw or '[]')
             return parsed if isinstance(parsed, list) else []
@@ -331,6 +364,32 @@ class EpoFormField(models.Model):
     @property
     def options(self):
         return self._json(self.options_json)
+
+    # ------------------------------------------------------------------
+    # one-per-line mirrors of the three JSON columns
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _lines(text):
+        return [line.strip() for line in (text or '').splitlines() if line.strip()]
+
+    @api.depends('options_json', 'grid_rows_json', 'grid_cols_json')
+    def _compute_line_text(self):
+        for rec in self:
+            rec.options_text = '\n'.join(str(o) for o in rec._json(rec.options_json))
+            rec.grid_rows_text = '\n'.join(str(r) for r in rec._json(rec.grid_rows_json))
+            rec.grid_cols_text = '\n'.join(str(c) for c in rec._json(rec.grid_cols_json))
+
+    def _inverse_options_text(self):
+        for rec in self:
+            rec.options_json = json.dumps(rec._lines(rec.options_text))
+
+    def _inverse_grid_rows_text(self):
+        for rec in self:
+            rec.grid_rows_json = json.dumps(rec._lines(rec.grid_rows_text))
+
+    def _inverse_grid_cols_text(self):
+        for rec in self:
+            rec.grid_cols_json = json.dumps(rec._lines(rec.grid_cols_text))
 
     @api.constrains('field_type', 'options_json', 'grid_rows_json', 'grid_cols_json')
     def _check_shape(self):

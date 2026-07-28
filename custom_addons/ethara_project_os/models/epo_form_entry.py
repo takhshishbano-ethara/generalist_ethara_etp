@@ -99,7 +99,7 @@ class EpoFormEntry(models.Model):
     def _assert_admissible(self):
         """Every rule the prototype checked in JavaScript — plus the three it did not.
 
-        The one that matters most is allocation: without it a pod member can post
+        The one that matters most is allocation: without it a Tasker can post
         feedback against any project in the system just by knowing its template id."""
         for entry in self:
             template = entry.template_id
@@ -310,8 +310,8 @@ class EpoFormValue(models.Model):
     attachment_id = fields.Many2one(
         'ir.attachment', ondelete='restrict',
         help='Image and file answers are attachments behind Odoo\'s ACL — never an '
-             'inline data URL, which is how the prototype let a pod member inject '
-             'markup into a GPM\'s browser.')
+             'inline data URL, which is how the prototype let a Tasker inject '
+             'markup into a PM\'s browser.')
 
     _one_per_field = models.Constraint(
         'UNIQUE (entry_id, field_id)', 'That field already has an answer on this entry.')

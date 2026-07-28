@@ -7,7 +7,7 @@ neither the controllers nor the record rules ever have to trust a client-supplie
 
 from odoo import api, fields, models
 
-from .epo_role_map import ROLE_GROUPS, ROLE_RANK, level_for_api_role
+from .epo_role_map import ROLE_GROUPS, level_for_api_role
 
 
 class ResUsers(models.Model):
@@ -72,7 +72,12 @@ class ResUsers(models.Model):
             commands = ([(3, g.id) for g in (all_groups - wanted)]
                         + [(4, g.id) for g in wanted])
             if commands:
-                super(ResUsers, user.sudo()).write({'group_ids': commands})
+                # A plain write, NOT super(ResUsers, ...): seven other modules extend
+                # res.users, and skipping to the next class in the MRO would bypass
+                # theirs (base_user_role.write, for one, re-derives groups from its own
+                # roles). Recursion is not a risk — the override below only reacts to
+                # `user_role`, and this writes `group_ids`.
+                user.sudo().write({'group_ids': commands})
 
     def write(self, vals):
         """A change of ``user_role`` has to move the Project OS groups with it.
@@ -96,12 +101,12 @@ class ResUsers(models.Model):
         self.ensure_one()
         if self.has_group('ethara_project_os.group_epo_admin'):
             return 'admin'
-        if self.has_group('ethara_project_os.group_epo_manager'):
-            return 'gpm'
+        if self.has_group('ethara_project_os.group_epo_pm'):
+            return 'pm'
         if self.has_group('ethara_project_os.group_epo_pod_lead'):
             return 'pl'
-        if self.has_group('ethara_project_os.group_epo_member'):
-            return 'pm'
+        if self.has_group('ethara_project_os.group_epo_tasker'):
+            return 'tasker'
         return False
 
     def _epo_employee(self):
@@ -115,7 +120,7 @@ class ResUsers(models.Model):
         """Employee ids visible to this login. See hr.employee._epo_scope_employee_ids."""
         self.ensure_one()
         role = self._epo_role()
-        if role in ('gpm', 'admin'):
+        if role in ('pm', 'admin'):
             return self.env['hr.employee'].sudo().search([]).ids
         emp = self._epo_employee()
         if not emp:
@@ -130,11 +135,11 @@ class ResUsers(models.Model):
     def _epo_accessible_project_ids(self):
         """Projects this login may read the knowledge folder of.
 
-        GPM/Admin see every project. A PL or PM sees only the projects someone in their
+        PM/Admin see every project. A PL or Tasker sees only the projects someone in their
         scope is (or has been) allocated to — the knowledge folder is project IP, not
         a public library."""
         self.ensure_one()
-        if self._epo_role() in ('gpm', 'admin'):
+        if self._epo_role() in ('pm', 'admin'):
             # Only the projects that actually run through this pipeline. The registry
             # also holds projects owned by the budget side; they have no knowledge
             # folder to read and do not belong in a Project OS listing.

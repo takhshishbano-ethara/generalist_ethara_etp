@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!--
+            API roles for the Pod structure: Admin, PM, PL, Tasker.
+            Reuses the api.role model defined in api_auth_gateway.
+            Names / user_type are (re)enforced by
+            api.role._sync_pod_role_config() so renames apply on upgrade too.
+        -->
+
+        <record id="role_admin" model="api.role">
+            <field name="name">Admin</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">admin</field>
+        </record>
+
+        <record id="role_pm" model="api.role">
+            <field name="name">PM</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">PM</field>
+        </record>
+
+        <record id="role_pl" model="api.role">
+            <field name="name">PL</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">PL</field>
+        </record>
+
+        <record id="role_tasker" model="api.role">
+            <field name="name">Tasker</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">Tasker</field>
+        </record>
+
+    </data>
+</odoo>

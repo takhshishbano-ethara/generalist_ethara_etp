@@ -3,7 +3,7 @@
 A project may have several (kickoff walkthrough, tooling session, edge cases). Only the
 mandatory ones gate onboarding; the rest are reference. A project with no mandatory
 training auto-passes that step, exactly as the prototype did — the gate must not block
-on a stage the GPM never set up.
+on a stage the PM never set up.
 """
 
 import re

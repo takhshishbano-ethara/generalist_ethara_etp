@@ -20,7 +20,7 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-ROLE_RANK = {'pm': 0, 'pl': 1, 'gpm': 2, 'admin': 3}
+ROLE_RANK = {'tasker': 0, 'pl': 1, 'pm': 2, 'admin': 3}
 
 
 def respond(data=None, message='ok', status=200, errors=None):
@@ -118,7 +118,7 @@ def _authenticate():
     return user
 
 
-def api_route(min_role='pm'):
+def api_route(min_role='tasker'):
     """Authenticate, resolve the Project OS role, and enforce a minimum level.
 
     The decorated method receives ``ctx``: the acting user, their employee record,
@@ -187,7 +187,7 @@ class Ctx:
 
     @property
     def is_manager(self):
-        return self.role in ('gpm', 'admin')
+        return self.role in ('pm', 'admin')
 
     @property
     def scope_employee_ids(self):
@@ -224,7 +224,7 @@ def payload():
         return dict(request.httprequest.form or {})
 
 
-def route(path, methods, min_role='pm'):
+def route(path, methods, min_role='tasker'):
     """Shorthand for the JSON routes this module exposes.
 
     ``auth='public'`` with our own check inside is deliberate: it lets one endpoint

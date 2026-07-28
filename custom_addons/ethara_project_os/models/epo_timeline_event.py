@@ -33,6 +33,7 @@ EVENT_TYPES = [
     ('knowledge_added', 'Knowledge added'),
     ('knowledge_removed', 'Knowledge removed'),
     ('training_set', 'Training set'),
+    ('assessment_sent', 'SOP + training sent to assessment'),
     ('assessment_linked', 'Assessment linked'),
     ('form_published', 'Form published'),
     ('form_versioned', 'New form version'),
@@ -85,7 +86,8 @@ class EpoTimelineEvent(models.Model):
         'project_created': 'project', 'project_activated': 'project',
         'project_archived': 'project', 'project_reopened': 'project',
         'knowledge_added': 'project', 'knowledge_removed': 'project',
-        'training_set': 'project', 'assessment_linked': 'project',
+        'training_set': 'project', 'assessment_sent': 'project',
+        'assessment_linked': 'project',
         'form_published': 'project', 'form_versioned': 'project',
         'allocated': 'membership', 'released': 'membership',
         'phase_started': 'membership', 'phase_ended': 'membership',
@@ -107,7 +109,7 @@ class EpoTimelineEvent(models.Model):
         """The only supported way to add to the timeline.
 
         Call it with sudo() from anywhere; it deliberately bypasses record rules on
-        write (a PM's own action must be recorded even though a PM cannot read the
+        write (a Tasker's own action must be recorded even though a Tasker cannot read the
         whole stream) while the rules still govern who may *read* it back."""
         vals = {
             'event_type': event_type,
